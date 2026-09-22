@@ -145,6 +145,27 @@ function finalMixArgs(voiceOffsetMs, totalMs) {
     '-t', (totalMs / 1000).toFixed(3), '-movflags', '+faststart', 'out.mp4'];
 }
 
+/* ---------- reads a File/Blob/URL into raw bytes ---------- */
+// This replaces @ffmpeg/util's fetchFile(): that package's browser build turned out to be
+// genuinely broken (it calls require() internally, which doesn't exist outside Node), so
+// rather than fight someone else's broken file, this is the same handful of lines rewritten
+// to not need it at all.
+async function fetchFile(file) {
+  if (typeof file === 'string') {
+    var b64 = /^data:.*;base64,/.exec(file);
+    if (b64) {
+      var raw = atob(file.slice(b64[0].length));
+      var arr = new Uint8Array(raw.length);
+      for (var i = 0; i < raw.length; i++) arr[i] = raw.charCodeAt(i);
+      return arr;
+    }
+    return new Uint8Array(await (await fetch(file)).arrayBuffer());
+  }
+  if (typeof URL !== 'undefined' && file instanceof URL) return new Uint8Array(await (await fetch(file)).arrayBuffer());
+  if (typeof Blob !== 'undefined' && file instanceof Blob) return new Uint8Array(await file.arrayBuffer());
+  return new Uint8Array();
+}
+
 /* ---------- runner: only works inside a real browser tab ---------- */
 // Captured synchronously, right now, while this <script> is the one actually running —
 // document.currentScript stops working the instant we go async (inside a promise/await),
@@ -165,7 +186,7 @@ var NakiExport = (function () {
     try {
       if (!('caches' in window)) return;
       var cache = await caches.open(VENDOR_CACHE_NAME);
-      var urls = ['ffmpeg.js', '814.ffmpeg.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm', 'ffmpeg-util.js'].map(vendorURL);
+      var urls = ['ffmpeg.js', '814.ffmpeg.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm'].map(vendorURL);
       urls.push(SELF_SCRIPT_URL); // export-engine.js itself, so a repeat visit works offline too
       await Promise.all(urls.map(function (url) {
         return cache.match(url).then(function (hit) { return hit || fetch(url).then(function (r) { return cache.put(url, r); }); });
@@ -184,7 +205,6 @@ var NakiExport = (function () {
   async function ensureLoaded(onLog) {
     if (loaded) return loaded;
     if (!window.FFmpegWASM) await loadScript(vendorURL('ffmpeg.js'));
-    if (!window.FFmpegUtil) await loadScript(vendorURL('ffmpeg-util.js'));
     var ffmpeg = new window.FFmpegWASM.FFmpeg();
     if (onLog) ffmpeg.on('log', function (e) { onLog(e.message || ''); });
     await ffmpeg.load({ coreURL: vendorURL('ffmpeg-core.js'), wasmURL: vendorURL('ffmpeg-core.wasm') });
@@ -213,11 +233,10 @@ var NakiExport = (function () {
     say('Starting the video engine (first time only, this can take a moment)...');
     var ffmpeg = await ensureLoaded(log);
 
-    var util = window.FFmpegUtil;
     say('Loading your movie...');
-    ffmpeg.writeFile('movie.in', await util.fetchFile(movieFile));
+    ffmpeg.writeFile('movie.in', await fetchFile(movieFile));
     say('Loading your voice recording...');
-    ffmpeg.writeFile('voice.in', await util.fetchFile(voiceBlob));
+    ffmpeg.writeFile('voice.in', await fetchFile(voiceBlob));
 
     say('Reading the movie...');
     var info = await probe(ffmpeg, 'movie.in');

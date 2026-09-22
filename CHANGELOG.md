@@ -2,6 +2,11 @@
 
 Newest first. When you change the version in `package.json` and `www/core.js`, add a line here too (the tests check this).
 
+## 0.1.10 - 2026-09-22
+- Fixed: Export was crashing immediately with "exports is not defined". The vendored @ffmpeg/util file turned out to be genuinely broken for plain browser use (it called require() internally). Replaced it with five lines of equivalent code that don't depend on that package at all.
+- Fixed a real data-safety bug: reopening a session and choosing the wrong movie file (e.g. from a different project) silently paired that session's voice with the wrong movie, with no warning. Naki now checks the file name against what the session actually expects and asks you to confirm before using a mismatched one.
+- Added an automated check that would have caught the require() bug, so a similar problem in a future vendored file can't slip through quietly again.
+
 ## 0.1.9 - 2026-09-22
 - Cleaned up the Preview screen: there is now exactly one clearly-labelled "Export" button that produces your finished video. Everything else (raw plan/voice downloads, the computer-based tool) moved into a collapsed "Advanced" section, since those are only needed for troubleshooting or the separate computer export tool, not normal use.
 

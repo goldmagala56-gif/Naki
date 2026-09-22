@@ -58,9 +58,20 @@ ok('export-engine.js is valid JavaScript and exports its pure functions', () => 
   );
 });
 ok('every ffmpeg vendor file export-engine.js expects actually exists', () => {
-  ['ffmpeg.js', '814.ffmpeg.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm', 'ffmpeg-util.js'].forEach(
+  ['ffmpeg.js', '814.ffmpeg.js', 'ffmpeg-core.js', 'ffmpeg-core.wasm'].forEach(
     (f) => assert(fs.existsSync(path.join(www, 'vendor', 'ffmpeg', f)), 'missing vendor file: ' + f)
   );
+});
+ok('vendored ffmpeg scripts never call require() (that is what broke @ffmpeg/util)', () => {
+  // The actual bug: @ffmpeg/util's own "browser" build called require() internally to pull
+  // in two sibling files, which doesn't exist outside Node/a bundler, and crashed the moment
+  // the script loaded in a plain <script> tag. This checks every vendored .js file for that
+  // exact, unambiguous signal so the same mistake can't quietly come back — including if a
+  // future update ever re-adds @ffmpeg/util or a similarly-broken package.
+  ['ffmpeg.js', '814.ffmpeg.js', 'ffmpeg-core.js'].forEach((f) => {
+    const src = read('www', 'vendor', 'ffmpeg', f);
+    assert(!/require\(/.test(src), f + ' calls require(), which will crash as a plain browser script');
+  });
 });
 ok('the export button in index.html only ever calls elements that exist', () => {
   assert(html.includes('id="bExport"') && html.includes('id="exportBar"') && html.includes('id="exportDownload"'));
