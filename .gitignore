@@ -1,0 +1,13 @@
+node_modules/
+.DS_Store
+# never commit movies or recordings
+*.mp4
+*.mkv
+*.avi
+*.mov
+*.webm
+naki-tmp/
+tools/export/ffmpeg.exe
+*_plan.json
+*_voice.webm
+*_naki.mp4

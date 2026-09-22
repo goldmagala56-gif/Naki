@@ -1,0 +1,1090 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#111b24">
+<title>Naki</title>
+<style>
+:root{
+  --ink:#111b24; --panel:#192733; --panel-2:#20313f; --line:#2f4556;
+  --chalk:#f3eee3; --dim:#9fb0bd; --mango:#ff9f1c; --hibiscus:#e8355f; --leaf:#41d99b;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--ink);color:var(--chalk);
+  font:16px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans",sans-serif}
+body{min-height:100vh;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+button,input{font:inherit;color:inherit}
+.num{font-variant-numeric:tabular-nums}
+.dim{color:var(--dim)}
+.small{font-size:13px}
+
+/* top bar */
+.top{display:flex;align-items:center;gap:12px;padding:10px 14px;border-bottom:1px solid var(--line);
+  position:sticky;top:0;background:var(--ink);z-index:5}
+.brand{font-weight:800;font-size:22px;letter-spacing:.01em}
+.brand i{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mango);margin-left:5px;vertical-align:2px}
+.back{border:0;background:var(--panel-2);width:40px;height:40px;border-radius:12px;font-size:20px;cursor:pointer}
+
+main{max-width:1000px;margin:0 auto;padding:14px}
+h1{font-size:38px;line-height:1.05;margin:14px 0 8px;font-weight:800}
+h2{font-size:20px;margin:24px 0 10px}
+h3{font-size:16px;margin:20px 0 8px}
+.lead{max-width:34em;color:var(--dim);margin:0 0 18px}
+
+/* buttons */
+.btn{appearance:none;border:1px solid var(--line);background:var(--panel-2);min-height:52px;padding:0 18px;
+  border-radius:12px;font-weight:650;cursor:pointer;touch-action:manipulation}
+.btn:active{transform:scale(.98)}
+.btn:disabled{opacity:.4;cursor:default}
+.btn.primary{background:var(--mango);border-color:transparent;color:#1d1300}
+.btn.big{min-height:60px;font-size:18px;width:100%}
+.stack{display:grid;gap:10px;max-width:420px}
+.row{display:flex;gap:10px;margin:10px 0}
+.row.wrap{flex-wrap:wrap}
+.row .btn{flex:1}
+
+.tip{margin:20px 0 0;padding:12px 14px;border-left:4px solid var(--mango);background:var(--panel);
+  border-radius:0 12px 12px 0;max-width:34em}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px 14px;margin:0 0 10px;max-width:520px}
+.card .ct{font-weight:700;margin-bottom:2px;overflow-wrap:anywhere}
+.card .meta{display:flex;flex-wrap:wrap;gap:4px 14px;color:var(--dim);font-size:13px}
+.report{white-space:pre-wrap;word-break:break-word;background:var(--panel);border:1px solid var(--line);
+  border-radius:12px;padding:12px;font:13px/1.5 ui-monospace,Menlo,Consolas,monospace}
+
+/* work area */
+.work{display:grid;gap:14px}
+.stage{position:relative;background:#000;border-radius:14px;overflow:hidden;
+  outline:3px solid transparent;outline-offset:-3px;transition:outline-color .15s}
+.stage.live{outline-color:var(--hibiscus)}
+.stage.frozen{outline-color:var(--mango)}
+#movie{display:block;width:100%;aspect-ratio:16/9;max-height:42vh;background:#000;object-fit:contain}
+.chip{position:absolute;left:10px;bottom:10px;display:flex;align-items:center;gap:8px;padding:6px 12px;
+  border-radius:999px;background:rgba(17,27,36,.88);font-weight:650;font-size:14px}
+.chip b{width:10px;height:10px;border-radius:50%;background:var(--hibiscus)}
+.chip.frozen b{background:var(--mango);border-radius:2px}
+.count{position:absolute;inset:0;display:grid;place-items:center;font-size:110px;font-weight:800;
+  background:rgba(17,27,36,.6)}
+
+.seekrow{display:flex;align-items:center;gap:10px}
+.seekrow input{flex:1}
+input[type=range]{accent-color:var(--mango);height:32px}
+.status{display:flex;align-items:center;gap:10px;margin:8px 0 6px;min-height:28px}
+.recdot{width:12px;height:12px;border-radius:50%;background:var(--line)}
+.recdot.on{background:var(--hibiscus);animation:blink 1.2s ease-in-out infinite}
+@keyframes blink{50%{opacity:.35}}
+@media (prefers-reduced-motion:reduce){.recdot.on{animation:none}}
+.meter{position:relative;height:14px;background:var(--panel-2);border-radius:8px;overflow:hidden;border:1px solid var(--line)}
+#meterFill{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--leaf)}
+#meterFill.hot{background:var(--mango)}
+#meterThr{position:absolute;top:0;bottom:0;width:3px;background:var(--chalk)}
+.transport{display:flex;gap:10px;margin:14px 0 10px}
+.transport .btn{flex:1}
+.transport .play{flex:1.6;min-height:72px;font-size:19px}
+.recbtn{display:flex;align-items:center;justify-content:center;gap:12px;width:100%;min-height:68px;border:0;border-radius:999px;
+  background:var(--hibiscus);color:#fff;font-size:20px;font-weight:750;cursor:pointer;touch-action:manipulation}
+.recbtn::before{content:"";width:16px;height:16px;border-radius:50%;background:#fff}
+.recbtn.on::before{border-radius:3px}
+.recbtn:disabled{opacity:.5}
+.field{margin:14px 0 4px}
+.field label{display:flex;justify-content:space-between;gap:10px;margin-bottom:2px;font-weight:600}
+.field label span{color:var(--dim);font-weight:500}
+.check{display:flex;gap:10px;align-items:flex-start;margin:12px 0}
+.check input{width:22px;height:22px;accent-color:var(--mango);flex:none;margin-top:1px}
+details.opts{margin-top:12px;border-top:1px solid var(--line);padding-top:8px}
+details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
+.notice{background:var(--panel);border:1px solid var(--mango);border-radius:12px;padding:12px 14px;margin-bottom:12px}
+.stats{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:14px 0;font-size:14px}
+.stats dt{color:var(--dim)} .stats dd{margin:0}
+
+.toast{position:fixed;left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));max-width:520px;margin:0 auto;
+  background:var(--chalk);color:#14202a;padding:12px 14px;border-radius:12px;font-weight:600;z-index:20}
+
+@media (min-width:900px){
+  .work{grid-template-columns:1.5fr 1fr;align-items:start}
+  .stage{position:sticky;top:64px}
+  #movie{max-height:70vh}
+}
+</style>
+</head>
+<body>
+<header class="top">
+  <button id="btnBack" class="back" hidden aria-label="Back">&larr;</button>
+  <div class="brand">Naki<i></i></div>
+</header>
+
+<main>
+  <!-- Home -->
+  <section id="view-home">
+    <h1>Narrate your movie live.</h1>
+    <p class="lead">Play a movie, talk over it, and pause whenever you want to explain more. Naki records your voice and every pause, and works without internet.</p>
+    <div class="stack">
+      <button id="btnNew" class="btn primary big">New session</button>
+      <button id="btnCheck" class="btn">Check this device</button>
+    </div>
+    <div class="tip">Wear headphones or earphones while you record. Without them, the movie sound leaks into your microphone.</div>
+    <h2>Your sessions</h2>
+    <div id="sessList"></div>
+  </section>
+
+  <!-- Device check -->
+  <section id="view-check" hidden>
+    <h2>Device check</h2>
+    <p class="lead">This shows what this phone or computer can do. Copy it and send it to me.</p>
+    <pre id="checkOut" class="report">Checking...</pre>
+    <div class="row"><button id="btnCopy" class="btn primary">Copy report</button></div>
+  </section>
+
+  <!-- Studio and preview -->
+  <section id="view-work" hidden>
+    <div class="work">
+      <div class="stage" id="stage">
+        <video id="movie" playsinline preload="auto"></video>
+        <div id="chip" class="chip" hidden><b></b><span id="chipText"></span></div>
+        <div id="count" class="count" hidden></div>
+      </div>
+
+      <div class="panel">
+        <!-- Studio -->
+        <div id="studio">
+          <div class="seekrow">
+            <span id="tNow" class="num">0:00</span>
+            <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Movie position">
+            <span id="tDur" class="num">0:00</span>
+          </div>
+          <div class="status">
+            <span id="recDot" class="recdot"></span>
+            <span id="recTime" class="num">0:00</span>
+            <span id="recState" class="dim">Ready</span>
+          </div>
+          <div class="meter" aria-label="Microphone level"><div id="meterFill"></div><div id="meterThr"></div></div>
+          <div class="dim small" style="margin-top:4px">Speak to test the mic. The movie lowers when the bar passes the white line.</div>
+
+          <div class="transport">
+            <button id="bBack" class="btn">Back 10s</button>
+            <button id="bPlay" class="btn play">Play</button>
+            <button id="bFwd" class="btn">Forward 10s</button>
+          </div>
+          <button id="bRec" class="recbtn">Record</button>
+
+          <div class="field">
+            <label for="rVol">Movie volume <span id="volVal">100%</span></label>
+            <input id="rVol" type="range" min="0" max="100" value="100" style="width:100%">
+          </div>
+
+          <details class="opts">
+            <summary>Sound options</summary>
+            <label class="check"><input id="cDuck" type="checkbox" checked><span>Lower the movie when I speak</span></label>
+            <div class="field">
+              <label for="rDuck">Movie level while I speak <span id="duckVal">20%</span></label>
+              <input id="rDuck" type="range" min="0" max="60" value="20" style="width:100%">
+            </div>
+            <div class="field">
+              <label for="rThr">Mic trigger level <span id="thrVal">-40 dB</span></label>
+              <input id="rThr" type="range" min="-60" max="-20" value="-40" style="width:100%">
+            </div>
+            <label class="check"><input id="cEcho" type="checkbox" checked><span>Echo cancellation. Turn it off if the movie sounds quiet while the mic is on.</span></label>
+            <label class="check"><input id="cSimple" type="checkbox"><span>Simple sound mode. Turn it on if the movie has no sound. The page reloads.</span></label>
+          </details>
+        </div>
+
+        <!-- Preview -->
+        <div id="preview" hidden>
+          <div id="needMovie" class="notice" hidden>
+            <div>Choose the movie file for this session to watch it back.</div>
+            <div id="needName" class="dim small" style="margin:4px 0 10px"></div>
+            <button id="bPickMovie" class="btn primary">Choose movie</button>
+          </div>
+          <div class="seekrow">
+            <span id="pNow" class="num">0:00</span>
+            <input id="pSeek" type="range" min="0" max="1000" value="0" aria-label="Session position">
+            <span id="pDur" class="num">0:00</span>
+          </div>
+          <div class="transport"><button id="pPlay" class="btn play">Play session</button></div>
+          <div class="field">
+            <label for="rOff">Voice timing <span id="offVal">0 ms</span></label>
+            <input id="rOff" type="range" min="-500" max="500" step="10" value="0" style="width:100%">
+          </div>
+          <div class="dim small">If your voice comes early or late against the pictures, move this until it matches.</div>
+          <dl id="pStats" class="stats"></dl>
+          <div class="row">
+            <button id="bAgain" class="btn">Record again</button>
+            <button id="bHome" class="btn">Home</button>
+          </div>
+          <h3>Make the finished video</h3>
+          <div class="row"><button id="dAll" class="btn primary">Save for export (plan and voice)</button></div>
+          <p class="dim small">Put the movie, the plan file and the voice file in one folder on your computer, then run Naki export (see the README). It builds one MP4 with your pauses and voice.</p>
+          <h3>Other files</h3>
+          <div class="row wrap">
+            <button id="dVoice" class="btn">Voice</button>
+            <button id="dSess" class="btn">Session</button>
+            <button id="dPlan" class="btn">Export plan</button>
+          </div>
+          <div class="row"><button id="bReport" class="btn">Copy test report</button></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<input type="file" id="filePick" accept="video/*,.mkv,.avi,.mov,.mp4,.webm" hidden>
+<audio id="voice" preload="auto"></audio>
+<div id="toast" class="toast" hidden></div>
+
+<script>
+'use strict';
+
+// ===CORE START===
+// Pure logic: no page or device code in here, so it can be tested on its own.
+var DB_MIN = -80;
+var LEVEL_STEP_MS = 50;
+
+function rmsToDb(r){ return r > 1e-4 ? Math.max(DB_MIN, 20 * Math.log10(r)) : DB_MIN; }
+function dbToByte(db){ var c = Math.max(DB_MIN, Math.min(0, db)); return Math.round((c - DB_MIN) / (-DB_MIN) * 255); }
+function byteToDb(b){ return DB_MIN + (b / 255) * (-DB_MIN); }
+
+// Lowers the movie while the voice is loud enough. Same code runs live and when building the export.
+class Ducker {
+  constructor(p){
+    this.p = Object.assign({ enabled: true, thresholdDb: -40, duckedGain: 0.2, attackMs: 60, releaseMs: 450, holdMs: 350 }, p || {});
+    this.reset();
+  }
+  reset(){ this.gain = 1; this.holdLeft = 0; }
+  step(db, dtMs){
+    var p = this.p;
+    if (!p.enabled){ this.gain = 1; this.holdLeft = 0; return 1; }
+    if (db > p.thresholdDb) this.holdLeft = p.holdMs;
+    else this.holdLeft = Math.max(0, this.holdLeft - dtMs);
+    var target = this.holdLeft > 0 ? p.duckedGain : 1;
+    var tau = target < this.gain ? p.attackMs : p.releaseMs;
+    this.gain += (target - this.gain) * (1 - Math.exp(-dtMs / tau));
+    return this.gain;
+  }
+}
+
+// Where is the movie, and is it playing, at session time t?
+function stateAt(events, t){
+  var playing = false, anchorT = 0, anchorMovie = 0;
+  for (var i = 0; i < events.length; i++){
+    var e = events[i];
+    if (e.t > t) break;
+    if (e.type === 'rec_start'){ anchorMovie = e.movieMs; anchorT = e.t; playing = false; }
+    else if (e.type === 'play' && !playing){ playing = true; anchorT = e.t; anchorMovie = e.movieMs; }
+    else if (e.type === 'pause' && playing){ playing = false; anchorMovie = e.movieMs; anchorT = e.t; }
+    else if (e.type === 'jump'){ anchorMovie = e.toMs; anchorT = e.t; }
+  }
+  return { playing: playing, movieMs: playing ? anchorMovie + (t - anchorT) : anchorMovie };
+}
+
+// Turns the event log into "play this part of the movie" and "hold this frame" spans.
+function buildVideoSpans(events, durationMs){
+  var spans = [], playing = false, spanStart = 0, spanMovie = 0;
+  function close(t){
+    if (t > spanStart){
+      spans.push(playing
+        ? { type: 'play', sessionStart: spanStart, sessionEnd: t, movieStart: spanMovie }
+        : { type: 'freeze', sessionStart: spanStart, sessionEnd: t, movieAt: spanMovie });
+    }
+  }
+  for (var i = 0; i < events.length; i++){
+    var e = events[i];
+    if (e.type === 'rec_start'){ spanStart = e.t; spanMovie = e.movieMs; playing = false; }
+    else if (e.type === 'play' && !playing){ close(e.t); playing = true; spanStart = e.t; spanMovie = e.movieMs; }
+    else if (e.type === 'pause' && playing){ close(e.t); playing = false; spanStart = e.t; spanMovie = e.movieMs; }
+    else if (e.type === 'jump'){ close(e.t); spanStart = e.t; spanMovie = e.toMs; }
+  }
+  close(durationMs);
+  return spans;
+}
+
+// Movie loudness over the whole session (user volume x auto-lowering), one value per step.
+function buildGainSeries(s){
+  var levels = s.levels || [], events = s.events || [];
+  var n = Math.max(levels.length, Math.ceil((s.durationMs || 0) / LEVEL_STEP_MS)) + 1;
+  var d = new Ducker(), vol = 1, ei = 0, out = [];
+  for (var i = 0; i < n; i++){
+    var t = i * LEVEL_STEP_MS;
+    while (ei < events.length && events[ei].t <= t){
+      var e = events[ei++];
+      if (e.type === 'vol') vol = e.value;
+      else if (e.type === 'duck') d.p = Object.assign({}, d.p, { enabled: e.enabled, thresholdDb: e.thresholdDb, duckedGain: e.duckedGain });
+    }
+    var db = i < levels.length ? byteToDb(levels[i]) : DB_MIN;
+    out.push(vol * d.step(db, LEVEL_STEP_MS));
+  }
+  return out;
+}
+
+// Keeps only the points where the loudness really changes.
+function simplifyGain(series, stepMs, tol){
+  var pts = [], lastVal = null, lastIdx = -1;
+  function push(i){ pts.push([i * stepMs, Math.round(series[i] * 1000) / 1000]); lastVal = series[i]; lastIdx = i; }
+  for (var i = 0; i < series.length; i++){
+    if (lastVal === null){ push(i); continue; }
+    if (Math.abs(series[i] - lastVal) >= tol){ if (lastIdx < i - 1) push(i - 1); push(i); }
+    else if (i === series.length - 1){ push(i); }
+  }
+  return pts;
+}
+
+function buildExportPlan(s){
+  var series = buildGainSeries(s);
+  return {
+    naki: 'export-plan', version: 1,
+    durationMs: s.durationMs,
+    movie: { name: s.movieName, durationMs: s.movieDurMs },
+    video: buildVideoSpans(s.events, s.durationMs),
+    movieGain: { stepMs: LEVEL_STEP_MS, points: simplifyGain(series, LEVEL_STEP_MS, 0.02) },
+    voice: { file: 'voice', offsetMs: (s.voiceOffsetMs || 0) + (s.voiceNudgeMs || 0) }
+  };
+}
+
+function fmt(ms){
+  var t = Math.max(0, Math.round(ms / 1000));
+  var h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
+  return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(sec).padStart(2, '0');
+}
+// ===CORE END===
+
+var $ = function(id){ return document.getElementById(id); };
+var el = { movie: $('movie'), voice: $('voice'), pick: $('filePick') };
+var LEVEL_CHUNK = 100;
+
+var SIMPLE = false;
+try { SIMPLE = localStorage.getItem('naki.simple') === '1'; } catch (e) {}
+
+var S = {
+  view: 'home', mode: 'studio', pickPurpose: 'new',
+  movieFile: null, movieUrl: null, movieDurMs: 0,
+  audio: { ctx: null, gain: null, last: 1 },
+  mic: { stream: null },
+  opts: { userVol: 1, echo: true },
+  ducker: new Ducker(),
+  rec: { on: false, starting: false, playing: false, t0: 0, mr: null, sess: null, autosave: null },
+  sess: null, gainSeries: [], voiceUrl: null, wake: null,
+  lastTick: performance.now(), tickN: 0, meterDb: DB_MIN, audioWarned: false
+};
+
+function sleep(ms){ return new Promise(function(r){ setTimeout(r, ms); }); }
+var toastTimer;
+function toast(msg, ms){
+  var t = $('toast'); t.textContent = msg; t.hidden = false;
+  clearTimeout(toastTimer); toastTimer = setTimeout(function(){ t.hidden = true; }, ms || 4000);
+}
+function h(tag, props){
+  var n = document.createElement(tag);
+  props = props || {};
+  Object.keys(props).forEach(function(k){
+    if (k === 'class') n.className = props[k];
+    else if (k.indexOf('on') === 0) n.addEventListener(k.slice(2), props[k]);
+    else n.setAttribute(k, props[k]);
+  });
+  for (var i = 2; i < arguments.length; i++){
+    var c = arguments[i];
+    if (c == null) continue;
+    n.appendChild(c.nodeType ? c : document.createTextNode(String(c)));
+  }
+  return n;
+}
+
+/* ---------- storage (IndexedDB) ---------- */
+var DB = {
+  db: null, ok: false,
+  open: function(){
+    var self = this;
+    return new Promise(function(res, rej){
+      if (!window.indexedDB) return rej(new Error('no indexedDB'));
+      var r = indexedDB.open('naki', 1);
+      r.onupgradeneeded = function(){
+        var d = r.result;
+        d.createObjectStore('sessions', { keyPath: 'id' });
+        d.createObjectStore('chunks', { keyPath: ['sid', 'i'] });
+        d.createObjectStore('levels', { keyPath: ['sid', 'i'] });
+      };
+      r.onsuccess = function(){ self.db = r.result; self.ok = true; res(); };
+      r.onerror = function(){ rej(r.error); };
+    });
+  },
+  tx: function(store, mode, fn){
+    var self = this;
+    return new Promise(function(res, rej){
+      var tx = self.db.transaction(store, mode), out;
+      out = fn(tx.objectStore(store));
+      tx.oncomplete = function(){ res(out && out.result !== undefined ? out.result : undefined); };
+      tx.onerror = tx.onabort = function(){ rej(tx.error); };
+    });
+  },
+  put: function(store, val){ return this.tx(store, 'readwrite', function(s){ return s.put(val); }); },
+  putMany: function(store, vals){ return this.tx(store, 'readwrite', function(s){ vals.forEach(function(v){ s.put(v); }); }); },
+  get: function(store, key){ return this.tx(store, 'readonly', function(s){ return s.get(key); }); },
+  all: function(store){ return this.tx(store, 'readonly', function(s){ return s.getAll(); }); },
+  range: function(store, sid){ return this.tx(store, 'readonly', function(s){ return s.getAll(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }); },
+  delSession: function(sid){
+    var self = this;
+    return Promise.all([
+      self.tx('sessions', 'readwrite', function(s){ return s.delete(sid); }),
+      self.tx('chunks', 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }),
+      self.tx('levels', 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); })
+    ]);
+  }
+};
+
+function sessionRecord(s){
+  return { id: s.id, name: s.name, created: s.created, status: s.status, movieName: s.movieName, movieSize: s.movieSize,
+    movieDurMs: s.movieDurMs, events: s.events, durationMs: s.durationMs, voiceMime: s.voiceMime,
+    voiceOffsetMs: s.voiceOffsetMs, voiceNudgeMs: s.voiceNudgeMs, stats: s.stats, warnings: s.warnings, chunkCount: s.chunks.length };
+}
+function levelChunks(s, from){
+  var out = [], n = s.levels.length, last = Math.floor((n - 1) / LEVEL_CHUNK);
+  for (var i = from; i <= last; i++) out.push({ sid: s.id, i: i, data: s.levels.slice(i * LEVEL_CHUNK, (i + 1) * LEVEL_CHUNK) });
+  return out;
+}
+function persistSession(s, all){
+  if (!DB.ok) return Promise.resolve();
+  var last = Math.floor((s.levels.length - 1) / LEVEL_CHUNK);
+  return DB.put('sessions', sessionRecord(s))
+    .then(function(){ return DB.putMany('levels', levelChunks(s, all ? 0 : Math.max(0, last - 1))); })
+    .catch(function(e){ console.warn('save failed', e); });
+}
+function loadSession(id){
+  return DB.get('sessions', id).then(function(rec){
+    return Promise.all([DB.range('chunks', id), DB.range('levels', id)]).then(function(r){
+      var chunks = r[0].sort(function(a, b){ return a.i - b.i; }).map(function(c){ return c.blob; });
+      var lv = r[1].sort(function(a, b){ return a.i - b.i; }), levels = [];
+      lv.forEach(function(c){ for (var i = 0; i < c.data.length; i++) levels.push(c.data[i]); });
+      rec.chunks = chunks; rec.levels = levels;
+      rec.voiceBlob = new Blob(chunks, { type: rec.voiceMime || 'audio/webm' });
+      rec.stats = rec.stats || {}; rec.warnings = rec.warnings || [];
+      rec.voiceNudgeMs = rec.voiceNudgeMs || 0;
+      if (rec.status === 'recording'){
+        rec.status = 'recovered';
+        var lastT = rec.events.length ? rec.events[rec.events.length - 1].t : 0;
+        rec.durationMs = Math.max(rec.durationMs || 0, lastT, levels.length * LEVEL_STEP_MS);
+      }
+      return rec;
+    });
+  });
+}
+
+/* ---------- views ---------- */
+function show(view){
+  S.view = view;
+  ['home', 'check', 'work'].forEach(function(v){ $('view-' + v).hidden = (v !== view); });
+  $('btnBack').hidden = (view === 'home');
+}
+function setMode(m){
+  S.mode = m;
+  $('studio').hidden = (m !== 'studio');
+  $('preview').hidden = (m !== 'preview');
+  updateChip();
+}
+function updateChip(){
+  var chip = $('chip'), stage = $('stage'), txt = $('chipText');
+  var live = false, frozen = false, msg = '';
+  if (S.mode === 'studio' && S.rec.on){
+    if (S.rec.playing){ live = true; msg = 'Recording'; }
+    else { frozen = true; msg = 'Movie paused. Keep talking.'; }
+  } else if (S.mode === 'preview' && S.pvFrozen && !el.voice.paused){
+    frozen = true; msg = 'Movie paused while I explain';
+  }
+  chip.hidden = !msg; txt.textContent = msg;
+  chip.className = 'chip' + (frozen ? ' frozen' : '');
+  stage.className = 'stage' + (live ? ' live' : '') + (frozen ? ' frozen' : '');
+}
+
+/* ---------- audio ---------- */
+function ensureAudio(){
+  if (S.audio.ctx) return;
+  var AC = window.AudioContext || window.webkitAudioContext;
+  var ctx = new AC({ latencyHint: 'interactive' });
+  S.audio.ctx = ctx;
+  if (!SIMPLE){
+    var src = ctx.createMediaElementSource(el.movie);
+    var g = ctx.createGain();
+    src.connect(g); g.connect(ctx.destination);
+    S.audio.gain = g;
+  }
+}
+function applyGain(v){
+  if (Math.abs(v - S.audio.last) < 0.004) return;
+  S.audio.last = v;
+  if (SIMPLE || !S.audio.gain){ el.movie.volume = Math.max(0, Math.min(1, v)); return; }
+  S.audio.gain.gain.setTargetAtTime(v, S.audio.ctx.currentTime, 0.02);
+}
+function openMic(){
+  if (S.mic.stream) return Promise.resolve(true);
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    toast('The microphone is not available on this page. Run "Check this device" to see why.', 6000);
+    return Promise.resolve(false);
+  }
+  return navigator.mediaDevices.getUserMedia({ audio: {
+    echoCancellation: S.opts.echo, noiseSuppression: true, autoGainControl: false, channelCount: 1 } })
+    .then(function(stream){
+      ensureAudio();
+      var src = S.audio.ctx.createMediaStreamSource(stream);
+      var an = S.audio.ctx.createAnalyser();
+      an.fftSize = 2048; an.smoothingTimeConstant = 0;
+      src.connect(an);
+      var tr = stream.getAudioTracks()[0];
+      S.mic = { stream: stream, src: src, an: an, buf: new Float32Array(an.fftSize),
+        settings: (tr && tr.getSettings) ? tr.getSettings() : {} };
+      return true;
+    })
+    .catch(function(e){
+      toast(e && e.name === 'NotAllowedError'
+        ? 'The microphone is blocked. Allow the microphone for this page, then open the session again.'
+        : 'Could not open the microphone.', 6000);
+      return false;
+    });
+}
+function closeMic(){
+  if (S.mic.stream){
+    S.mic.stream.getTracks().forEach(function(t){ t.stop(); });
+    try { S.mic.src.disconnect(); } catch (e) {}
+  }
+  S.mic = { stream: null };
+}
+function pickMime(){
+  var c = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4'];
+  for (var i = 0; i < c.length; i++) if (MediaRecorder.isTypeSupported(c[i])) return c[i];
+  return '';
+}
+function keepAwake(){
+  try { if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(function(w){ S.wake = w; }, function(){}); } catch (e) {}
+}
+function releaseWake(){ try { if (S.wake) S.wake.release(); } catch (e) {} S.wake = null; }
+
+/* ---------- movie ---------- */
+function loadMovie(file){
+  return new Promise(function(res, rej){
+    if (S.movieUrl) URL.revokeObjectURL(S.movieUrl);
+    S.movieFile = file; S.movieUrl = URL.createObjectURL(file); S.audioWarned = false;
+    var v = el.movie;
+    function done(){ v.removeEventListener('loadedmetadata', ok); v.removeEventListener('error', bad); }
+    function ok(){ done(); S.movieDurMs = Math.round((v.duration || 0) * 1000); res(); }
+    function bad(){ done(); rej(new Error('cannot play')); }
+    v.addEventListener('loadedmetadata', ok); v.addEventListener('error', bad);
+    v.src = S.movieUrl; v.load();
+  });
+}
+function movieMsNow(){ return Math.round(el.movie.currentTime * 1000); }
+function chooseMovie(purpose){ S.pickPurpose = purpose; el.pick.click(); }
+
+el.pick.addEventListener('change', function(){
+  var f = el.pick.files && el.pick.files[0];
+  el.pick.value = '';
+  if (!f) return;
+  loadMovie(f).then(function(){
+    if (!el.movie.videoWidth) toast('This file has no picture this device can show. It may need converting.', 6000);
+    if (S.pickPurpose === 'new') return enterStudio();
+    $('needMovie').hidden = true; updatePreviewUI();
+  }).catch(function(){
+    toast('This file cannot be played on this device. It may need converting to MP4.', 6000);
+  });
+});
+
+/* ---------- session log ---------- */
+function newSession(){
+  return { id: 's' + Date.now().toString(36), name: S.movieFile.name.replace(/\.[^.]+$/, ''), created: Date.now(),
+    status: 'recording', movieName: S.movieFile.name, movieSize: S.movieFile.size, movieDurMs: S.movieDurMs,
+    events: [], levels: [], durationMs: 0, voiceMime: '', voiceOffsetMs: 0, voiceNudgeMs: 0,
+    stats: {}, warnings: [], voiceBlob: null, chunks: [] };
+}
+function logEvent(type, extra){
+  var e = Object.assign({ t: Math.round(performance.now() - S.rec.t0), type: type }, extra || {});
+  S.rec.sess.events.push(e);
+  return e;
+}
+function logSetting(kind, force){
+  if (!S.rec.on) return;
+  var now = performance.now(), key = 'last_' + kind;
+  if (!force && now - (S.rec[key] || 0) < 150) return;
+  S.rec[key] = now;
+  if (kind === 'vol') logEvent('vol', { value: S.opts.userVol });
+  else logEvent('duck', { enabled: S.ducker.p.enabled, thresholdDb: S.ducker.p.thresholdDb, duckedGain: S.ducker.p.duckedGain });
+}
+
+/* ---------- studio ---------- */
+function enterStudio(){
+  show('work'); setMode('studio'); S.sess = null;
+  el.voice.pause();
+  $('tDur').textContent = fmt(S.movieDurMs);
+  updateStudioUI();
+  ensureAudio();
+  return openMic();
+}
+function togglePlay(){
+  var v = el.movie;
+  ensureAudio();
+  S.audio.ctx.resume();
+  if (v.paused){
+    if (v.duration && v.currentTime >= v.duration - 0.1){ toast('This is the end of the movie.'); return; }
+    var p = v.play(); if (p && p.catch) p.catch(function(){ toast('The movie could not start.'); });
+  } else v.pause();
+}
+function jump(deltaS){
+  var v = el.movie, from = v.currentTime;
+  var to = Math.max(0, Math.min((v.duration || 0) - 0.05, from + deltaS));
+  v.currentTime = to;
+  if (S.rec.on) logEvent('jump', { fromMs: Math.round(from * 1000), toMs: Math.round(to * 1000) });
+}
+el.movie.addEventListener('playing', function(){
+  if (S.rec.on && !S.rec.playing){ S.rec.playing = true; logEvent('play', { movieMs: movieMsNow() }); }
+  updateStudioUI();
+});
+el.movie.addEventListener('pause', function(){
+  if (S.rec.on && S.rec.playing){ S.rec.playing = false; logEvent('pause', { movieMs: movieMsNow() }); }
+  updateStudioUI();
+});
+el.movie.addEventListener('error', function(){ toast('The movie stopped because of a playback problem.', 6000); });
+
+function updateStudioUI(){
+  var on = S.rec.on;
+  $('bPlay').textContent = el.movie.paused ? 'Play' : 'Pause';
+  $('bRec').textContent = on ? 'Stop' : 'Record';
+  $('bRec').className = 'recbtn' + (on ? ' on' : '');
+  $('bRec').disabled = S.rec.starting;
+  $('seek').disabled = on;
+  $('recDot').className = 'recdot' + (on ? ' on' : '');
+  $('recState').textContent = !on ? 'Ready' : (S.rec.playing ? 'Recording, movie playing' : 'Recording, movie paused. Keep talking.');
+  if (!on) $('recTime').textContent = '0:00';
+  updateChip();
+}
+function showCount(n){ var c = $('count'); c.hidden = (n == null); if (n != null) c.textContent = n; }
+
+function startRec(){
+  if (S.rec.on || S.rec.starting) return Promise.resolve();
+  if (typeof MediaRecorder === 'undefined'){ toast('Recording is not supported in this browser.'); return Promise.resolve(); }
+  return (S.mic.stream ? Promise.resolve(true) : openMic()).then(function(ok){
+    if (!ok) return;
+    S.rec.starting = true; updateStudioUI();
+    if (!el.movie.paused) el.movie.pause();
+    S.audio.ctx.resume();
+    return (async function(){
+      for (var n = 3; n >= 1; n--){ showCount(n); await sleep(800); }
+      showCount(null);
+      var sess = newSession(); S.rec.sess = sess; S.rec.playing = false; S.ducker.reset();
+      var mime = pickMime(), mr;
+      try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
+      catch (e){ S.rec.starting = false; updateStudioUI(); toast('Could not start recording on this device.'); return; }
+      sess.voiceMime = mime || 'audio/webm';
+      var st = S.mic.settings || {};
+      sess.stats.mic = { echoCancellation: st.echoCancellation, noiseSuppression: st.noiseSuppression,
+        autoGainControl: st.autoGainControl, sampleRate: st.sampleRate, channelCount: st.channelCount };
+      S.rec.mr = mr; S.rec.t0 = performance.now(); S.rec.on = true; S.rec.starting = false;
+      logEvent('rec_start', { movieMs: movieMsNow() });
+      logEvent('vol', { value: S.opts.userVol });
+      logEvent('duck', { enabled: S.ducker.p.enabled, thresholdDb: S.ducker.p.thresholdDb, duckedGain: S.ducker.p.duckedGain });
+      var idx = 0;
+      mr.ondataavailable = function(e){
+        if (e.data && e.data.size){
+          sess.chunks.push(e.data);
+          var i = idx++;
+          if (DB.ok) DB.put('chunks', { sid: sess.id, i: i, blob: e.data }).catch(function(){});
+        }
+      };
+      mr.onstart = function(){ sess.voiceOffsetMs = Math.round(performance.now() - S.rec.t0); if (mr.mimeType) sess.voiceMime = mr.mimeType; };
+      mr.onerror = function(){ sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'recorder_error' }); toast('The recorder reported a problem.', 6000); };
+      mr.start(1000);
+      keepAwake();
+      persistSession(sess);
+      S.rec.autosave = setInterval(function(){ persistSession(sess); }, 3000);
+      updateStudioUI();
+    })();
+  });
+}
+
+function stopRec(){
+  var r = S.rec;
+  if (!r.on) return Promise.resolve();
+  var v = el.movie, sess = r.sess;
+  if (r.playing){ logEvent('pause', { movieMs: movieMsNow() }); r.playing = false; }
+  v.pause();
+  sess.durationMs = Math.round(performance.now() - r.t0);
+  logEvent('rec_stop');
+  r.on = false;
+  clearInterval(r.autosave); releaseWake();
+  return new Promise(function(res){
+    r.mr.onstop = res;
+    try { r.mr.stop(); } catch (e) { res(); }
+  }).then(function(){
+    var lv = sess.levels, need = Math.ceil(sess.durationMs / LEVEL_STEP_MS) + 1, lastB = lv.length ? lv[lv.length - 1] : 0;
+    while (lv.length < need) lv.push(lastB);
+    sess.voiceBlob = new Blob(sess.chunks, { type: sess.voiceMime });
+    sess.status = 'stopped';
+    var q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
+    if (q) sess.stats.frames = { dropped: q.droppedVideoFrames, total: q.totalVideoFrames };
+    sess.stats.audioDecodedBytes = typeof v.webkitAudioDecodedByteCount === 'number' ? v.webkitAudioDecodedByteCount : null;
+    return persistSession(sess, true);
+  }).then(function(){
+    closeMic();
+    openPreview(sess);
+  });
+}
+
+/* ---------- ticks ---------- */
+function studioTick(now, dt){
+  var g = 1, db = DB_MIN;
+  if (S.mic.an){
+    var b = S.mic.buf, sum = 0;
+    S.mic.an.getFloatTimeDomainData(b);
+    for (var i = 0; i < b.length; i++) sum += b[i] * b[i];
+    db = rmsToDb(Math.sqrt(sum / b.length));
+    g = S.ducker.step(db, dt);
+  }
+  S.meterDb = db;
+  applyGain(S.opts.userVol * g);
+  if (S.rec.on){
+    var lv = S.rec.sess.levels, need = Math.floor((now - S.rec.t0) / LEVEL_STEP_MS) + 1, byte = dbToByte(db);
+    while (lv.length < need) lv.push(byte);
+  }
+  var v = el.movie;
+  if (!S.audioWarned && !v.paused && v.currentTime > 3 && typeof v.webkitAudioDecodedByteCount === 'number' && v.webkitAudioDecodedByteCount === 0){
+    S.audioWarned = true;
+    toast('No movie sound was detected. This file may need converting, or try Simple sound mode in Sound options.', 8000);
+  }
+}
+function previewT(){
+  var s = S.sess;
+  return el.voice.currentTime * 1000 + (s.voiceOffsetMs || 0) + (s.voiceNudgeMs || 0);
+}
+function previewTick(){
+  var s = S.sess;
+  if (!s || !S.movieFile) return;
+  var t = previewT(), st = stateAt(s.events, t), v = el.movie;
+  S.pvFrozen = !st.playing;
+  if (st.playing){
+    if (v.paused && !el.voice.paused){ var p = v.play(); if (p && p.catch) p.catch(function(){}); }
+    if (Math.abs(v.currentTime * 1000 - st.movieMs) > 300) v.currentTime = st.movieMs / 1000;
+  } else {
+    if (!v.paused) v.pause();
+    if (Math.abs(v.currentTime * 1000 - st.movieMs) > 60) v.currentTime = st.movieMs / 1000;
+  }
+  var gi = Math.max(0, Math.min(S.gainSeries.length - 1, Math.floor(t / LEVEL_STEP_MS)));
+  applyGain(S.gainSeries.length ? S.gainSeries[gi] : 1);
+}
+function uiTick(){
+  var v = el.movie;
+  if (S.mode === 'studio'){
+    $('tNow').textContent = fmt(v.currentTime * 1000);
+    if (v.duration) $('seek').value = String(Math.round(v.currentTime / v.duration * 1000));
+    if (S.rec.on) $('recTime').textContent = fmt(performance.now() - S.rec.t0);
+    var pct = Math.max(0, Math.min(1, (S.meterDb + 70) / 60)) * 100;
+    var f = $('meterFill'); f.style.width = pct + '%';
+    f.className = (S.meterDb > S.ducker.p.thresholdDb) ? 'hot' : '';
+  } else if (S.sess){
+    var t = Math.min(previewT(), S.sess.durationMs);
+    $('pNow').textContent = fmt(t);
+    if (S.sess.durationMs) $('pSeek').value = String(Math.round(t / S.sess.durationMs * 1000));
+    updateChip();
+  }
+}
+function tick(){
+  var now = performance.now(), dt = now - S.lastTick;
+  S.lastTick = now; if (dt > 200) dt = 200;
+  S.tickN++;
+  if (S.view !== 'work') return;
+  if (S.mode === 'studio') studioTick(now, dt); else previewTick();
+  if (S.tickN % 4 === 0) uiTick();
+}
+setInterval(tick, LEVEL_STEP_MS);
+
+/* ---------- preview ---------- */
+function openPreview(sess){
+  closeMic();
+  show('work'); setMode('preview');
+  preparePreview(sess);
+}
+function preparePreview(s){
+  S.sess = s;
+  if (S.voiceUrl) URL.revokeObjectURL(S.voiceUrl);
+  S.voiceUrl = URL.createObjectURL(s.voiceBlob);
+  var a = el.voice;
+  a.pause();
+  a.addEventListener('loadedmetadata', function fix(){
+    a.removeEventListener('loadedmetadata', fix);
+    if (a.duration === Infinity){
+      a.currentTime = 1e101;
+      a.addEventListener('timeupdate', function back(){ a.removeEventListener('timeupdate', back); a.currentTime = 0; });
+    }
+  });
+  a.src = S.voiceUrl;
+  S.gainSeries = buildGainSeries(s);
+  $('pDur').textContent = fmt(s.durationMs);
+  $('rOff').value = String(s.voiceNudgeMs || 0);
+  $('offVal').textContent = (s.voiceNudgeMs || 0) + ' ms';
+  $('needMovie').hidden = !!S.movieFile;
+  $('needName').textContent = 'Movie used: ' + s.movieName;
+  renderStats(s);
+  updatePreviewUI();
+}
+function updatePreviewUI(){
+  var ready = !!S.movieFile;
+  $('pPlay').disabled = !ready;
+  $('pPlay').textContent = el.voice.paused ? 'Play session' : 'Pause session';
+  updateChip();
+}
+function renderStats(s){
+  var q = s.stats || {}, dl = $('pStats');
+  var pauses = s.events.filter(function(e){ return e.type === 'pause'; }).length;
+  var rows = [
+    ['Length', fmt(s.durationMs)],
+    ['Movie pauses', String(pauses)],
+    ['Dropped frames', q.frames ? q.frames.dropped + ' of ' + q.frames.total : 'not measured'],
+    ['Echo cancellation', q.mic && q.mic.echoCancellation !== undefined ? String(q.mic.echoCancellation) : 'unknown'],
+    ['Voice starts at', (s.voiceOffsetMs || 0) + ' ms'],
+    ['Warnings', String((s.warnings || []).length)]
+  ];
+  dl.textContent = '';
+  rows.forEach(function(r){ dl.appendChild(h('dt', null, r[0])); dl.appendChild(h('dd', null, r[1])); });
+}
+function togglePreview(){
+  var a = el.voice;
+  if (!S.movieFile) return;
+  ensureAudio();
+  S.audio.ctx.resume();
+  if (a.paused){
+    if (a.ended || previewT() >= S.sess.durationMs - 150) a.currentTime = 0;
+    var p = a.play(); if (p && p.catch) p.catch(function(){ toast('The voice could not start.'); });
+  } else { a.pause(); el.movie.pause(); }
+  updatePreviewUI();
+}
+el.voice.addEventListener('ended', function(){ el.movie.pause(); updatePreviewUI(); });
+el.voice.addEventListener('play', updatePreviewUI);
+el.voice.addEventListener('pause', updatePreviewUI);
+
+/* ---------- home ---------- */
+function refreshHome(){
+  var list = $('sessList');
+  list.textContent = '';
+  if (!DB.ok){
+    list.appendChild(h('p', { class: 'dim' }, 'Saving is not available here, so sessions are not kept after you close Naki.'));
+    return Promise.resolve();
+  }
+  return DB.all('sessions').then(function(all){
+    all.sort(function(a, b){ return b.created - a.created; });
+    if (!all.length){ list.appendChild(h('p', { class: 'dim' }, 'No sessions yet. Start one and it will appear here.')); return; }
+    all.forEach(function(s){
+      var label = s.status === 'stopped' ? 'Saved' : 'Recovered';
+      list.appendChild(h('div', { class: 'card' },
+        h('div', { class: 'ct' }, s.name),
+        h('div', { class: 'meta' }, h('span', null, new Date(s.created).toLocaleString()), h('span', null, fmt(s.durationMs || 0)), h('span', null, label)),
+        h('div', { class: 'row' },
+          h('button', { class: 'btn', onclick: function(){ openSaved(s.id); } }, 'Open'),
+          h('button', { class: 'btn', onclick: function(){ delSaved(s); } }, 'Delete'))));
+    });
+  }).catch(function(){ list.appendChild(h('p', { class: 'dim' }, 'Could not read saved sessions.')); });
+}
+function openSaved(id){
+  loadSession(id).then(function(s){ show('work'); setMode('preview'); preparePreview(s); })
+    .catch(function(){ toast('This session could not be opened.'); });
+}
+function delSaved(s){
+  if (!confirm('Delete "' + s.name + '"? This cannot be undone.')) return;
+  DB.delSession(s.id).then(refreshHome);
+}
+
+/* ---------- files and reports ---------- */
+function download(blob, name){
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+}
+function safeName(s){ return (s || 'session').replace(/[^\w\-]+/g, '_').slice(0, 40) || 'session'; }
+function voiceExt(m){ return /ogg/.test(m) ? 'ogg' : (/mp4/.test(m) ? 'm4a' : 'webm'); }
+function sessionExport(s){
+  return { naki: 'session', version: 1, name: s.name,
+    movie: { name: s.movieName, size: s.movieSize, durationMs: s.movieDurMs },
+    voice: { mime: s.voiceMime, offsetMs: s.voiceOffsetMs, nudgeMs: s.voiceNudgeMs },
+    levelStepMs: LEVEL_STEP_MS, levels: s.levels, events: s.events, durationMs: s.durationMs,
+    stats: s.stats, warnings: s.warnings };
+}
+function copyText(txt){
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    return navigator.clipboard.writeText(txt).then(function(){ toast('Copied.'); }, function(){ fallbackCopy(txt); });
+  }
+  fallbackCopy(txt); return Promise.resolve();
+}
+function fallbackCopy(txt){
+  var t = document.createElement('textarea'); t.value = txt; document.body.appendChild(t); t.select();
+  try { document.execCommand('copy'); toast('Copied.'); } catch (e) { toast('Could not copy. Select the text and copy it by hand.'); }
+  t.remove();
+}
+function deviceLines(){
+  var L = [], add = function(k, v){ L.push((k + ':').padEnd(24) + String(v)); };
+  add('Naki build', 'prototype 1');
+  add('Browser', navigator.userAgent);
+  add('Secure context', window.isSecureContext);
+  add('Page address type', location.protocol);
+  add('Device memory (GB)', navigator.deviceMemory !== undefined ? navigator.deviceMemory : 'unknown');
+  add('CPU cores', navigator.hardwareConcurrency !== undefined ? navigator.hardwareConcurrency : 'unknown');
+  add('Screen', screen.width + 'x' + screen.height + ' at ' + (window.devicePixelRatio || 1) + 'x');
+  add('Microphone API', !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia));
+  add('MediaRecorder', typeof MediaRecorder !== 'undefined');
+  if (typeof MediaRecorder !== 'undefined'){
+    var ms = ['audio/webm;codecs=opus', 'audio/ogg;codecs=opus', 'audio/mp4;codecs=mp4a.40.2', 'audio/mp4'];
+    add('Recorder formats', ms.filter(function(m){ return MediaRecorder.isTypeSupported(m); }).join(' | ') || 'none');
+  }
+  var v = document.createElement('video');
+  add('Plays MP4 H.264+AAC', v.canPlayType('video/mp4; codecs="avc1.42E01E, mp4a.40.2"') || 'no');
+  add('Plays MP4 H.265', v.canPlayType('video/mp4; codecs="hvc1.1.6.L93.B0"') || 'no');
+  add('Plays WebM VP9', v.canPlayType('video/webm; codecs="vp9, opus"') || 'no');
+  add('Plays MKV', v.canPlayType('video/x-matroska') || 'no');
+  add('Plays AC3 sound', v.canPlayType('audio/mp4; codecs="ac-3"') || 'no');
+  try {
+    var AC = window.AudioContext || window.webkitAudioContext, c = new AC();
+    add('Audio sample rate', c.sampleRate);
+    add('Audio base latency (s)', c.baseLatency !== undefined ? c.baseLatency : 'unknown');
+    c.close();
+  } catch (e) { add('Web Audio', 'not available'); }
+  add('Screen wake lock', 'wakeLock' in navigator);
+  add('Saving sessions', DB.ok);
+  add('Simple sound mode', SIMPLE);
+  return L;
+}
+function storageLine(){
+  if (navigator.storage && navigator.storage.estimate){
+    return navigator.storage.estimate().then(function(e){
+      return ('Storage (MB):').padEnd(24) + 'used ' + Math.round((e.usage || 0) / 1048576) + ', quota ' + Math.round((e.quota || 0) / 1048576);
+    }, function(){ return ''; });
+  }
+  return Promise.resolve('');
+}
+function sessionLines(s){
+  var L = ['', 'Last session:'];
+  L.push('  length: ' + fmt(s.durationMs) + ', movie ' + s.movieName + ' (' + Math.round(s.movieSize / 1048576) + ' MB)');
+  L.push('  voice format: ' + s.voiceMime + ', starts at ' + s.voiceOffsetMs + ' ms, nudge ' + (s.voiceNudgeMs || 0) + ' ms');
+  L.push('  pauses: ' + s.events.filter(function(e){ return e.type === 'pause'; }).length + ', jumps: ' + s.events.filter(function(e){ return e.type === 'jump'; }).length);
+  if (s.stats && s.stats.frames) L.push('  dropped frames: ' + s.stats.frames.dropped + ' of ' + s.stats.frames.total);
+  if (s.stats) L.push('  movie audio decoded bytes: ' + s.stats.audioDecodedBytes);
+  if (s.stats && s.stats.mic) L.push('  mic settings: ' + JSON.stringify(s.stats.mic));
+  L.push('  warnings: ' + JSON.stringify(s.warnings || []));
+  return L;
+}
+function runCheck(){
+  show('check');
+  var out = $('checkOut'); out.textContent = 'Checking...';
+  return storageLine().then(function(line){
+    var L = deviceLines(); if (line) L.push(line);
+    out.textContent = L.join('\n');
+  });
+}
+
+/* ---------- wiring ---------- */
+$('btnNew').onclick = function(){ chooseMovie('new'); };
+$('btnCheck').onclick = runCheck;
+$('btnCopy').onclick = function(){ copyText($('checkOut').textContent); };
+$('btnBack').onclick = function(){
+  if (S.rec.on || S.rec.starting){ toast('Stop the recording first.'); return; }
+  if (S.view === 'work'){ el.movie.pause(); el.voice.pause(); closeMic(); }
+  show('home'); refreshHome();
+};
+$('bPlay').onclick = togglePlay;
+$('stage').onclick = function(){ if (S.view === 'work' && S.mode === 'studio' && !S.rec.starting) togglePlay(); };
+$('bBack').onclick = function(){ jump(-10); };
+$('bFwd').onclick = function(){ jump(10); };
+$('bRec').onclick = function(){ if (S.rec.on) stopRec(); else startRec(); };
+$('seek').addEventListener('input', function(){
+  if (S.rec.on || !el.movie.duration) return;
+  el.movie.currentTime = $('seek').value / 1000 * el.movie.duration;
+});
+
+$('rVol').addEventListener('input', function(){
+  S.opts.userVol = this.value / 100; $('volVal').textContent = this.value + '%'; logSetting('vol', false);
+});
+$('rVol').addEventListener('change', function(){ logSetting('vol', true); });
+$('cDuck').addEventListener('change', function(){ S.ducker.p.enabled = this.checked; logSetting('duck', true); });
+$('rDuck').addEventListener('input', function(){
+  S.ducker.p.duckedGain = this.value / 100; $('duckVal').textContent = this.value + '%'; logSetting('duck', false);
+});
+$('rDuck').addEventListener('change', function(){ logSetting('duck', true); });
+function placeThr(){ $('meterThr').style.left = 'calc(' + (Math.max(0, Math.min(1, (S.ducker.p.thresholdDb + 70) / 60)) * 100) + '% - 1px)'; }
+$('rThr').addEventListener('input', function(){
+  S.ducker.p.thresholdDb = Number(this.value); $('thrVal').textContent = this.value + ' dB'; placeThr(); logSetting('duck', false);
+});
+$('rThr').addEventListener('change', function(){ logSetting('duck', true); });
+$('cEcho').addEventListener('change', function(){
+  S.opts.echo = this.checked;
+  if (!S.rec.on){ closeMic(); openMic(); } else toast('The change applies from your next recording.');
+});
+$('cSimple').checked = SIMPLE;
+$('cSimple').addEventListener('change', function(){
+  if (S.rec.on){ this.checked = SIMPLE; toast('Stop recording first.'); return; }
+  try { localStorage.setItem('naki.simple', this.checked ? '1' : '0'); } catch (e) {}
+  location.reload();
+});
+
+$('pPlay').onclick = togglePreview;
+$('pSeek').addEventListener('input', function(){
+  if (!S.sess) return;
+  var t = this.value / 1000 * S.sess.durationMs;
+  el.voice.currentTime = Math.max(0, (t - (S.sess.voiceOffsetMs || 0) - (S.sess.voiceNudgeMs || 0)) / 1000);
+});
+$('rOff').addEventListener('input', function(){
+  if (!S.sess) return;
+  var cur = previewT();
+  S.sess.voiceNudgeMs = Number(this.value);
+  $('offVal').textContent = this.value + ' ms';
+  el.voice.currentTime = Math.max(0, (cur - S.sess.voiceOffsetMs - S.sess.voiceNudgeMs) / 1000);
+});
+$('rOff').addEventListener('change', function(){ if (S.sess) persistSession(S.sess, false); });
+$('bPickMovie').onclick = function(){ chooseMovie('preview'); };
+$('bAgain').onclick = function(){ el.voice.pause(); S.sess = null; if (!S.movieFile){ chooseMovie('new'); return; } enterStudio(); };
+$('bHome').onclick = function(){ $('btnBack').click(); };
+$('dVoice').onclick = function(){
+  var s = S.sess; if (!s) return;
+  download(s.voiceBlob, safeName(s.name) + '_voice.' + voiceExt(s.voiceMime));
+};
+$('dSess').onclick = function(){
+  var s = S.sess; if (!s) return;
+  download(new Blob([JSON.stringify(sessionExport(s))], { type: 'application/json' }), safeName(s.name) + '_session.json');
+};
+$('dPlan').onclick = function(){
+  var s = S.sess; if (!s) return;
+  var plan = buildExportPlan(s);
+  plan.voice.file = safeName(s.name) + '_voice.' + voiceExt(s.voiceMime);
+  download(new Blob([JSON.stringify(plan, null, 1)], { type: 'application/json' }), safeName(s.name) + '_plan.json');
+};
+$('dAll').onclick = function(){
+  if (!S.sess) return;
+  $('dPlan').click();
+  setTimeout(function(){ $('dVoice').click(); toast('Saved the plan and the voice. Copy them next to your movie.', 6000); }, 400);
+};
+$('bReport').onclick = function(){
+  storageLine().then(function(line){
+    var L = deviceLines(); if (line) L.push(line);
+    if (S.sess) L = L.concat(sessionLines(S.sess));
+    copyText(L.join('\n'));
+  });
+};
+
+document.addEventListener('keydown', function(e){
+  if (S.view !== 'work' || S.mode !== 'studio') return;
+  var tag = e.target && e.target.tagName;
+  if (tag === 'INPUT' || tag === 'BUTTON' || tag === 'SUMMARY') return;
+  if (e.code === 'Space'){ e.preventDefault(); togglePlay(); }
+  else if (e.key === 'r' || e.key === 'R'){ if (S.rec.on) stopRec(); else startRec(); }
+  else if (e.key === 'ArrowLeft'){ jump(-10); }
+  else if (e.key === 'ArrowRight'){ jump(10); }
+});
+document.addEventListener('visibilitychange', function(){
+  if (!S.rec.on) return;
+  if (document.hidden){
+    S.rec.sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'page_hidden' });
+    persistSession(S.rec.sess, false);
+  } else {
+    keepAwake();
+    var bad = S.rec.mr && S.rec.mr.state !== 'recording';
+    toast(bad ? 'Recording was interrupted while Naki was in the background.' : 'Naki was in the background. Check that your recording kept going.', 6000);
+  }
+});
+window.addEventListener('beforeunload', function(e){ if (S.rec.on){ e.preventDefault(); e.returnValue = ''; } });
+
+placeThr();
+DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show('home'); return refreshHome(); });
+</script>
+</body>
+</html>
