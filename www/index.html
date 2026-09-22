@@ -231,8 +231,8 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <button id="bAgain" class="btn">Record again</button>
             <button id="bHome" class="btn">Home</button>
           </div>
-          <h3>Make the finished video</h3>
-          <div class="row"><button id="bExport" class="btn primary big">Export video (beta)</button></div>
+          <h3>Export</h3>
+          <div class="row"><button id="bExport" class="btn primary big">Export</button></div>
           <div id="exportBox" hidden>
             <div class="field">
               <label for="exportStatus" style="margin-bottom:6px">
@@ -245,19 +245,19 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
               <a id="exportDownload" class="btn primary" download="naki.mp4">Save video</a>
             </div>
           </div>
-          <p class="dim small">Builds the finished video right here on this device, fully offline after the first time. This is a new feature, still being tested — the first time you use it, it downloads its video engine (about 30&nbsp;MB, needs internet once), and it's best to try it on a short recording first.</p>
+          <p class="dim small">Builds your finished video on this device and saves it. The first time, it needs internet once (about 30&nbsp;MB); after that it works offline.</p>
           <details class="opts">
-            <summary>Computer-based export instead</summary>
-            <div class="row"><button id="dAll" class="btn">Save for export (plan and voice)</button></div>
-            <p class="dim small">Put the movie, the plan file and the voice file in one folder on your computer, then run Naki export (see the README). Useful as a fallback, or for a much faster export on a full computer.</p>
+            <summary>Advanced (not needed for normal use)</summary>
+            <p class="dim small">These are extra tools for troubleshooting and for computer-based export. Most people never need this section.</p>
+            <div class="row"><button id="dAll" class="btn">Save plan and voice files</button></div>
+            <p class="dim small">For the separate computer export tool (see the README in tools/export). Downloads two raw files, not a video.</p>
+            <div class="row wrap">
+              <button id="dVoice" class="btn">Download voice only</button>
+              <button id="dSess" class="btn">Download session data</button>
+              <button id="dPlan" class="btn">Download export plan (data file)</button>
+            </div>
+            <div class="row"><button id="bReport" class="btn">Copy test report</button></div>
           </details>
-          <h3>Other files</h3>
-          <div class="row wrap">
-            <button id="dVoice" class="btn">Voice</button>
-            <button id="dSess" class="btn">Session</button>
-            <button id="dPlan" class="btn">Export plan</button>
-          </div>
-          <div class="row"><button id="bReport" class="btn">Copy test report</button></div>
         </div>
       </div>
     </div>

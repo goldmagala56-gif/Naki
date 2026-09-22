@@ -2,6 +2,9 @@
 
 Newest first. When you change the version in `package.json` and `www/core.js`, add a line here too (the tests check this).
 
+## 0.1.9 - 2026-09-22
+- Cleaned up the Preview screen: there is now exactly one clearly-labelled "Export" button that produces your finished video. Everything else (raw plan/voice downloads, the computer-based tool) moved into a collapsed "Advanced" section, since those are only needed for troubleshooting or the separate computer export tool, not normal use.
+
 ## 0.1.8 - 2026-09-22
 - New (beta): "Export video" button right in Preview. Builds the finished MP4 on-device using ffmpeg.wasm (the no-special-server-needed build), so no computer, no command line, no separate program. First use downloads its ~30MB video engine once; after that it works fully offline.
 - The computer-based export tool is still there as a fallback (now tucked under "Computer-based export instead"), since it's faster on a full computer and more proven so far.
