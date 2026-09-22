@@ -5,6 +5,10 @@ const BUILD = '__BUILD__';
 const DEV = BUILD.indexOf('__') === 0;   // true when running from your own folder: no caching, so edits show at once
 const CACHE = 'naki-' + BUILD;
 const FILES = ['./', './index.html', './core.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-192-maskable.png', './icon-512-maskable.png', './apple-touch-icon.png', './favicon.ico'];
+// export-engine.js and vendor/ffmpeg/* are NOT in the list above on purpose: they're
+// ~30MB, so they're only fetched (and cached, into VENDOR_CACHE below) the first time
+// someone actually taps Export, instead of every phone downloading them just to install Naki.
+const VENDOR_CACHE = 'naki-ffmpeg-vendor-v1';
 
 self.addEventListener('install', (e) => {
   if (DEV) { e.waitUntil(self.skipWaiting()); return; }
@@ -13,7 +17,7 @@ self.addEventListener('install', (e) => {
 self.addEventListener('activate', (e) => {
   e.waitUntil(
     caches.keys()
-      .then((keys) => Promise.all(keys.filter((k) => DEV || k !== CACHE).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => DEV || (k !== CACHE && k !== VENDOR_CACHE)).map((k) => caches.delete(k))))
       .then(() => self.clients.claim())
   );
 });
@@ -26,6 +30,12 @@ self.addEventListener('fetch', (e) => {
   e.respondWith(
     caches.match(req, { ignoreSearch: true }).then((hit) => {
       if (hit) return hit;
+      // The video engine (export-engine.js and vendor/ffmpeg/*) caches itself into
+      // VENDOR_CACHE the first time Export runs (see export-engine.js) — check there
+      // before giving up, so a second export works offline too.
+      if (url.pathname.endsWith('/export-engine.js') || url.pathname.includes('/vendor/ffmpeg/')) {
+        return caches.open(VENDOR_CACHE).then((c) => c.match(req)).then((vhit) => vhit || fetch(req).catch(() => Response.error()));
+      }
       return fetch(req).catch(() => (req.mode === 'navigate' ? caches.match('./index.html') : Response.error()));
     })
   );

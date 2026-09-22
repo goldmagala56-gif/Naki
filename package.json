@@ -1,10 +1,10 @@
 {
   "name": "naki",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "private": true,
   "description": "Narrate a movie live, pause to explain, export one finished video. Works offline.",
   "scripts": {
-    "test": "node tests/core.test.js && node tests/app.test.js",
+    "test": "node tests/core.test.js && node tests/export-engine.test.js && node tests/app.test.js",
     "serve": "node tools/serve.js"
   }
 }

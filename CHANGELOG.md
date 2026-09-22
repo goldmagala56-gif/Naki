@@ -2,6 +2,13 @@
 
 Newest first. When you change the version in `package.json` and `www/core.js`, add a line here too (the tests check this).
 
+## 0.1.8 - 2026-09-22
+- New (beta): "Export video" button right in Preview. Builds the finished MP4 on-device using ffmpeg.wasm (the no-special-server-needed build), so no computer, no command line, no separate program. First use downloads its ~30MB video engine once; after that it works fully offline.
+- The computer-based export tool is still there as a fallback (now tucked under "Computer-based export instead"), since it's faster on a full computer and more proven so far.
+
+## 0.1.7 - 2026-09-22
+- Fixed: .gitignore had quietly lost its ffmpeg.exe / session-export exclusions in an earlier update, which could let a 100MB+ file back into a commit. Restored it, and added an automatic test that fails the build if this ever regresses again.
+
 ## 0.1.6 - 2026-09-22
 - If you tap Record but never tap Play, the movie stays frozen for the whole session (this was already correct behaviour, just easy to miss). Naki now gives a one-time reminder a few seconds in: "Tip: tap Play to start the movie moving under your narration."
 

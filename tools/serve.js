@@ -3,7 +3,7 @@
 // (localhost is treated as secure by the browser, so the microphone and offline mode work.)
 const http = require('http'), fs = require('fs'), path = require('path');
 const root = path.join(__dirname, '..', 'www'), port = process.env.PORT || 8080;
-const types = { '.html': 'text/html', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.json': 'application/json', '.svg': 'image/svg+xml', '.ico': 'image/x-icon' };
+const types = { '.html': 'text/html', '.js': 'text/javascript', '.webmanifest': 'application/manifest+json', '.png': 'image/png', '.json': 'application/json', '.svg': 'image/svg+xml', '.ico': 'image/x-icon', '.wasm': 'application/wasm' };
 http.createServer((req, res) => {
   let p = decodeURIComponent(req.url.split('?')[0]); if (p.endsWith('/')) p += 'index.html';
   const f = path.join(root, path.normalize(p).replace(/^(\.\.[\/\\])+/, ''));
