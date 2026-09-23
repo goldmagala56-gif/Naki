@@ -36,7 +36,9 @@ button,input{font:inherit;color:inherit}
   position:sticky;top:0;background:var(--ink);z-index:5}
 .brand{font-weight:800;font-size:22px;letter-spacing:.01em}
 .brand i{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mango);margin-left:5px;vertical-align:2px}
-.back{border:0;background:var(--panel-2);width:40px;height:40px;border-radius:12px;font-size:20px;cursor:pointer}
+.back{border:0;background:var(--panel-2);width:40px;height:40px;border-radius:12px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;color:var(--chalk)}
+.back svg{width:20px;height:20px}
 
 main{max-width:1000px;margin:0 auto;padding:14px}
 h1{font-size:38px;line-height:1.05;margin:14px 0 8px;font-weight:800}
@@ -98,6 +100,23 @@ input[type=range]{accent-color:var(--mango);height:32px}
 .recbtn::before{content:"";width:16px;height:16px;border-radius:50%;background:#fff}
 .recbtn.on::before{border-radius:3px}
 .recbtn:disabled{opacity:.5}
+
+/* icon-based navigation: circular icon buttons with a small caption underneath, used for
+   Studio/Preview transport controls, so the main controls read as an app toolbar rather
+   than a stack of big colored text buttons. */
+.icon-btn{display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;
+  background:var(--panel-2);color:var(--chalk);cursor:pointer;touch-action:manipulation;flex:none;padding:0}
+.icon-btn svg{width:46%;height:46%;display:block}
+.icon-btn.lg{width:72px;height:72px}
+.icon-btn.md{width:52px;height:52px}
+.icon-btn.accent{background:var(--mango);color:#1d1300}
+.icon-btn.danger{background:var(--hibiscus);color:#fff}
+.icon-btn.danger.on{border-radius:30%}
+.icon-btn:active{transform:scale(.96)}
+.icon-btn:disabled{opacity:.4;cursor:default}
+.icon-col{display:flex;flex-direction:column;align-items:center;gap:6px}
+.icon-row{display:flex;align-items:flex-start;justify-content:center;gap:26px;margin:16px 0 6px}
+.icon-label{font-size:12.5px;color:var(--dim);font-weight:600;white-space:nowrap}
 .field{margin:14px 0 4px}
 .field label{display:flex;justify-content:space-between;gap:10px;margin-bottom:2px;font-weight:600}
 .field label span{color:var(--dim);font-weight:500}
@@ -121,7 +140,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 </head>
 <body>
 <header class="top">
-  <button id="btnBack" class="back" hidden aria-label="Back">&larr;</button>
+  <button id="btnBack" class="back" hidden aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4.5l-7.5 7.5 7.5 7.5"/></svg></button>
   <div class="brand">Naki<i></i></div>
 </header>
 
@@ -173,13 +192,26 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
           </div>
           <div class="meter" aria-label="Microphone level"><div id="meterFill"></div><div id="meterThr"></div></div>
           <div class="dim small" style="margin-top:4px">Speak to test the mic. The movie lowers when the bar passes the white line.</div>
+          <label class="check" style="margin-top:14px"><input id="cRemember" type="checkbox" checked><span>Remember this movie on this device, so you don't have to choose it again next time (uses more storage)</span></label>
 
-          <div class="transport">
-            <button id="bBack" class="btn">Back 10s</button>
-            <button id="bPlay" class="btn play">Play</button>
-            <button id="bFwd" class="btn">Forward 10s</button>
+          <div class="icon-row">
+            <div class="icon-col">
+              <button id="bBack" class="icon-btn md" aria-label="Back 10 seconds"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1.3L6.3 6 12 10.7V7a5 5 0 11-4.9 6H4.9A7.1 7.1 0 1012 5z"/></svg></button>
+              <span class="icon-label">10s</span>
+            </div>
+            <div class="icon-col">
+              <button id="bPlay" class="icon-btn lg accent" aria-label="Play"><svg id="bPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+              <span id="bPlayLabel" class="icon-label">Play</span>
+            </div>
+            <div class="icon-col">
+              <button id="bFwd" class="icon-btn md" aria-label="Forward 10 seconds"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1.3L17.7 6 12 10.7V7a5 5 0 104.9 6h2.2A7.1 7.1 0 1012 5z"/></svg></button>
+              <span class="icon-label">10s</span>
+            </div>
           </div>
-          <button id="bRec" class="recbtn">Record</button>
+          <div class="icon-col" style="margin:8px auto 4px">
+            <button id="bRec" class="icon-btn lg danger" aria-label="Record"><svg id="bRecIcon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6.2"/></svg></button>
+            <span id="bRecLabel" class="icon-label">Record</span>
+          </div>
 
           <div class="field">
             <label for="rVol">Movie volume <span id="volVal">100%</span></label>
@@ -220,7 +252,10 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <input id="pSeek" type="range" min="0" max="1000" value="0" aria-label="Session position">
             <span id="pDur" class="num">0:00</span>
           </div>
-          <div class="transport"><button id="pPlay" class="btn play">Play session</button></div>
+          <div class="icon-col" style="margin:8px auto 6px">
+            <button id="pPlay" class="icon-btn lg accent" aria-label="Play session"><svg id="pPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+            <span id="pPlayLabel" class="icon-label">Play session</span>
+          </div>
           <div class="field">
             <label for="rOff">Voice timing <span id="offVal">0 ms</span></label>
             <input id="rOff" type="range" min="-500" max="500" step="10" value="0" style="width:100%">
@@ -232,7 +267,10 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <button id="bHome" class="btn">Home</button>
           </div>
           <h3>Export</h3>
-          <div class="row"><button id="bExport" class="btn primary big">Export</button></div>
+          <div class="icon-col" style="margin:6px auto 4px">
+            <button id="bExport" class="icon-btn lg accent" aria-label="Export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11.5m0 0l-4-4m4 4l4-4"/><path d="M5 16.5V19a2 2 0 002 2h10a2 2 0 002-2v-2.5"/></svg></button>
+            <span class="icon-label">Export</span>
+          </div>
           <div id="exportBox" hidden>
             <div class="field">
               <label for="exportStatus" style="margin-bottom:6px">
@@ -241,8 +279,15 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
               </label>
               <div class="meter"><div id="exportBar" style="position:absolute;left:0;top:0;bottom:0;width:0;background:var(--mango);border-radius:8px"></div></div>
             </div>
-            <div id="exportDone" class="row" hidden>
-              <a id="exportDownload" class="btn primary" download="naki.mp4">Save video</a>
+            <div id="exportDone" hidden>
+              <video id="exportPreview" controls playsinline style="width:100%;border-radius:12px;background:#000;margin:10px 0"></video>
+              <div class="row wrap">
+                <button id="bShareVideo" class="btn primary" hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:-4px;margin-right:6px"><path d="M12 15V4.5m0 0L8.2 8.3M12 4.5l3.8 3.8"/><path d="M5 12v6.5a2 2 0 002 2h10a2 2 0 002-2V12"/></svg>Share / save to gallery
+                </button>
+                <a id="exportDownload" class="btn" download="naki.mp4">Download file</a>
+              </div>
+              <p class="dim small">You can review your video right here before saving it anywhere. If "Share" isn't available on this device, use Download instead — it saves to your normal Downloads.</p>
             </div>
           </div>
           <p class="dim small">Builds your finished video on this device and saves it. The first time, it needs internet once (about 30&nbsp;MB); after that it works offline.</p>
@@ -275,6 +320,12 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 
 
 var $ = function(id){ return document.getElementById(id); };
+// Small inline icon glyphs, swapped into the transport buttons' <svg> as state changes,
+// so the same round button shows Play/Pause, Record/Stop etc. without a page full of text.
+var ICON_PLAY = '<path d="M8 5.5v13l11-6.5z"/>';
+var ICON_PAUSE = '<path d="M6.5 5h4v14h-4zM13.5 5h4v14h-4z"/>';
+var ICON_RECORD = '<circle cx="12" cy="12" r="6.2"/>';
+var ICON_STOP = '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>';
 var el = { movie: $('movie'), voice: $('voice'), pick: $('filePick') };
 var LEVEL_CHUNK = 100;
 var BUILD = (function(){
@@ -327,12 +378,13 @@ var DB = {
     var self = this;
     return new Promise(function(res, rej){
       if (!window.indexedDB) return rej(new Error('no indexedDB'));
-      var r = indexedDB.open('naki', 1);
+      var r = indexedDB.open('naki', 2);
       r.onupgradeneeded = function(){
         var d = r.result;
-        d.createObjectStore('sessions', { keyPath: 'id' });
-        d.createObjectStore('chunks', { keyPath: ['sid', 'i'] });
-        d.createObjectStore('levels', { keyPath: ['sid', 'i'] });
+        if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('chunks')) d.createObjectStore('chunks', { keyPath: ['sid', 'i'] });
+        if (!d.objectStoreNames.contains('levels')) d.createObjectStore('levels', { keyPath: ['sid', 'i'] });
+        if (!d.objectStoreNames.contains('movies')) d.createObjectStore('movies', { keyPath: 'sid' });
       };
       r.onsuccess = function(){ self.db = r.result; self.ok = true; res(); };
       r.onerror = function(){ rej(r.error); };
@@ -357,7 +409,8 @@ var DB = {
     return Promise.all([
       self.tx('sessions', 'readwrite', function(s){ return s.delete(sid); }),
       self.tx('chunks', 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }),
-      self.tx('levels', 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); })
+      self.tx('levels', 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }),
+      self.tx('movies', 'readwrite', function(s){ return s.delete(sid); })
     ]);
   }
 };
@@ -577,9 +630,13 @@ el.movie.addEventListener('error', function(){ toast('The movie stopped because 
 
 function updateStudioUI(){
   var on = S.rec.on;
-  $('bPlay').textContent = el.movie.paused ? 'Play' : 'Pause';
-  $('bRec').textContent = on ? 'Stop' : 'Record';
-  $('bRec').className = 'recbtn' + (on ? ' on' : '');
+  $('bPlayIcon').innerHTML = el.movie.paused ? ICON_PLAY : ICON_PAUSE;
+  $('bPlay').setAttribute('aria-label', el.movie.paused ? 'Play' : 'Pause');
+  $('bPlayLabel').textContent = el.movie.paused ? 'Play' : 'Pause';
+  $('bRecIcon').innerHTML = on ? ICON_STOP : ICON_RECORD;
+  $('bRec').setAttribute('aria-label', on ? 'Stop' : 'Record');
+  $('bRecLabel').textContent = on ? 'Stop' : 'Record';
+  $('bRec').className = 'icon-btn lg danger' + (on ? ' on' : '');
   $('bRec').disabled = S.rec.starting;
   $('seek').disabled = on;
   $('recDot').className = 'recdot' + (on ? ' on' : '');
@@ -601,6 +658,9 @@ function startRec(){
       for (var n = 3; n >= 1; n--){ showCount(n); await sleep(800); }
       showCount(null);
       var sess = newSession(); S.rec.sess = sess; S.rec.playing = false; S.rec.everPlayed = false; S.rec.playNudged = false; S.ducker.reset();
+      if ($('cRemember').checked && DB.ok){
+        DB.put('movies', { sid: sess.id, name: S.movieFile.name, size: S.movieFile.size, blob: S.movieFile }).catch(function(){});
+      }
       var mime = pickMime(), mr;
       try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
       catch (e){ S.rec.starting = false; updateStudioUI(); toast('Could not start recording on this device.'); return; }
@@ -762,7 +822,9 @@ function preparePreview(s){
 function updatePreviewUI(){
   var ready = !!S.movieFile;
   $('pPlay').disabled = !ready;
-  $('pPlay').textContent = el.voice.paused ? 'Play session' : 'Pause session';
+  $('pPlayIcon').innerHTML = el.voice.paused ? ICON_PLAY : ICON_PAUSE;
+  $('pPlay').setAttribute('aria-label', el.voice.paused ? 'Play session' : 'Pause session');
+  $('pPlayLabel').textContent = el.voice.paused ? 'Play session' : 'Pause session';
   updateChip();
 }
 function renderStats(s){
@@ -817,8 +879,17 @@ function refreshHome(){
   }).catch(function(){ list.appendChild(h('p', { class: 'dim' }, 'Could not read saved sessions.')); });
 }
 function openSaved(id){
-  loadSession(id).then(function(s){ show('work'); setMode('preview'); preparePreview(s); })
-    .catch(function(){ toast('This session could not be opened.'); });
+  loadSession(id).then(function(s){
+    show('work'); setMode('preview');
+    if (!DB.ok) return preparePreview(s);
+    return DB.get('movies', id).then(function(rec){
+      if (rec && rec.blob){
+        var file = new File([rec.blob], rec.name || s.movieName, { type: rec.blob.type });
+        return loadMovie(file).then(function(){ preparePreview(s); }).catch(function(){ preparePreview(s); });
+      }
+      preparePreview(s);
+    }, function(){ preparePreview(s); });
+  }).catch(function(){ toast('This session could not be opened.'); });
 }
 function delSaved(s){
   if (!confirm('Delete "' + s.name + '"? This cannot be undone.')) return;
@@ -1018,20 +1089,31 @@ $('bExport').onclick = function(){
   if (!S.sess) return;
   if (!S.movieFile){ toast('Choose the movie for this session first.'); return; }
   var box = $('exportBox'), bar = $('exportBar'), statusEl = $('exportStatus'), pctEl = $('exportPct'),
-      doneRow = $('exportDone'), dl = $('exportDownload');
+      doneRow = $('exportDone'), dl = $('exportDownload'), shareBtn = $('bShareVideo'), preview = $('exportPreview');
   box.hidden = false; doneRow.hidden = true; bar.style.width = '0%'; pctEl.textContent = '';
   statusEl.textContent = 'Starting...'; $('bExport').disabled = true;
   loadExportEngine().then(function(){
     var plan = buildExportPlan(S.sess);
-    return NakiExport.run(S.movieFile, S.sess.voiceBlob, plan, { height: 480 }, {
+    return NakiExport.run(S.movieFile, S.sess.voiceBlob, plan, { height: 720, crf: 21 }, {
       onStatus: function(t){ statusEl.textContent = t; },
       onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
     });
   }).then(function(blob){
     var url = URL.createObjectURL(blob);
-    dl.href = url; dl.download = safeName(S.sess.name) + '_naki.mp4';
+    var filename = safeName(S.sess.name) + '_naki.mp4';
+    preview.src = url;
+    dl.href = url; dl.download = filename;
+    var file = new File([blob], filename, { type: 'video/mp4' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })){
+      shareBtn.hidden = false;
+      shareBtn.onclick = function(){
+        navigator.share({ files: [file], title: S.sess.name }).catch(function(){});
+      };
+    } else {
+      shareBtn.hidden = true;
+    }
     doneRow.hidden = false; statusEl.textContent = 'Done.';
-    toast('Your video is ready to save.');
+    toast('Your video is ready — you can watch it right here, then save or share it.');
   }).catch(function(err){
     console.error('export failed', err);
     statusEl.textContent = 'Something went wrong: ' + (err && err.message ? err.message : String(err));

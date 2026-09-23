@@ -2,6 +2,12 @@
 
 Newest first. When you change the version in `package.json` and `www/core.js`, add a line here too (the tests check this).
 
+## 0.1.11 - 2026-09-22
+- Fixed blurry export: default export quality raised from 480p to 720p, with better compression settings.
+- New: "Remember this movie" (on by default). Naki now keeps a copy of the movie on this device when you record, so reopening a session later restores it automatically — no more re-choosing the movie, and no more risk of picking the wrong one.
+- New: after export, watch the finished video right inside Naki before saving it anywhere. A "Share / save to gallery" button appears on devices that support it, using the normal share sheet, so you don't have to hunt for the file in another app; a plain Download button is always there too.
+- Redesigned Studio, Preview and Export around icon buttons (play, pause, record, skip, export, share, back) instead of large solid-colour text buttons, for a cleaner, more app-like feel.
+
 ## 0.1.10 - 2026-09-22
 - Fixed: Export was crashing immediately with "exports is not defined". The vendored @ffmpeg/util file turned out to be genuinely broken for plain browser use (it called require() internally). Replaced it with five lines of equivalent code that don't depend on that package at all.
 - Fixed a real data-safety bug: reopening a session and choosing the wrong movie file (e.g. from a different project) silently paired that session's voice with the wrong movie, with no warning. Naki now checks the file name against what the session actually expects and asks you to confirm before using a mismatched one.
