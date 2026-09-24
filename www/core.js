@@ -2,7 +2,7 @@
 /* Naki core: pure logic with no page or device code.
    Used by the app (loaded in index.html), by the tests, and later by the desktop and Android builds. */
 // Pure logic: no page or device code in here, so it can be tested on its own.
-var NAKI_VERSION = '0.1.11';
+var NAKI_VERSION = '0.1.12';
 var DB_MIN = -80;
 var LEVEL_STEP_MS = 50;
 

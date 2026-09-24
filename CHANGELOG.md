@@ -2,6 +2,9 @@
 
 Newest first. When you change the version in `package.json` and `www/core.js`, add a line here too (the tests check this).
 
+## 0.1.12 - 2026-09-23
+- New: "Prepare movie" flow. If a movie won't play directly (unsupported format, e.g. some MKV or AVI files), Naki now offers to convert it right there on your device using the same video engine as Export, instead of just failing with an error. Works whether you're starting a new session or reopening one.
+
 ## 0.1.11 - 2026-09-22
 - Fixed blurry export: default export quality raised from 480p to 720p, with better compression settings.
 - New: "Remember this movie" (on by default). Naki now keeps a copy of the movie on this device when you record, so reopening a session later restores it automatically — no more re-choosing the movie, and no more risk of picking the wrong one.

@@ -275,7 +275,36 @@ var NakiExport = (function () {
     return new Blob([data.buffer], { type: 'video/mp4' });
   }
 
-  return { run: run };
+  // opts: { preset, crf }. Turns a movie file that won't play directly into a standard
+  // MP4 (H.264 + AAC) that will, entirely on this device. Used by the "Prepare movie" flow.
+  async function convertToMp4(file, opts, callbacks) {
+    callbacks = callbacks || {};
+    var say = callbacks.onStatus || function () {};
+    var prog = callbacks.onProgress || function () {};
+    opts = opts || {};
+
+    say('Starting the video engine (first time only, this can take a moment)...');
+    var ffmpeg = await ensureLoaded(callbacks.onLog);
+
+    say('Loading the file...');
+    ffmpeg.writeFile('in.src', await fetchFile(file));
+
+    say('Converting...');
+    var offProgress = function (e) { if (e && typeof e.progress === 'number') prog(Math.min(1, Math.max(0, e.progress))); };
+    ffmpeg.on('progress', offProgress);
+    await ffmpeg.exec(['-i', 'in.src', '-map', '0:v:0', '-map', '0:a:0?',
+      '-c:v', 'libx264', '-preset', opts.preset || 'veryfast', '-crf', String(opts.crf != null ? opts.crf : 23),
+      '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', 'out.mp4']);
+    ffmpeg.off('progress', offProgress);
+
+    say('Finishing up...');
+    var data = await ffmpeg.readFile('out.mp4');
+    try { await ffmpeg.deleteFile('in.src'); await ffmpeg.deleteFile('out.mp4'); } catch (e) {}
+    prog(1); say('Done.');
+    return new Blob([data.buffer], { type: 'video/mp4' });
+  }
+
+  return { run: run, convertToMp4: convertToMp4 };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

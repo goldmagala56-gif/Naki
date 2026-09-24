@@ -80,6 +80,10 @@ ok('the service worker knows to serve the video engine from its own cache when o
   const sw = read('www', 'sw.js');
   assert(sw.includes('VENDOR_CACHE') && sw.includes('vendor/ffmpeg'));
 });
+ok('the "movie needs converting" flow exists and is wired to real elements', () => {
+  assert(html.includes('id="prepareModal"') && html.includes('id="bPrepareConvert"') && html.includes('id="bPrepareCancel"'));
+  assert(mainScript.includes('NakiExport.convertToMp4'));
+});
 ok('.gitignore keeps ffmpeg and session exports out of the repo', () => {
   const gi = read('.gitignore');
   ['tools/export/ffmpeg.exe', '*_plan.json', '*_voice.webm', '*_naki.mp4'].forEach(

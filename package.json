@@ -1,6 +1,6 @@
 {
   "name": "naki",
-  "version": "0.1.11",
+  "version": "0.1.12",
   "private": true,
   "description": "Narrate a movie live, pause to explain, export one finished video. Works offline.",
   "scripts": {
