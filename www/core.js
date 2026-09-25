@@ -112,8 +112,38 @@ function fmt(ms){
   return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(sec).padStart(2, '0');
 }
 
+// ---------- Take Back: trimming a session back to an earlier point ----------
+// Recorded voice audio arrives as small chunks (~1s each, from MediaRecorder). Those chunks
+// can only ever be dropped whole -- slicing inside one would break the compressed audio -- so
+// "take back" works by finding the last chunk that ends at or before the cut point and keeping
+// only chunks up to there. chunkEndTimes[i] is the session-relative ms at which chunk i was
+// flushed (recorded alongside the chunk itself when it arrives).
+function chunksToKeep(chunkEndTimes, cutT) {
+  var keep = 0;
+  for (var i = 0; i < chunkEndTimes.length; i++) {
+    if (chunkEndTimes[i] <= cutT) keep = i + 1; else break;
+  }
+  return keep;
+}
+
+// Truncates a session's event log and mic-level history to a cut point in session time.
+// Pure and Blob-free by design (see chunksToKeep) so the actual audio chunks are trimmed
+// separately by the caller, using the same cutT.
+function trimEventsAndLevels(events, levels, cutT) {
+  var newEvents = events.filter(function (e) { return e.t <= cutT; });
+  var newLevelsLen = Math.max(0, Math.floor(cutT / LEVEL_STEP_MS) + 1);
+  var newLevels = levels.slice(0, newLevelsLen);
+  return { events: newEvents, levels: newLevels };
+}
+
 if (typeof module !== 'undefined' && module.exports){
   module.exports = { NAKI_VERSION: NAKI_VERSION, DB_MIN: DB_MIN, LEVEL_STEP_MS: LEVEL_STEP_MS, rmsToDb: rmsToDb, dbToByte: dbToByte, byteToDb: byteToDb,
     Ducker: Ducker, stateAt: stateAt, buildVideoSpans: buildVideoSpans, buildGainSeries: buildGainSeries,
-    simplifyGain: simplifyGain, buildExportPlan: buildExportPlan, fmt: fmt };
+    simplifyGain: simplifyGain, buildExportPlan: buildExportPlan, fmt: fmt,
+    chunksToKeep: chunksToKeep, trimEventsAndLevels: trimEventsAndLevels };
 }
+
+
+git add .
+git commit -m "Update core.js with take back functionality"
+git push origin main

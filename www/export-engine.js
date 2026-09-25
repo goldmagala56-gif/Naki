@@ -66,12 +66,43 @@ function buildGainRaw(points, totalMs) {
 // single mistake only costs one small piece, and progress can be shown as "part N of M".
 // Filenames are plain virtual-FS names (no real paths), so this function has no
 // platform-specific code and is exercised directly by the tests.
+// Builds the "fit the source into this canvas" part of the video filter chain.
+// Landscape: scale straight to width x height (the canvas IS the aspect ratio, as before).
+// Vertical (TikTok-style 9:16): scale the source down to fit inside a taller canvas and
+// pad the rest with the app's own navy, rather than blurring/zooming — much cheaper to
+// compute (this already runs slowly enough on a phone without adding a blur pass), and
+// reads as a deliberate branded frame rather than a stretched crop.
+function fitFilter(outW, outH, vertical) {
+  return vertical
+    ? 'scale=' + outW + ':' + outH + ':force_original_aspect_ratio=decrease:flags=bicubic,pad=' + outW + ':' + outH + ':(ow-iw)/2:(oh-ih)/2:color=0x111b24'
+    : 'scale=' + outW + ':' + outH + ':flags=bicubic';
+}
+
+// Builds the watermark half of the filter graph when a logo is supplied: scales the logo
+// to a fraction of the canvas width and pins it to a corner. Returns null when there's no
+// logo, so callers can fall back to the plain (cheaper) single-input path.
+function watermarkFilter(outW, corner, marginRatio) {
+  var logoW = Math.round(outW * 0.16 / 2) * 2;
+  var m = Math.round(outW * (marginRatio != null ? marginRatio : 0.035));
+  var pos = { br: 'W-w-' + m + ':H-h-' + m, bl: m + ':H-h-' + m, tr: 'W-w-' + m + ':' + m, tl: m + ':' + m }[corner || 'br'];
+  return { logoW: logoW, overlayPos: pos };
+}
+
 function planToJobs(plan, movieInfo, opts) {
   opts = opts || {};
-  var height = opts.height || 480;
+  var tier = opts.height || 480; // a quality tier, e.g. 480/720; means "tall side" in landscape, "short side" in vertical
   var preset = opts.preset || 'ultrafast';
   var crf = opts.crf != null ? opts.crf : 26;
-  var width = Math.max(2, Math.round((height * (movieInfo.width * movieInfo.sar / movieInfo.height)) / 2) * 2);
+  var vertical = !!opts.vertical;
+  var width, height;
+  if (vertical) {
+    width = tier;
+    height = Math.max(2, Math.round(tier * 16 / 9 / 2) * 2);
+  } else {
+    height = tier;
+    width = Math.max(2, Math.round((tier * (movieInfo.width * movieInfo.sar / movieInfo.height)) / 2) * 2);
+  }
+  var wm = opts.hasLogo ? watermarkFilter(width, opts.logoCorner) : null;
   var R = function (ms) { return Math.round(ms * FPS / 1000); };
   var Sm = function (ms) { return Math.round(ms * SR / 1000); };
   var enc = ['-c:v', 'libx264', '-preset', preset, '-crf', String(crf), '-pix_fmt', 'yuv420p',
@@ -79,6 +110,18 @@ function planToJobs(plan, movieInfo, opts) {
   var ts = ['-f', 'mpegts', '-muxdelay', '0', '-muxpreload', '0'];
   var maxMovieSec = Math.max(0, (plan.movie && plan.movie.durationMs ? plan.movie.durationMs / 1000 : movieInfo.durationSec) - 0.1);
   var clampSec = function (ms) { return Math.max(0, Math.min(ms / 1000, maxMovieSec || ms / 1000)); };
+
+  // Builds either a simple "-vf" job or, when a logo is present, a "-filter_complex" job
+  // that also pulls in logo.png as a second input and overlays it on top.
+  function pictureArgs(sourceArgs, fitChain, nFrames, vfile) {
+    var tailEnc = enc.concat(ts, [vfile]);
+    if (!wm) {
+      return sourceArgs.concat(['-an', '-vf', fitChain + ',setsar=1,fps=' + FPS + ',format=yuv420p', '-frames:v', String(nFrames)], tailEnc);
+    }
+    var fc = '[0:v]' + fitChain + ',setsar=1,fps=' + FPS + ',format=yuv420p[base];' +
+      '[1:v]scale=' + wm.logoW + ':-1[wm];[base][wm]overlay=' + wm.overlayPos + '[outv]';
+    return sourceArgs.concat(['-i', 'logo.png', '-an', '-filter_complex', fc, '-map', '[outv]', '-frames:v', String(nFrames)], tailEnc);
+  }
 
   var jobs = [], videoList = [], audioList = [];
   plan.video.forEach(function (sp, i) {
@@ -88,18 +131,19 @@ function planToJobs(plan, movieInfo, opts) {
     if (nFrames <= 0 && nSamples <= 0) return;
     var vfile = 'v' + id + '.ts', afile = 'a' + id + '.wav';
     var spanSec = (sp.sessionEnd - sp.sessionStart) / 1000;
+    var fit = fitFilter(width, height, vertical);
 
     if (nFrames > 0) {
       if (sp.type === 'play') {
-        jobs.push({ label: 'picture ' + (i + 1), produces: vfile, args: ['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in', '-an',
-          '-vf', 'scale=' + width + ':' + height + ':flags=bicubic,setsar=1,fps=' + FPS + ',tpad=stop_mode=clone:stop_duration=' + Math.ceil(spanSec + 1) + ',format=yuv420p',
-          '-frames:v', String(nFrames)].concat(enc, ts, [vfile]) });
+        var playFit = fit + ',tpad=stop_mode=clone:stop_duration=' + Math.ceil(spanSec + 1);
+        jobs.push({ label: 'picture ' + (i + 1), produces: vfile,
+          args: pictureArgs(['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in'], playFit, nFrames, vfile) });
       } else {
         var png = 'f' + id + '.png';
         jobs.push({ label: 'frozen frame ' + (i + 1), produces: png, args: ['-ss', clampSec(sp.movieAt).toFixed(3), '-i', 'movie.in', '-an', '-frames:v', '1',
-          '-vf', 'scale=' + width + ':' + height + ':flags=bicubic,setsar=1', png] });
-        jobs.push({ label: 'frozen picture ' + (i + 1), produces: vfile, args: ['-loop', '1', '-framerate', String(FPS), '-i', png, '-an',
-          '-vf', 'format=yuv420p', '-frames:v', String(nFrames)].concat(enc, ts, [vfile]) });
+          '-vf', fit + ',setsar=1', png] });
+        jobs.push({ label: 'frozen picture ' + (i + 1), produces: vfile,
+          args: pictureArgs(['-loop', '1', '-framerate', String(FPS), '-i', png], 'null', nFrames, vfile) });
       }
       videoList.push(vfile);
     }
@@ -242,6 +286,12 @@ var NakiExport = (function () {
     var info = await probe(ffmpeg, 'movie.in');
     if (!info.width) throw new Error('Naki could not read this movie file.');
 
+    if (opts.logoFile) {
+      say('Loading your logo...');
+      ffmpeg.writeFile('logo.png', await fetchFile(opts.logoFile));
+      opts = Object.assign({}, opts, { hasLogo: true });
+    }
+
     var built = planToJobs(plan, info, opts);
     var total = built.jobs.length;
     for (var i = 0; i < total; i++) {
@@ -268,6 +318,7 @@ var NakiExport = (function () {
     // Free the finished session's working files so the next export starts clean
     // (the loaded engine itself is kept, so it doesn't have to reload next time).
     var cleanup = built.videoList.concat(built.audioList, ['movie.in', 'voice.in', 'video.txt', 'audio.txt', 'gain.f32', 'out.mp4']);
+    if (opts.logoFile) cleanup.push('logo.png');
     for (var c = 0; c < cleanup.length; c++) { try { await ffmpeg.deleteFile(cleanup[c]); } catch (e) {} }
 
     prog(1);

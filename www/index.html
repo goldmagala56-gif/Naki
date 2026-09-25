@@ -104,6 +104,7 @@ input[type=range]{accent-color:var(--mango);height:32px}
 /* icon-based navigation: circular icon buttons with a small caption underneath, used for
    Studio/Preview transport controls, so the main controls read as an app toolbar rather
    than a stack of big colored text buttons. */
+.btn[aria-pressed="true"]{background:var(--mango);color:#1d1300;border-color:transparent}
 .icon-btn{display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;
   background:var(--panel-2);color:var(--chalk);cursor:pointer;touch-action:manipulation;flex:none;padding:0}
 .icon-btn svg{width:46%;height:46%;display:block}
@@ -269,6 +270,15 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <button id="bHome" class="btn">Home</button>
           </div>
           <h3>Export</h3>
+          <div class="row wrap" style="margin-bottom:4px">
+            <button type="button" id="bShapeLandscape" class="btn" aria-pressed="true">Landscape</button>
+            <button type="button" id="bShapeVertical" class="btn">Vertical (TikTok)</button>
+          </div>
+          <div class="row wrap" style="margin-bottom:10px">
+            <button type="button" id="bPickLogo" class="btn">Add logo (optional)</button>
+            <span id="logoName" class="dim small" style="align-self:center"></span>
+            <button type="button" id="bClearLogo" class="btn" hidden>Remove logo</button>
+          </div>
           <div class="icon-col" style="margin:6px auto 4px">
             <button id="bExport" class="icon-btn lg accent" aria-label="Export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11.5m0 0l-4-4m4 4l4-4"/><path d="M5 16.5V19a2 2 0 002 2h10a2 2 0 002-2v-2.5"/></svg></button>
             <span class="icon-label">Export</span>
@@ -312,6 +322,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 </main>
 
 <input type="file" id="filePick" accept="video/*,.mkv,.avi,.mov,.mp4,.webm" hidden>
+<input type="file" id="logoPick" accept="image/*" hidden>
 <div id="prepareModal" class="modalWrap" hidden>
   <div class="modalCard">
     <h3 style="margin-top:0">This file needs converting</h3>
@@ -578,9 +589,20 @@ el.pick.addEventListener('change', function(){
   var f = el.pick.files && el.pick.files[0];
   el.pick.value = '';
   if (!f) return;
-  if (S.pickPurpose === 'preview' && S.sess && S.sess.movieName && f.name !== S.sess.movieName){
-    var ok = confirm('This session was recorded with "' + S.sess.movieName + '", but you chose "' + f.name + '".\n\nUsing a different movie will pair it with this session\'s voice, which may not match at all. Use this file anyway?');
-    if (!ok){ toast('Choose the file named "' + S.sess.movieName + '" for this session.', 7000); return; }
+  if (S.pickPurpose === 'preview' && S.sess && S.sess.movieName){
+    var nameMismatch = f.name !== S.sess.movieName;
+    var sizeKnown = S.sess.movieSize != null;
+    var sizeMismatch = sizeKnown && f.size !== S.sess.movieSize;
+    if (nameMismatch || sizeMismatch){
+      var expected = S.sess.movieName + (sizeKnown ? ' (' + fmtBytes(S.sess.movieSize) + ')' : '');
+      var picked = f.name + ' (' + fmtBytes(f.size) + ')';
+      var msg = nameMismatch
+        ? 'This session was recorded with "' + expected + '", but you chose "' + picked + '".'
+        : 'This file is named the same ("' + f.name + '") but its size does not match: this session expects ' + fmtBytes(S.sess.movieSize) + ', and the file you picked is ' + fmtBytes(f.size) + '. It may be a different file with the same name.';
+      msg += '\n\nUsing the wrong movie will pair it with this session\'s recorded voice, and the picture will not match what you said. Use this file anyway?';
+      var ok = confirm(msg);
+      if (!ok){ toast('Choose "' + S.sess.movieName + '"' + (sizeKnown ? ' (' + fmtBytes(S.sess.movieSize) + ')' : '') + ' for this session.', 7000); return; }
+    }
   }
   loadMovie(f).then(function(){
     if (!el.movie.videoWidth){ offerConvert(f); return; }
@@ -630,7 +652,7 @@ function newSession(){
   return { id: 's' + Date.now().toString(36), name: S.movieFile.name.replace(/\.[^.]+$/, ''), created: Date.now(),
     status: 'recording', movieName: S.movieFile.name, movieSize: S.movieFile.size, movieDurMs: S.movieDurMs,
     events: [], levels: [], durationMs: 0, voiceMime: '', voiceOffsetMs: 0, voiceNudgeMs: 0,
-    stats: {}, warnings: [], voiceBlob: null, chunks: [] };
+    stats: {}, warnings: [], voiceBlob: null, chunks: [], chunkTimes: [] };
 }
 function logEvent(type, extra){
   var e = Object.assign({ t: Math.round(performance.now() - S.rec.t0), type: type }, extra || {});
@@ -711,7 +733,13 @@ function startRec(){
       showCount(null);
       var sess = newSession(); S.rec.sess = sess; S.rec.playing = false; S.rec.everPlayed = false; S.rec.playNudged = false; S.ducker.reset();
       if ($('cRemember').checked && DB.ok){
-        DB.put('movies', { sid: sess.id, name: S.movieFile.name, size: S.movieFile.size, blob: S.movieFile }).catch(function(){});
+        DB.put('movies', { sid: sess.id, name: S.movieFile.name, size: S.movieFile.size, blob: S.movieFile }).catch(function(e){
+          console.warn('could not remember movie', e);
+          sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'movie_not_remembered' });
+          toast('This movie is too large to remember on this device. You will need to choose it again next time you open this session.', 8000);
+        });
+      } else if (!DB.ok){
+        sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'movie_not_remembered_no_db' });
       }
       var mime = pickMime(), mr;
       try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
@@ -867,7 +895,8 @@ function preparePreview(s){
   $('rOff').value = String(s.voiceNudgeMs || 0);
   $('offVal').textContent = (s.voiceNudgeMs || 0) + ' ms';
   $('needMovie').hidden = !!S.movieFile;
-  $('needName').textContent = 'Movie used: ' + s.movieName;
+  var notRemembered = (s.warnings || []).some(function(w){ return w.type === 'movie_not_remembered' || w.type === 'movie_not_remembered_no_db'; });
+  $('needName').textContent = 'Movie used: ' + s.movieName + (s.movieSize != null ? ' (' + fmtBytes(s.movieSize) + ')' : '') + (notRemembered ? ' — this movie could not be saved on this device, so pick the same file again.' : '');
   renderStats(s);
   updatePreviewUI();
 }
@@ -956,6 +985,11 @@ function download(blob, name){
   setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 function safeName(s){ return (s || 'session').replace(/[^\w\-]+/g, '_').slice(0, 40) || 'session'; }
+function fmtBytes(n){
+  if (n == null) return 'unknown size';
+  if (n < 1024*1024) return Math.round(n/1024) + ' KB';
+  return (n/1048576).toFixed(1) + ' MB';
+}
 function voiceExt(m){ return /ogg/.test(m) ? 'ogg' : (/mp4/.test(m) ? 'm4a' : 'webm'); }
 function sessionExport(s){
   return { naki: 'session', version: 1, name: s.name,
@@ -1137,6 +1171,26 @@ function loadExportEngine(){
     document.head.appendChild(s);
   });
 }
+S.exportVertical = false;
+S.logoFile = null;
+function setShape(vertical){
+  S.exportVertical = vertical;
+  $('bShapeLandscape').setAttribute('aria-pressed', String(!vertical));
+  $('bShapeVertical').setAttribute('aria-pressed', String(vertical));
+}
+setShape(false);
+$('bShapeLandscape').onclick = function(){ setShape(false); };
+$('bShapeVertical').onclick = function(){ setShape(true); };
+$('bPickLogo').onclick = function(){ $('logoPick').click(); };
+$('logoPick').addEventListener('change', function(){
+  var f = this.files && this.files[0]; this.value = '';
+  if (!f) return;
+  S.logoFile = f;
+  $('logoName').textContent = f.name;
+  $('bClearLogo').hidden = false;
+});
+$('bClearLogo').onclick = function(){ S.logoFile = null; $('logoName').textContent = ''; $('bClearLogo').hidden = true; };
+
 $('bExport').onclick = function(){
   if (!S.sess) return;
   if (!S.movieFile){ toast('Choose the movie for this session first.'); return; }
@@ -1146,7 +1200,14 @@ $('bExport').onclick = function(){
   statusEl.textContent = 'Starting...'; $('bExport').disabled = true;
   loadExportEngine().then(function(){
     var plan = buildExportPlan(S.sess);
-    return NakiExport.run(S.movieFile, S.sess.voiceBlob, plan, { height: 720, crf: 21 }, {
+    // Match the source movie's own resolution instead of a fixed 720 tier, so a
+    // higher-res source isn't needlessly softened; still capped for phones with
+    // limited RAM, and never upscaled past what the source actually has.
+    var sourceH = el.movie.videoHeight || 720;
+    var targetH = Math.max(480, Math.min(1080, sourceH));
+    var opts = { height: targetH, crf: 20, preset: 'veryfast', vertical: S.exportVertical };
+    if (S.logoFile) opts.logoFile = S.logoFile;
+    return NakiExport.run(S.movieFile, S.sess.voiceBlob, plan, opts, {
       onStatus: function(t){ statusEl.textContent = t; },
       onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
     });
