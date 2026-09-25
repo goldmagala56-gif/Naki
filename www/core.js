@@ -144,6 +144,3 @@ if (typeof module !== 'undefined' && module.exports){
 }
 
 
-git add .
-git commit -m "Update core.js with take back functionality"
-git push origin main
