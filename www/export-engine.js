@@ -91,7 +91,7 @@ function watermarkFilter(outW, corner, marginRatio) {
 function planToJobs(plan, movieInfo, opts) {
   opts = opts || {};
   var tier = opts.height || 480; // a quality tier, e.g. 480/720; means "tall side" in landscape, "short side" in vertical
-  var preset = opts.preset || 'ultrafast';
+  var preset = opts.preset || 'veryfast';
   var crf = opts.crf != null ? opts.crf : 26;
   var vertical = !!opts.vertical;
   var width, height;

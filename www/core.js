@@ -142,5 +142,3 @@ if (typeof module !== 'undefined' && module.exports){
     simplifyGain: simplifyGain, buildExportPlan: buildExportPlan, fmt: fmt,
     chunksToKeep: chunksToKeep, trimEventsAndLevels: trimEventsAndLevels };
 }
-
-

@@ -215,6 +215,9 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <button id="bRec" class="icon-btn lg danger" aria-label="Record"><svg id="bRecIcon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6.2"/></svg></button>
             <span id="bRecLabel" class="icon-label">Record</span>
           </div>
+          <div class="row wrap" style="justify-content:center;margin-top:2px">
+            <button id="bTakeBack" class="btn" hidden>Take back 5s</button>
+          </div>
 
           <div class="field">
             <label for="rVol">Movie volume <span id="volVal">100%</span></label>
@@ -267,6 +270,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
           <dl id="pStats" class="stats"></dl>
           <div class="row">
             <button id="bAgain" class="btn">Record again</button>
+            <button id="bTakeBackHere" class="btn">Take back from here</button>
             <button id="bHome" class="btn">Home</button>
           </div>
           <h3>Export</h3>
@@ -433,12 +437,13 @@ var DB = {
   get: function(store, key){ return this.tx(store, 'readonly', function(s){ return s.get(key); }); },
   all: function(store){ return this.tx(store, 'readonly', function(s){ return s.getAll(); }); },
   range: function(store, sid){ return this.tx(store, 'readonly', function(s){ return s.getAll(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }); },
+  delRange: function(store, sid){ return this.tx(store, 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }); },
   delSession: function(sid){
     var self = this;
     return Promise.all([
       self.tx('sessions', 'readwrite', function(s){ return s.delete(sid); }),
-      self.tx('chunks', 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }),
-      self.tx('levels', 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }),
+      self.delRange('chunks', sid),
+      self.delRange('levels', sid),
       self.tx('movies', 'readwrite', function(s){ return s.delete(sid); })
     ]);
   }
@@ -447,7 +452,8 @@ var DB = {
 function sessionRecord(s){
   return { id: s.id, name: s.name, created: s.created, status: s.status, movieName: s.movieName, movieSize: s.movieSize,
     movieDurMs: s.movieDurMs, events: s.events, durationMs: s.durationMs, voiceMime: s.voiceMime,
-    voiceOffsetMs: s.voiceOffsetMs, voiceNudgeMs: s.voiceNudgeMs, stats: s.stats, warnings: s.warnings, chunkCount: s.chunks.length };
+    voiceOffsetMs: s.voiceOffsetMs, voiceNudgeMs: s.voiceNudgeMs, stats: s.stats, warnings: s.warnings,
+    chunkCount: s.chunks.length, chunkTimes: s.chunkTimes };
 }
 function levelChunks(s, from){
   var out = [], n = s.levels.length, last = Math.floor((n - 1) / LEVEL_CHUNK);
@@ -461,6 +467,18 @@ function persistSession(s, all){
     .then(function(){ return DB.putMany('levels', levelChunks(s, all ? 0 : Math.max(0, last - 1))); })
     .catch(function(e){ console.warn('save failed', e); });
 }
+// Rewrites a session's chunks and levels stores from scratch. Used after Take Back, since
+// trimming can shrink these arrays (drop trailing chunks/level samples) rather than only
+// ever grow them, and the normal persistSession() only ever adds or overwrites -- it never
+// deletes now-stale trailing rows a shrink would leave behind.
+function persistTrimmed(s){
+  if (!DB.ok) return Promise.resolve();
+  return Promise.all([DB.delRange('chunks', s.id), DB.delRange('levels', s.id)])
+    .then(function(){ return DB.putMany('chunks', s.chunks.map(function(b, i){ return { sid: s.id, i: i, blob: b }; })); })
+    .then(function(){ return DB.putMany('levels', levelChunks(s, 0)); })
+    .then(function(){ return DB.put('sessions', sessionRecord(s)); })
+    .catch(function(e){ console.warn('trim save failed', e); });
+}
 function loadSession(id){
   return DB.get('sessions', id).then(function(rec){
     return Promise.all([DB.range('chunks', id), DB.range('levels', id)]).then(function(r){
@@ -471,6 +489,12 @@ function loadSession(id){
       rec.voiceBlob = new Blob(chunks, { type: rec.voiceMime || 'audio/webm' });
       rec.stats = rec.stats || {}; rec.warnings = rec.warnings || [];
       rec.voiceNudgeMs = rec.voiceNudgeMs || 0;
+      if (!rec.chunkTimes || !rec.chunkTimes.length){
+        // Sessions recorded before Take Back existed have no per-chunk timing. Approximate
+        // each chunk as covering ~1000ms (MediaRecorder's normal timeslice), capped to the
+        // session length; good enough for a coarse take-back, not for anything exact.
+        rec.chunkTimes = chunks.map(function(_, i){ return Math.min(rec.durationMs || (i + 1) * 1000, (i + 1) * 1000); });
+      }
       if (rec.status === 'recording'){
         rec.status = 'recovered';
         var lastT = rec.events.length ? rec.events[rec.events.length - 1].t : 0;
@@ -712,6 +736,7 @@ function updateStudioUI(){
   $('bRecLabel').textContent = on ? 'Stop' : 'Record';
   $('bRec').className = 'icon-btn lg danger' + (on ? ' on' : '');
   $('bRec').disabled = S.rec.starting;
+  $('bTakeBack').hidden = !on;
   $('seek').disabled = on;
   $('recDot').className = 'recdot' + (on ? ' on' : '');
   $('recState').textContent = !on ? 'Ready' : (S.rec.playing ? 'Recording, movie playing' : 'Recording, movie paused. Keep talking.');
@@ -719,6 +744,87 @@ function updateStudioUI(){
   updateChip();
 }
 function showCount(n){ var c = $('count'); c.hidden = (n == null); if (n != null) c.textContent = n; }
+
+// Creates and wires a MediaRecorder writing into sess, appending from wherever sess.chunks
+// currently ends. Shared by starting a session fresh and by resuming one after Take Back --
+// both are "keep recording into this same session", just starting from a different point.
+// isFirst controls whether this recorder is allowed to set sess.voiceOffsetMs/voiceMime (only
+// true the very first time, so a later resume never re-anchors already-kept audio).
+function attachRecorder(sess, isFirst){
+  var mime = pickMime(), mr;
+  try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
+  catch (e) { return null; }
+  var st = S.mic.settings || {};
+  sess.stats.mic = { echoCancellation: st.echoCancellation, noiseSuppression: st.noiseSuppression,
+    autoGainControl: st.autoGainControl, sampleRate: st.sampleRate, channelCount: st.channelCount };
+  mr.ondataavailable = function (e) {
+    if (e.data && e.data.size) {
+      sess.chunks.push(e.data);
+      sess.chunkTimes.push(Math.round(performance.now() - S.rec.t0));
+      var i = sess.chunks.length - 1;
+      if (DB.ok) DB.put('chunks', { sid: sess.id, i: i, blob: e.data }).catch(function () {});
+    }
+  };
+  if (isFirst) {
+    mr.onstart = function () { sess.voiceOffsetMs = Math.round(performance.now() - S.rec.t0); if (mr.mimeType) sess.voiceMime = mr.mimeType; };
+  } else if (mr.mimeType && !sess.voiceMime) { sess.voiceMime = mr.mimeType; }
+  mr.onerror = function () { sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'recorder_error' }); toast('The recorder reported a problem.', 6000); };
+  return mr;
+}
+
+// The actual cut: drops chunks/events/levels after cutT, re-anchors S.rec.t0 so recording
+// continues with no dead air, and repositions the movie to match. Assumes S.rec.t0 already
+// exists (recording is active by the time this runs, whether freshly or just resumed).
+function applyTakeBack(sess, cutT) {
+  var keep = chunksToKeep(sess.chunkTimes, cutT);
+  sess.chunks.length = keep; sess.chunkTimes.length = keep;
+  var trimmed = trimEventsAndLevels(sess.events, sess.levels, cutT);
+  sess.events = trimmed.events; sess.levels = trimmed.levels;
+  S.rec.t0 = performance.now() - cutT;
+  persistTrimmed(sess);
+  var st = stateAt(sess.events, cutT);
+  S.rec.playing = st.playing;
+  el.movie.currentTime = st.movieMs / 1000;
+  if (st.playing) { if (el.movie.paused) { var p = el.movie.play(); if (p && p.catch) p.catch(function () {}); } }
+  else if (!el.movie.paused) { el.movie.pause(); }
+  updateStudioUI();
+}
+
+// Live "Take back Ns" while recording. Chunks only arrive roughly once per second, so this
+// forces an early flush first to get as close to the requested cut point as the encoder allows
+// (see chunksToKeep in core.js for why chunks can only ever be dropped whole).
+function takeBackLive(seconds) {
+  var r = S.rec;
+  if (!r.on || r.starting) return;
+  var curT = Math.round(performance.now() - r.t0);
+  var cutT = Math.max(0, curT - seconds * 1000);
+  toast('Taking back the last ' + seconds + ' seconds\u2026', 2500);
+  try { r.mr.requestData(); } catch (e) {}
+  setTimeout(function () { applyTakeBack(r.sess, cutT); toast('Taken back \u2014 keep talking from here.', 2500); }, 120);
+}
+
+// From Preview: scrub to a point, discard everything after it, and drop straight back into an
+// active recording that continues seamlessly from there.
+function takeBackFromPreview(cutT) {
+  if (!S.sess || !S.movieFile) return Promise.resolve();
+  var sess = S.sess;
+  el.voice.pause();
+  return openMic().then(function (ok) {
+    if (!ok) return;
+    ensureAudio(); S.audio.ctx.resume();
+    var mr = attachRecorder(sess, false);
+    if (!mr) { toast('Could not resume recording on this device.'); return; }
+    show('work'); setMode('studio');
+    S.rec.sess = sess; S.rec.mr = mr; S.rec.on = true; S.rec.starting = false;
+    S.rec.everPlayed = true; S.rec.playNudged = true; S.ducker.reset();
+    applyTakeBack(sess, cutT);
+    mr.start(1000);
+    keepAwake();
+    S.rec.autosave = setInterval(function () { persistSession(sess); }, 3000);
+    updateStudioUI();
+    toast('Continuing this session from where you cut it.', 4000);
+  });
+}
 
 function startRec(){
   if (S.rec.on || S.rec.starting) return Promise.resolve();
@@ -741,27 +847,12 @@ function startRec(){
       } else if (!DB.ok){
         sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'movie_not_remembered_no_db' });
       }
-      var mime = pickMime(), mr;
-      try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
-      catch (e){ S.rec.starting = false; updateStudioUI(); toast('Could not start recording on this device.'); return; }
-      sess.voiceMime = mime || 'audio/webm';
-      var st = S.mic.settings || {};
-      sess.stats.mic = { echoCancellation: st.echoCancellation, noiseSuppression: st.noiseSuppression,
-        autoGainControl: st.autoGainControl, sampleRate: st.sampleRate, channelCount: st.channelCount };
+      var mr = attachRecorder(sess, true);
+      if (!mr){ S.rec.starting = false; updateStudioUI(); toast('Could not start recording on this device.'); return; }
       S.rec.mr = mr; S.rec.t0 = performance.now(); S.rec.on = true; S.rec.starting = false;
       logEvent('rec_start', { movieMs: movieMsNow() });
       logEvent('vol', { value: S.opts.userVol });
       logEvent('duck', { enabled: S.ducker.p.enabled, thresholdDb: S.ducker.p.thresholdDb, duckedGain: S.ducker.p.duckedGain });
-      var idx = 0;
-      mr.ondataavailable = function(e){
-        if (e.data && e.data.size){
-          sess.chunks.push(e.data);
-          var i = idx++;
-          if (DB.ok) DB.put('chunks', { sid: sess.id, i: i, blob: e.data }).catch(function(){});
-        }
-      };
-      mr.onstart = function(){ sess.voiceOffsetMs = Math.round(performance.now() - S.rec.t0); if (mr.mimeType) sess.voiceMime = mr.mimeType; };
-      mr.onerror = function(){ sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'recorder_error' }); toast('The recorder reported a problem.', 6000); };
       mr.start(1000);
       keepAwake();
       persistSession(sess);
@@ -1085,6 +1176,7 @@ $('stage').onclick = function(){ if (S.view === 'work' && S.mode === 'studio' &&
 $('bBack').onclick = function(){ jump(-10); };
 $('bFwd').onclick = function(){ jump(10); };
 $('bRec').onclick = function(){ if (S.rec.on) stopRec(); else startRec(); };
+$('bTakeBack').onclick = function(){ takeBackLive(5); };
 $('seek').addEventListener('input', function(){
   if (S.rec.on || !el.movie.duration) return;
   el.movie.currentTime = $('seek').value / 1000 * el.movie.duration;
@@ -1139,6 +1231,14 @@ $('rOff').addEventListener('input', function(){
 $('rOff').addEventListener('change', function(){ if (S.sess) persistSession(S.sess, false); });
 $('bPickMovie').onclick = function(){ chooseMovie('preview'); };
 $('bAgain').onclick = function(){ el.voice.pause(); S.sess = null; if (!S.movieFile){ chooseMovie('new'); return; } enterStudio(); };
+$('bTakeBackHere').onclick = function(){
+  if (!S.sess || !S.movieFile){ toast('Choose the movie for this session first.'); return; }
+  var t = Math.round(Number($('pSeek').value) / 1000 * S.sess.durationMs);
+  var ok = confirm('Take back from ' + fmt(t) + '? Everything after this point in the recording will be discarded, and Naki will start recording again from here.');
+  if (!ok) return;
+  el.movie.pause();
+  takeBackFromPreview(t);
+};
 $('bHome').onclick = function(){ $('btnBack').click(); };
 $('dVoice').onclick = function(){
   var s = S.sess; if (!s) return;
