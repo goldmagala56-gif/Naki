@@ -5,6 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#111b24">
+<meta name="naki-build" content="__BUILD__">
+<meta name="description" content="Narrate a movie live. Pause to explain. Works offline.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="icon" href="favicon.ico">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Naki">
 <title>Naki</title>
 <style>
 :root{
@@ -26,7 +36,9 @@ button,input{font:inherit;color:inherit}
   position:sticky;top:0;background:var(--ink);z-index:5}
 .brand{font-weight:800;font-size:22px;letter-spacing:.01em}
 .brand i{display:inline-block;width:9px;height:9px;border-radius:50%;background:var(--mango);margin-left:5px;vertical-align:2px}
-.back{border:0;background:var(--panel-2);width:40px;height:40px;border-radius:12px;font-size:20px;cursor:pointer}
+.back{border:0;background:var(--panel-2);width:40px;height:40px;border-radius:12px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;color:var(--chalk)}
+.back svg{width:20px;height:20px}
 
 main{max-width:1000px;margin:0 auto;padding:14px}
 h1{font-size:38px;line-height:1.05;margin:14px 0 8px;font-weight:800}
@@ -88,6 +100,24 @@ input[type=range]{accent-color:var(--mango);height:32px}
 .recbtn::before{content:"";width:16px;height:16px;border-radius:50%;background:#fff}
 .recbtn.on::before{border-radius:3px}
 .recbtn:disabled{opacity:.5}
+
+/* icon-based navigation: circular icon buttons with a small caption underneath, used for
+   Studio/Preview transport controls, so the main controls read as an app toolbar rather
+   than a stack of big colored text buttons. */
+.btn[aria-pressed="true"]{background:var(--mango);color:#1d1300;border-color:transparent}
+.icon-btn{display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;
+  background:var(--panel-2);color:var(--chalk);cursor:pointer;touch-action:manipulation;flex:none;padding:0}
+.icon-btn svg{width:46%;height:46%;display:block}
+.icon-btn.lg{width:72px;height:72px}
+.icon-btn.md{width:52px;height:52px}
+.icon-btn.accent{background:var(--mango);color:#1d1300}
+.icon-btn.danger{background:var(--hibiscus);color:#fff}
+.icon-btn.danger.on{border-radius:30%}
+.icon-btn:active{transform:scale(.96)}
+.icon-btn:disabled{opacity:.4;cursor:default}
+.icon-col{display:flex;flex-direction:column;align-items:center;gap:6px}
+.icon-row{display:flex;align-items:flex-start;justify-content:center;gap:26px;margin:16px 0 6px}
+.icon-label{font-size:12.5px;color:var(--dim);font-weight:600;white-space:nowrap}
 .field{margin:14px 0 4px}
 .field label{display:flex;justify-content:space-between;gap:10px;margin-bottom:2px;font-weight:600}
 .field label span{color:var(--dim);font-weight:500}
@@ -99,6 +129,8 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 .stats{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:14px 0;font-size:14px}
 .stats dt{color:var(--dim)} .stats dd{margin:0}
 
+.modalWrap{position:fixed;inset:0;background:rgba(8,13,17,.72);display:flex;align-items:center;justify-content:center;z-index:30;padding:16px}
+.modalCard{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:18px;max-width:420px;width:100%}
 .toast{position:fixed;left:12px;right:12px;bottom:calc(14px + env(safe-area-inset-bottom));max-width:520px;margin:0 auto;
   background:var(--chalk);color:#14202a;padding:12px 14px;border-radius:12px;font-weight:600;z-index:20}
 
@@ -111,7 +143,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 </head>
 <body>
 <header class="top">
-  <button id="btnBack" class="back" hidden aria-label="Back">&larr;</button>
+  <button id="btnBack" class="back" hidden aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4.5l-7.5 7.5 7.5 7.5"/></svg></button>
   <div class="brand">Naki<i></i></div>
 </header>
 
@@ -123,10 +155,12 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
     <div class="stack">
       <button id="btnNew" class="btn primary big">New session</button>
       <button id="btnCheck" class="btn">Check this device</button>
+      <button id="btnInstall" class="btn" hidden>Install Naki on this phone</button>
     </div>
     <div class="tip">Wear headphones or earphones while you record. Without them, the movie sound leaks into your microphone.</div>
     <h2>Your sessions</h2>
     <div id="sessList"></div>
+    <p id="verLine" class="dim small" style="margin-top:28px"></p>
   </section>
 
   <!-- Device check -->
@@ -161,13 +195,29 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
           </div>
           <div class="meter" aria-label="Microphone level"><div id="meterFill"></div><div id="meterThr"></div></div>
           <div class="dim small" style="margin-top:4px">Speak to test the mic. The movie lowers when the bar passes the white line.</div>
+          <label class="check" style="margin-top:14px"><input id="cRemember" type="checkbox" checked><span>Remember this movie on this device, so you don't have to choose it again next time (uses more storage)</span></label>
 
-          <div class="transport">
-            <button id="bBack" class="btn">Back 10s</button>
-            <button id="bPlay" class="btn play">Play</button>
-            <button id="bFwd" class="btn">Forward 10s</button>
+          <div class="icon-row">
+            <div class="icon-col">
+              <button id="bBack" class="icon-btn md" aria-label="Back 10 seconds"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1.3L6.3 6 12 10.7V7a5 5 0 11-4.9 6H4.9A7.1 7.1 0 1012 5z"/></svg></button>
+              <span class="icon-label">10s</span>
+            </div>
+            <div class="icon-col">
+              <button id="bPlay" class="icon-btn lg accent" aria-label="Play"><svg id="bPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+              <span id="bPlayLabel" class="icon-label">Play</span>
+            </div>
+            <div class="icon-col">
+              <button id="bFwd" class="icon-btn md" aria-label="Forward 10 seconds"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1.3L17.7 6 12 10.7V7a5 5 0 104.9 6h2.2A7.1 7.1 0 1012 5z"/></svg></button>
+              <span class="icon-label">10s</span>
+            </div>
           </div>
-          <button id="bRec" class="recbtn">Record</button>
+          <div class="icon-col" style="margin:8px auto 4px">
+            <button id="bRec" class="icon-btn lg danger" aria-label="Record"><svg id="bRecIcon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6.2"/></svg></button>
+            <span id="bRecLabel" class="icon-label">Record</span>
+          </div>
+          <div class="row wrap" style="justify-content:center;margin-top:2px">
+            <button id="bTakeBack" class="btn" hidden>Take back 5s</button>
+          </div>
 
           <div class="field">
             <label for="rVol">Movie volume <span id="volVal">100%</span></label>
@@ -178,12 +228,18 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <summary>Sound options</summary>
             <label class="check"><input id="cDuck" type="checkbox" checked><span>Lower the movie when I speak</span></label>
             <div class="field">
-              <label for="rDuck">Movie level while I speak <span id="duckVal">20%</span></label>
-              <input id="rDuck" type="range" min="0" max="60" value="20" style="width:100%">
+              <label for="rDuck">Movie level while I speak <span id="duckVal">6%</span></label>
+              <input id="rDuck" type="range" min="0" max="60" value="6" style="width:100%">
+              <div class="row wrap" style="margin-top:6px">
+                <button type="button" class="btn duckpreset" data-v="0">Mute</button>
+                <button type="button" class="btn duckpreset" data-v="6">Almost mute</button>
+                <button type="button" class="btn duckpreset" data-v="18">Light</button>
+                <button type="button" class="btn duckpreset" data-v="35">Subtle</button>
+              </div>
             </div>
             <div class="field">
-              <label for="rThr">Mic trigger level <span id="thrVal">-40 dB</span></label>
-              <input id="rThr" type="range" min="-60" max="-20" value="-40" style="width:100%">
+              <label for="rThr">Mic trigger level <span id="thrVal">-42 dB</span></label>
+              <input id="rThr" type="range" min="-60" max="-20" value="-42" style="width:100%">
             </div>
             <label class="check"><input id="cEcho" type="checkbox" checked><span>Echo cancellation. Turn it off if the movie sounds quiet while the mic is on.</span></label>
             <label class="check"><input id="cSimple" type="checkbox"><span>Simple sound mode. Turn it on if the movie has no sound. The page reloads.</span></label>
@@ -202,7 +258,10 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <input id="pSeek" type="range" min="0" max="1000" value="0" aria-label="Session position">
             <span id="pDur" class="num">0:00</span>
           </div>
-          <div class="transport"><button id="pPlay" class="btn play">Play session</button></div>
+          <div class="icon-col" style="margin:8px auto 6px">
+            <button id="pPlay" class="icon-btn lg accent" aria-label="Play session"><svg id="pPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+            <span id="pPlayLabel" class="icon-label">Play session</span>
+          </div>
           <div class="field">
             <label for="rOff">Voice timing <span id="offVal">0 ms</span></label>
             <input id="rOff" type="range" min="-500" max="500" step="10" value="0" style="width:100%">
@@ -211,18 +270,60 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
           <dl id="pStats" class="stats"></dl>
           <div class="row">
             <button id="bAgain" class="btn">Record again</button>
+            <button id="bTakeBackHere" class="btn">Take back from here</button>
             <button id="bHome" class="btn">Home</button>
           </div>
-          <h3>Make the finished video</h3>
-          <div class="row"><button id="dAll" class="btn primary">Save for export (plan and voice)</button></div>
-          <p class="dim small">Put the movie, the plan file and the voice file in one folder on your computer, then run Naki export (see the README). It builds one MP4 with your pauses and voice.</p>
-          <h3>Other files</h3>
-          <div class="row wrap">
-            <button id="dVoice" class="btn">Voice</button>
-            <button id="dSess" class="btn">Session</button>
-            <button id="dPlan" class="btn">Export plan</button>
+          <h3>Export</h3>
+          <div class="row wrap" style="margin-bottom:4px">
+            <button type="button" id="bShapeLandscape" class="btn" aria-pressed="true">Landscape</button>
+            <button type="button" id="bShapeVertical" class="btn">Vertical (TikTok)</button>
           </div>
-          <div class="row"><button id="bReport" class="btn">Copy test report</button></div>
+          <div class="row wrap" style="margin-bottom:4px">
+            <button type="button" id="bQualityFaster" class="btn" aria-pressed="true">Faster export</button>
+            <button type="button" id="bQualitySharper" class="btn">Sharper (slower)</button>
+          </div>
+          <p class="dim small" style="margin:2px 0 8px">Faster finishes in roughly the time it used to. Sharper looks noticeably better but can take much longer on an older phone -- try Faster first if you're not sure.</p>
+          <div class="row wrap" style="margin-bottom:10px">
+            <button type="button" id="bPickLogo" class="btn">Add logo (optional)</button>
+            <span id="logoName" class="dim small" style="align-self:center"></span>
+            <button type="button" id="bClearLogo" class="btn" hidden>Remove logo</button>
+          </div>
+          <div class="icon-col" style="margin:6px auto 4px">
+            <button id="bExport" class="icon-btn lg accent" aria-label="Export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11.5m0 0l-4-4m4 4l4-4"/><path d="M5 16.5V19a2 2 0 002 2h10a2 2 0 002-2v-2.5"/></svg></button>
+            <span class="icon-label">Export</span>
+          </div>
+          <div id="exportBox" hidden>
+            <div class="field">
+              <label for="exportStatus" style="margin-bottom:6px">
+                <span id="exportStatus">Working...</span>
+                <span id="exportPct" class="num"></span>
+              </label>
+              <div class="meter"><div id="exportBar" style="position:absolute;left:0;top:0;bottom:0;width:0;background:var(--mango);border-radius:8px"></div></div>
+            </div>
+            <div id="exportDone" hidden>
+              <video id="exportPreview" controls playsinline style="width:100%;border-radius:12px;background:#000;margin:10px 0"></video>
+              <div class="row wrap">
+                <button id="bShareVideo" class="btn primary" hidden>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:-4px;margin-right:6px"><path d="M12 15V4.5m0 0L8.2 8.3M12 4.5l3.8 3.8"/><path d="M5 12v6.5a2 2 0 002 2h10a2 2 0 002-2V12"/></svg>Share / save to gallery
+                </button>
+                <a id="exportDownload" class="btn" download="naki.mp4">Download file</a>
+              </div>
+              <p class="dim small">You can review your video right here before saving it anywhere. If "Share" isn't available on this device, use Download instead — it saves to your normal Downloads.</p>
+            </div>
+          </div>
+          <p class="dim small">Builds your finished video on this device and saves it. The first time, it needs internet once (about 30&nbsp;MB); after that it works offline.</p>
+          <details class="opts">
+            <summary>Advanced (not needed for normal use)</summary>
+            <p class="dim small">These are extra tools for troubleshooting and for computer-based export. Most people never need this section.</p>
+            <div class="row"><button id="dAll" class="btn">Save plan and voice files</button></div>
+            <p class="dim small">For the separate computer export tool (see the README in tools/export). Downloads two raw files, not a video.</p>
+            <div class="row wrap">
+              <button id="dVoice" class="btn">Download voice only</button>
+              <button id="dSess" class="btn">Download session data</button>
+              <button id="dPlan" class="btn">Download export plan (data file)</button>
+            </div>
+            <div class="row"><button id="bReport" class="btn">Copy test report</button></div>
+          </details>
         </div>
       </div>
     </div>
@@ -230,127 +331,46 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 </main>
 
 <input type="file" id="filePick" accept="video/*,.mkv,.avi,.mov,.mp4,.webm" hidden>
+<input type="file" id="logoPick" accept="image/*" hidden>
+<div id="prepareModal" class="modalWrap" hidden>
+  <div class="modalCard">
+    <h3 style="margin-top:0">This file needs converting</h3>
+    <p id="prepareMsg" class="dim small"></p>
+    <div id="prepareProgressWrap" hidden>
+      <div class="field">
+        <label style="margin-bottom:6px"><span id="prepareStatus">Working...</span> <span id="preparePct" class="num"></span></label>
+        <div class="meter"><div id="prepareBar" style="position:absolute;left:0;top:0;bottom:0;width:0;background:var(--mango);border-radius:8px"></div></div>
+      </div>
+    </div>
+    <div class="row wrap" id="prepareButtons">
+      <button id="bPrepareConvert" class="btn primary">Convert now</button>
+      <button id="bPrepareCancel" class="btn">Cancel</button>
+    </div>
+  </div>
+</div>
 <audio id="voice" preload="auto"></audio>
 <div id="toast" class="toast" hidden></div>
 
+<script src="core.js"></script>
 <script>
 'use strict';
 
-// ===CORE START===
-// Pure logic: no page or device code in here, so it can be tested on its own.
-var DB_MIN = -80;
-var LEVEL_STEP_MS = 50;
 
-function rmsToDb(r){ return r > 1e-4 ? Math.max(DB_MIN, 20 * Math.log10(r)) : DB_MIN; }
-function dbToByte(db){ var c = Math.max(DB_MIN, Math.min(0, db)); return Math.round((c - DB_MIN) / (-DB_MIN) * 255); }
-function byteToDb(b){ return DB_MIN + (b / 255) * (-DB_MIN); }
-
-// Lowers the movie while the voice is loud enough. Same code runs live and when building the export.
-class Ducker {
-  constructor(p){
-    this.p = Object.assign({ enabled: true, thresholdDb: -40, duckedGain: 0.2, attackMs: 60, releaseMs: 450, holdMs: 350 }, p || {});
-    this.reset();
-  }
-  reset(){ this.gain = 1; this.holdLeft = 0; }
-  step(db, dtMs){
-    var p = this.p;
-    if (!p.enabled){ this.gain = 1; this.holdLeft = 0; return 1; }
-    if (db > p.thresholdDb) this.holdLeft = p.holdMs;
-    else this.holdLeft = Math.max(0, this.holdLeft - dtMs);
-    var target = this.holdLeft > 0 ? p.duckedGain : 1;
-    var tau = target < this.gain ? p.attackMs : p.releaseMs;
-    this.gain += (target - this.gain) * (1 - Math.exp(-dtMs / tau));
-    return this.gain;
-  }
-}
-
-// Where is the movie, and is it playing, at session time t?
-function stateAt(events, t){
-  var playing = false, anchorT = 0, anchorMovie = 0;
-  for (var i = 0; i < events.length; i++){
-    var e = events[i];
-    if (e.t > t) break;
-    if (e.type === 'rec_start'){ anchorMovie = e.movieMs; anchorT = e.t; playing = false; }
-    else if (e.type === 'play' && !playing){ playing = true; anchorT = e.t; anchorMovie = e.movieMs; }
-    else if (e.type === 'pause' && playing){ playing = false; anchorMovie = e.movieMs; anchorT = e.t; }
-    else if (e.type === 'jump'){ anchorMovie = e.toMs; anchorT = e.t; }
-  }
-  return { playing: playing, movieMs: playing ? anchorMovie + (t - anchorT) : anchorMovie };
-}
-
-// Turns the event log into "play this part of the movie" and "hold this frame" spans.
-function buildVideoSpans(events, durationMs){
-  var spans = [], playing = false, spanStart = 0, spanMovie = 0;
-  function close(t){
-    if (t > spanStart){
-      spans.push(playing
-        ? { type: 'play', sessionStart: spanStart, sessionEnd: t, movieStart: spanMovie }
-        : { type: 'freeze', sessionStart: spanStart, sessionEnd: t, movieAt: spanMovie });
-    }
-  }
-  for (var i = 0; i < events.length; i++){
-    var e = events[i];
-    if (e.type === 'rec_start'){ spanStart = e.t; spanMovie = e.movieMs; playing = false; }
-    else if (e.type === 'play' && !playing){ close(e.t); playing = true; spanStart = e.t; spanMovie = e.movieMs; }
-    else if (e.type === 'pause' && playing){ close(e.t); playing = false; spanStart = e.t; spanMovie = e.movieMs; }
-    else if (e.type === 'jump'){ close(e.t); spanStart = e.t; spanMovie = e.toMs; }
-  }
-  close(durationMs);
-  return spans;
-}
-
-// Movie loudness over the whole session (user volume x auto-lowering), one value per step.
-function buildGainSeries(s){
-  var levels = s.levels || [], events = s.events || [];
-  var n = Math.max(levels.length, Math.ceil((s.durationMs || 0) / LEVEL_STEP_MS)) + 1;
-  var d = new Ducker(), vol = 1, ei = 0, out = [];
-  for (var i = 0; i < n; i++){
-    var t = i * LEVEL_STEP_MS;
-    while (ei < events.length && events[ei].t <= t){
-      var e = events[ei++];
-      if (e.type === 'vol') vol = e.value;
-      else if (e.type === 'duck') d.p = Object.assign({}, d.p, { enabled: e.enabled, thresholdDb: e.thresholdDb, duckedGain: e.duckedGain });
-    }
-    var db = i < levels.length ? byteToDb(levels[i]) : DB_MIN;
-    out.push(vol * d.step(db, LEVEL_STEP_MS));
-  }
-  return out;
-}
-
-// Keeps only the points where the loudness really changes.
-function simplifyGain(series, stepMs, tol){
-  var pts = [], lastVal = null, lastIdx = -1;
-  function push(i){ pts.push([i * stepMs, Math.round(series[i] * 1000) / 1000]); lastVal = series[i]; lastIdx = i; }
-  for (var i = 0; i < series.length; i++){
-    if (lastVal === null){ push(i); continue; }
-    if (Math.abs(series[i] - lastVal) >= tol){ if (lastIdx < i - 1) push(i - 1); push(i); }
-    else if (i === series.length - 1){ push(i); }
-  }
-  return pts;
-}
-
-function buildExportPlan(s){
-  var series = buildGainSeries(s);
-  return {
-    naki: 'export-plan', version: 1,
-    durationMs: s.durationMs,
-    movie: { name: s.movieName, durationMs: s.movieDurMs },
-    video: buildVideoSpans(s.events, s.durationMs),
-    movieGain: { stepMs: LEVEL_STEP_MS, points: simplifyGain(series, LEVEL_STEP_MS, 0.02) },
-    voice: { file: 'voice', offsetMs: (s.voiceOffsetMs || 0) + (s.voiceNudgeMs || 0) }
-  };
-}
-
-function fmt(ms){
-  var t = Math.max(0, Math.round(ms / 1000));
-  var h = Math.floor(t / 3600), m = Math.floor((t % 3600) / 60), sec = t % 60;
-  return (h ? h + ':' + String(m).padStart(2, '0') : String(m)) + ':' + String(sec).padStart(2, '0');
-}
-// ===CORE END===
 
 var $ = function(id){ return document.getElementById(id); };
+// Small inline icon glyphs, swapped into the transport buttons' <svg> as state changes,
+// so the same round button shows Play/Pause, Record/Stop etc. without a page full of text.
+var ICON_PLAY = '<path d="M8 5.5v13l11-6.5z"/>';
+var ICON_PAUSE = '<path d="M6.5 5h4v14h-4zM13.5 5h4v14h-4z"/>';
+var ICON_RECORD = '<circle cx="12" cy="12" r="6.2"/>';
+var ICON_STOP = '<rect x="6.5" y="6.5" width="11" height="11" rx="2"/>';
 var el = { movie: $('movie'), voice: $('voice'), pick: $('filePick') };
 var LEVEL_CHUNK = 100;
+var BUILD = (function(){
+  var m = document.querySelector('meta[name="naki-build"]'), b = m ? m.getAttribute('content') : '';
+  return (!b || b.indexOf('__') === 0) ? 'dev' : b;
+})();
+var IS_DEV = (BUILD === 'dev');
 
 var SIMPLE = false;
 try { SIMPLE = localStorage.getItem('naki.simple') === '1'; } catch (e) {}
@@ -362,7 +382,7 @@ var S = {
   mic: { stream: null },
   opts: { userVol: 1, echo: true },
   ducker: new Ducker(),
-  rec: { on: false, starting: false, playing: false, t0: 0, mr: null, sess: null, autosave: null },
+  rec: { on: false, starting: false, playing: false, everPlayed: false, playNudged: false, t0: 0, mr: null, sess: null, autosave: null },
   sess: null, gainSeries: [], voiceUrl: null, wake: null,
   lastTick: performance.now(), tickN: 0, meterDb: DB_MIN, audioWarned: false
 };
@@ -396,12 +416,14 @@ var DB = {
     var self = this;
     return new Promise(function(res, rej){
       if (!window.indexedDB) return rej(new Error('no indexedDB'));
-      var r = indexedDB.open('naki', 1);
+      var r = indexedDB.open('naki', 3);
       r.onupgradeneeded = function(){
         var d = r.result;
-        d.createObjectStore('sessions', { keyPath: 'id' });
-        d.createObjectStore('chunks', { keyPath: ['sid', 'i'] });
-        d.createObjectStore('levels', { keyPath: ['sid', 'i'] });
+        if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions', { keyPath: 'id' });
+        if (!d.objectStoreNames.contains('chunks')) d.createObjectStore('chunks', { keyPath: ['sid', 'i'] });
+        if (!d.objectStoreNames.contains('levels')) d.createObjectStore('levels', { keyPath: ['sid', 'i'] });
+        if (!d.objectStoreNames.contains('movies')) d.createObjectStore('movies', { keyPath: 'sid' });
+        if (!d.objectStoreNames.contains('music')) d.createObjectStore('music', { keyPath: 'sid' });
       };
       r.onsuccess = function(){ self.db = r.result; self.ok = true; res(); };
       r.onerror = function(){ rej(r.error); };
@@ -421,12 +443,14 @@ var DB = {
   get: function(store, key){ return this.tx(store, 'readonly', function(s){ return s.get(key); }); },
   all: function(store){ return this.tx(store, 'readonly', function(s){ return s.getAll(); }); },
   range: function(store, sid){ return this.tx(store, 'readonly', function(s){ return s.getAll(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }); },
+  delRange: function(store, sid){ return this.tx(store, 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }); },
   delSession: function(sid){
     var self = this;
     return Promise.all([
       self.tx('sessions', 'readwrite', function(s){ return s.delete(sid); }),
-      self.tx('chunks', 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); }),
-      self.tx('levels', 'readwrite', function(s){ return s.delete(IDBKeyRange.bound([sid, 0], [sid, Infinity])); })
+      self.delRange('chunks', sid),
+      self.delRange('levels', sid),
+      self.tx('movies', 'readwrite', function(s){ return s.delete(sid); })
     ]);
   }
 };
@@ -434,7 +458,8 @@ var DB = {
 function sessionRecord(s){
   return { id: s.id, name: s.name, created: s.created, status: s.status, movieName: s.movieName, movieSize: s.movieSize,
     movieDurMs: s.movieDurMs, events: s.events, durationMs: s.durationMs, voiceMime: s.voiceMime,
-    voiceOffsetMs: s.voiceOffsetMs, voiceNudgeMs: s.voiceNudgeMs, stats: s.stats, warnings: s.warnings, chunkCount: s.chunks.length };
+    voiceOffsetMs: s.voiceOffsetMs, voiceNudgeMs: s.voiceNudgeMs, stats: s.stats, warnings: s.warnings,
+    chunkCount: s.chunks.length, chunkTimes: s.chunkTimes };
 }
 function levelChunks(s, from){
   var out = [], n = s.levels.length, last = Math.floor((n - 1) / LEVEL_CHUNK);
@@ -448,6 +473,18 @@ function persistSession(s, all){
     .then(function(){ return DB.putMany('levels', levelChunks(s, all ? 0 : Math.max(0, last - 1))); })
     .catch(function(e){ console.warn('save failed', e); });
 }
+// Rewrites a session's chunks and levels stores from scratch. Used after Take Back, since
+// trimming can shrink these arrays (drop trailing chunks/level samples) rather than only
+// ever grow them, and the normal persistSession() only ever adds or overwrites -- it never
+// deletes now-stale trailing rows a shrink would leave behind.
+function persistTrimmed(s){
+  if (!DB.ok) return Promise.resolve();
+  return Promise.all([DB.delRange('chunks', s.id), DB.delRange('levels', s.id)])
+    .then(function(){ return DB.putMany('chunks', s.chunks.map(function(b, i){ return { sid: s.id, i: i, blob: b }; })); })
+    .then(function(){ return DB.putMany('levels', levelChunks(s, 0)); })
+    .then(function(){ return DB.put('sessions', sessionRecord(s)); })
+    .catch(function(e){ console.warn('trim save failed', e); });
+}
 function loadSession(id){
   return DB.get('sessions', id).then(function(rec){
     return Promise.all([DB.range('chunks', id), DB.range('levels', id)]).then(function(r){
@@ -458,6 +495,12 @@ function loadSession(id){
       rec.voiceBlob = new Blob(chunks, { type: rec.voiceMime || 'audio/webm' });
       rec.stats = rec.stats || {}; rec.warnings = rec.warnings || [];
       rec.voiceNudgeMs = rec.voiceNudgeMs || 0;
+      if (!rec.chunkTimes || !rec.chunkTimes.length){
+        // Sessions recorded before Take Back existed have no per-chunk timing. Approximate
+        // each chunk as covering ~1000ms (MediaRecorder's normal timeslice), capped to the
+        // session length; good enough for a coarse take-back, not for anything exact.
+        rec.chunkTimes = chunks.map(function(_, i){ return Math.min(rec.durationMs || (i + 1) * 1000, (i + 1) * 1000); });
+      }
       if (rec.status === 'recording'){
         rec.status = 'recovered';
         var lastT = rec.events.length ? rec.events[rec.events.length - 1].t : 0;
@@ -576,21 +619,70 @@ el.pick.addEventListener('change', function(){
   var f = el.pick.files && el.pick.files[0];
   el.pick.value = '';
   if (!f) return;
+  if (S.pickPurpose === 'preview' && S.sess && S.sess.movieName){
+    var nameMismatch = f.name !== S.sess.movieName;
+    var sizeKnown = S.sess.movieSize != null;
+    var sizeMismatch = sizeKnown && f.size !== S.sess.movieSize;
+    if (nameMismatch || sizeMismatch){
+      var expected = S.sess.movieName + (sizeKnown ? ' (' + fmtBytes(S.sess.movieSize) + ')' : '');
+      var picked = f.name + ' (' + fmtBytes(f.size) + ')';
+      var msg = nameMismatch
+        ? 'This session was recorded with "' + expected + '", but you chose "' + picked + '".'
+        : 'This file is named the same ("' + f.name + '") but its size does not match: this session expects ' + fmtBytes(S.sess.movieSize) + ', and the file you picked is ' + fmtBytes(f.size) + '. It may be a different file with the same name.';
+      msg += '\n\nUsing the wrong movie will pair it with this session\'s recorded voice, and the picture will not match what you said. Use this file anyway?';
+      var ok = confirm(msg);
+      if (!ok){ toast('Choose "' + S.sess.movieName + '"' + (sizeKnown ? ' (' + fmtBytes(S.sess.movieSize) + ')' : '') + ' for this session.', 7000); return; }
+    }
+  }
   loadMovie(f).then(function(){
-    if (!el.movie.videoWidth) toast('This file has no picture this device can show. It may need converting.', 6000);
+    if (!el.movie.videoWidth){ offerConvert(f); return; }
     if (S.pickPurpose === 'new') return enterStudio();
     $('needMovie').hidden = true; updatePreviewUI();
   }).catch(function(){
-    toast('This file cannot be played on this device. It may need converting to MP4.', 6000);
+    offerConvert(f);
   });
 });
+
+function offerConvert(file){
+  S.prepareFile = file;
+  $('prepareMsg').textContent = 'Naki can\'t play "' + file.name + '" directly. It can convert it right here on this device — this can take a few minutes for a full movie, and the first time needs internet once to load the video engine (about 30\u00a0MB).';
+  $('prepareButtons').hidden = false;
+  $('prepareProgressWrap').hidden = true;
+  $('prepareBar').style.width = '0%'; $('preparePct').textContent = '';
+  $('prepareModal').hidden = false;
+}
+$('bPrepareCancel').onclick = function(){ $('prepareModal').hidden = true; S.prepareFile = null; };
+$('bPrepareConvert').onclick = function(){
+  var file = S.prepareFile; if (!file) return;
+  $('prepareButtons').hidden = true; $('prepareProgressWrap').hidden = false;
+  $('prepareStatus').textContent = 'Starting...';
+  loadExportEngine().then(function(){
+    return NakiExport.convertToMp4(file, {}, {
+      onStatus: function(t){ $('prepareStatus').textContent = t; },
+      onProgress: function(p){ var pct = Math.round(p * 100); $('prepareBar').style.width = pct + '%'; $('preparePct').textContent = pct + '%'; }
+    });
+  }).then(function(blob){
+    var newName = file.name.replace(/\.[^.]+$/, '') + '_prepared.mp4';
+    var newFile = new File([blob], newName, { type: 'video/mp4' });
+    return loadMovie(newFile).then(function(){
+      $('prepareModal').hidden = true; S.prepareFile = null;
+      if (S.pickPurpose === 'new') return enterStudio();
+      $('needMovie').hidden = true; updatePreviewUI();
+      toast('Converted and ready.');
+    });
+  }).catch(function(err){
+    console.error('convert failed', err);
+    $('prepareStatus').textContent = 'Conversion failed: ' + (err && err.message ? err.message : String(err));
+    $('prepareButtons').hidden = false;
+  });
+};
 
 /* ---------- session log ---------- */
 function newSession(){
   return { id: 's' + Date.now().toString(36), name: S.movieFile.name.replace(/\.[^.]+$/, ''), created: Date.now(),
     status: 'recording', movieName: S.movieFile.name, movieSize: S.movieFile.size, movieDurMs: S.movieDurMs,
     events: [], levels: [], durationMs: 0, voiceMime: '', voiceOffsetMs: 0, voiceNudgeMs: 0,
-    stats: {}, warnings: [], voiceBlob: null, chunks: [] };
+    stats: {}, warnings: [], voiceBlob: null, chunks: [], chunkTimes: [] };
 }
 function logEvent(type, extra){
   var e = Object.assign({ t: Math.round(performance.now() - S.rec.t0), type: type }, extra || {});
@@ -631,7 +723,7 @@ function jump(deltaS){
   if (S.rec.on) logEvent('jump', { fromMs: Math.round(from * 1000), toMs: Math.round(to * 1000) });
 }
 el.movie.addEventListener('playing', function(){
-  if (S.rec.on && !S.rec.playing){ S.rec.playing = true; logEvent('play', { movieMs: movieMsNow() }); }
+  if (S.rec.on && !S.rec.playing){ S.rec.playing = true; S.rec.everPlayed = true; logEvent('play', { movieMs: movieMsNow() }); }
   updateStudioUI();
 });
 el.movie.addEventListener('pause', function(){
@@ -642,10 +734,15 @@ el.movie.addEventListener('error', function(){ toast('The movie stopped because 
 
 function updateStudioUI(){
   var on = S.rec.on;
-  $('bPlay').textContent = el.movie.paused ? 'Play' : 'Pause';
-  $('bRec').textContent = on ? 'Stop' : 'Record';
-  $('bRec').className = 'recbtn' + (on ? ' on' : '');
+  $('bPlayIcon').innerHTML = el.movie.paused ? ICON_PLAY : ICON_PAUSE;
+  $('bPlay').setAttribute('aria-label', el.movie.paused ? 'Play' : 'Pause');
+  $('bPlayLabel').textContent = el.movie.paused ? 'Play' : 'Pause';
+  $('bRecIcon').innerHTML = on ? ICON_STOP : ICON_RECORD;
+  $('bRec').setAttribute('aria-label', on ? 'Stop' : 'Record');
+  $('bRecLabel').textContent = on ? 'Stop' : 'Record';
+  $('bRec').className = 'icon-btn lg danger' + (on ? ' on' : '');
   $('bRec').disabled = S.rec.starting;
+  $('bTakeBack').hidden = !on;
   $('seek').disabled = on;
   $('recDot').className = 'recdot' + (on ? ' on' : '');
   $('recState').textContent = !on ? 'Ready' : (S.rec.playing ? 'Recording, movie playing' : 'Recording, movie paused. Keep talking.');
@@ -653,6 +750,87 @@ function updateStudioUI(){
   updateChip();
 }
 function showCount(n){ var c = $('count'); c.hidden = (n == null); if (n != null) c.textContent = n; }
+
+// Creates and wires a MediaRecorder writing into sess, appending from wherever sess.chunks
+// currently ends. Shared by starting a session fresh and by resuming one after Take Back --
+// both are "keep recording into this same session", just starting from a different point.
+// isFirst controls whether this recorder is allowed to set sess.voiceOffsetMs/voiceMime (only
+// true the very first time, so a later resume never re-anchors already-kept audio).
+function attachRecorder(sess, isFirst){
+  var mime = pickMime(), mr;
+  try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
+  catch (e) { return null; }
+  var st = S.mic.settings || {};
+  sess.stats.mic = { echoCancellation: st.echoCancellation, noiseSuppression: st.noiseSuppression,
+    autoGainControl: st.autoGainControl, sampleRate: st.sampleRate, channelCount: st.channelCount };
+  mr.ondataavailable = function (e) {
+    if (e.data && e.data.size) {
+      sess.chunks.push(e.data);
+      sess.chunkTimes.push(Math.round(performance.now() - S.rec.t0));
+      var i = sess.chunks.length - 1;
+      if (DB.ok) DB.put('chunks', { sid: sess.id, i: i, blob: e.data }).catch(function () {});
+    }
+  };
+  if (isFirst) {
+    mr.onstart = function () { sess.voiceOffsetMs = Math.round(performance.now() - S.rec.t0); if (mr.mimeType) sess.voiceMime = mr.mimeType; };
+  } else if (mr.mimeType && !sess.voiceMime) { sess.voiceMime = mr.mimeType; }
+  mr.onerror = function () { sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'recorder_error' }); toast('The recorder reported a problem.', 6000); };
+  return mr;
+}
+
+// The actual cut: drops chunks/events/levels after cutT, re-anchors S.rec.t0 so recording
+// continues with no dead air, and repositions the movie to match. Assumes S.rec.t0 already
+// exists (recording is active by the time this runs, whether freshly or just resumed).
+function applyTakeBack(sess, cutT) {
+  var keep = chunksToKeep(sess.chunkTimes, cutT);
+  sess.chunks.length = keep; sess.chunkTimes.length = keep;
+  var trimmed = trimEventsAndLevels(sess.events, sess.levels, cutT);
+  sess.events = trimmed.events; sess.levels = trimmed.levels;
+  S.rec.t0 = performance.now() - cutT;
+  persistTrimmed(sess);
+  var st = stateAt(sess.events, cutT);
+  S.rec.playing = st.playing;
+  el.movie.currentTime = st.movieMs / 1000;
+  if (st.playing) { if (el.movie.paused) { var p = el.movie.play(); if (p && p.catch) p.catch(function () {}); } }
+  else if (!el.movie.paused) { el.movie.pause(); }
+  updateStudioUI();
+}
+
+// Live "Take back Ns" while recording. Chunks only arrive roughly once per second, so this
+// forces an early flush first to get as close to the requested cut point as the encoder allows
+// (see chunksToKeep in core.js for why chunks can only ever be dropped whole).
+function takeBackLive(seconds) {
+  var r = S.rec;
+  if (!r.on || r.starting) return;
+  var curT = Math.round(performance.now() - r.t0);
+  var cutT = Math.max(0, curT - seconds * 1000);
+  toast('Taking back the last ' + seconds + ' seconds\u2026', 2500);
+  try { r.mr.requestData(); } catch (e) {}
+  setTimeout(function () { applyTakeBack(r.sess, cutT); toast('Taken back \u2014 keep talking from here.', 2500); }, 120);
+}
+
+// From Preview: scrub to a point, discard everything after it, and drop straight back into an
+// active recording that continues seamlessly from there.
+function takeBackFromPreview(cutT) {
+  if (!S.sess || !S.movieFile) return Promise.resolve();
+  var sess = S.sess;
+  el.voice.pause();
+  return openMic().then(function (ok) {
+    if (!ok) return;
+    ensureAudio(); S.audio.ctx.resume();
+    var mr = attachRecorder(sess, false);
+    if (!mr) { toast('Could not resume recording on this device.'); return; }
+    show('work'); setMode('studio');
+    S.rec.sess = sess; S.rec.mr = mr; S.rec.on = true; S.rec.starting = false;
+    S.rec.everPlayed = true; S.rec.playNudged = true; S.ducker.reset();
+    applyTakeBack(sess, cutT);
+    mr.start(1000);
+    keepAwake();
+    S.rec.autosave = setInterval(function () { persistSession(sess); }, 3000);
+    updateStudioUI();
+    toast('Continuing this session from where you cut it.', 4000);
+  });
+}
 
 function startRec(){
   if (S.rec.on || S.rec.starting) return Promise.resolve();
@@ -665,28 +843,22 @@ function startRec(){
     return (async function(){
       for (var n = 3; n >= 1; n--){ showCount(n); await sleep(800); }
       showCount(null);
-      var sess = newSession(); S.rec.sess = sess; S.rec.playing = false; S.ducker.reset();
-      var mime = pickMime(), mr;
-      try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
-      catch (e){ S.rec.starting = false; updateStudioUI(); toast('Could not start recording on this device.'); return; }
-      sess.voiceMime = mime || 'audio/webm';
-      var st = S.mic.settings || {};
-      sess.stats.mic = { echoCancellation: st.echoCancellation, noiseSuppression: st.noiseSuppression,
-        autoGainControl: st.autoGainControl, sampleRate: st.sampleRate, channelCount: st.channelCount };
+      var sess = newSession(); S.rec.sess = sess; S.rec.playing = false; S.rec.everPlayed = false; S.rec.playNudged = false; S.ducker.reset();
+      if ($('cRemember').checked && DB.ok){
+        DB.put('movies', { sid: sess.id, name: S.movieFile.name, size: S.movieFile.size, blob: S.movieFile }).catch(function(e){
+          console.warn('could not remember movie', e);
+          sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'movie_not_remembered' });
+          toast('This movie is too large to remember on this device. You will need to choose it again next time you open this session.', 8000);
+        });
+      } else if (!DB.ok){
+        sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'movie_not_remembered_no_db' });
+      }
+      var mr = attachRecorder(sess, true);
+      if (!mr){ S.rec.starting = false; updateStudioUI(); toast('Could not start recording on this device.'); return; }
       S.rec.mr = mr; S.rec.t0 = performance.now(); S.rec.on = true; S.rec.starting = false;
       logEvent('rec_start', { movieMs: movieMsNow() });
       logEvent('vol', { value: S.opts.userVol });
       logEvent('duck', { enabled: S.ducker.p.enabled, thresholdDb: S.ducker.p.thresholdDb, duckedGain: S.ducker.p.duckedGain });
-      var idx = 0;
-      mr.ondataavailable = function(e){
-        if (e.data && e.data.size){
-          sess.chunks.push(e.data);
-          var i = idx++;
-          if (DB.ok) DB.put('chunks', { sid: sess.id, i: i, blob: e.data }).catch(function(){});
-        }
-      };
-      mr.onstart = function(){ sess.voiceOffsetMs = Math.round(performance.now() - S.rec.t0); if (mr.mimeType) sess.voiceMime = mr.mimeType; };
-      mr.onerror = function(){ sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'recorder_error' }); toast('The recorder reported a problem.', 6000); };
       mr.start(1000);
       keepAwake();
       persistSession(sess);
@@ -726,6 +898,10 @@ function stopRec(){
 
 /* ---------- ticks ---------- */
 function studioTick(now, dt){
+  if (S.rec.on && !S.rec.everPlayed && !S.rec.playNudged && (now - S.rec.t0) > 6000){
+    S.rec.playNudged = true;
+    toast('Tip: tap Play to start the movie moving under your narration.', 7000);
+  }
   var g = 1, db = DB_MIN;
   if (S.mic.an){
     var b = S.mic.buf, sum = 0;
@@ -816,14 +992,17 @@ function preparePreview(s){
   $('rOff').value = String(s.voiceNudgeMs || 0);
   $('offVal').textContent = (s.voiceNudgeMs || 0) + ' ms';
   $('needMovie').hidden = !!S.movieFile;
-  $('needName').textContent = 'Movie used: ' + s.movieName;
+  var notRemembered = (s.warnings || []).some(function(w){ return w.type === 'movie_not_remembered' || w.type === 'movie_not_remembered_no_db'; });
+  $('needName').textContent = 'Movie used: ' + s.movieName + (s.movieSize != null ? ' (' + fmtBytes(s.movieSize) + ')' : '') + (notRemembered ? ' — this movie could not be saved on this device, so pick the same file again.' : '');
   renderStats(s);
   updatePreviewUI();
 }
 function updatePreviewUI(){
   var ready = !!S.movieFile;
   $('pPlay').disabled = !ready;
-  $('pPlay').textContent = el.voice.paused ? 'Play session' : 'Pause session';
+  $('pPlayIcon').innerHTML = el.voice.paused ? ICON_PLAY : ICON_PAUSE;
+  $('pPlay').setAttribute('aria-label', el.voice.paused ? 'Play session' : 'Pause session');
+  $('pPlayLabel').textContent = el.voice.paused ? 'Play session' : 'Pause session';
   updateChip();
 }
 function renderStats(s){
@@ -878,8 +1057,17 @@ function refreshHome(){
   }).catch(function(){ list.appendChild(h('p', { class: 'dim' }, 'Could not read saved sessions.')); });
 }
 function openSaved(id){
-  loadSession(id).then(function(s){ show('work'); setMode('preview'); preparePreview(s); })
-    .catch(function(){ toast('This session could not be opened.'); });
+  loadSession(id).then(function(s){
+    show('work'); setMode('preview');
+    if (!DB.ok) return preparePreview(s);
+    return DB.get('movies', id).then(function(rec){
+      if (rec && rec.blob){
+        var file = new File([rec.blob], rec.name || s.movieName, { type: rec.blob.type });
+        return loadMovie(file).then(function(){ preparePreview(s); }).catch(function(){ preparePreview(s); });
+      }
+      preparePreview(s);
+    }, function(){ preparePreview(s); });
+  }).catch(function(){ toast('This session could not be opened.'); });
 }
 function delSaved(s){
   if (!confirm('Delete "' + s.name + '"? This cannot be undone.')) return;
@@ -894,6 +1082,11 @@ function download(blob, name){
   setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
 }
 function safeName(s){ return (s || 'session').replace(/[^\w\-]+/g, '_').slice(0, 40) || 'session'; }
+function fmtBytes(n){
+  if (n == null) return 'unknown size';
+  if (n < 1024*1024) return Math.round(n/1024) + ' KB';
+  return (n/1048576).toFixed(1) + ' MB';
+}
 function voiceExt(m){ return /ogg/.test(m) ? 'ogg' : (/mp4/.test(m) ? 'm4a' : 'webm'); }
 function sessionExport(s){
   return { naki: 'session', version: 1, name: s.name,
@@ -915,7 +1108,7 @@ function fallbackCopy(txt){
 }
 function deviceLines(){
   var L = [], add = function(k, v){ L.push((k + ':').padEnd(24) + String(v)); };
-  add('Naki build', 'prototype 1');
+  add('Naki version', NAKI_VERSION + ' (build ' + BUILD + ')');
   add('Browser', navigator.userAgent);
   add('Secure context', window.isSecureContext);
   add('Page address type', location.protocol);
@@ -943,6 +1136,8 @@ function deviceLines(){
   add('Screen wake lock', 'wakeLock' in navigator);
   add('Saving sessions', DB.ok);
   add('Simple sound mode', SIMPLE);
+  add('Installed as an app', !!(window.matchMedia && window.matchMedia('(display-mode: standalone)').matches));
+  add('Works offline', !IS_DEV && !!(navigator.serviceWorker && navigator.serviceWorker.controller));
   return L;
 }
 function storageLine(){
@@ -987,6 +1182,7 @@ $('stage').onclick = function(){ if (S.view === 'work' && S.mode === 'studio' &&
 $('bBack').onclick = function(){ jump(-10); };
 $('bFwd').onclick = function(){ jump(10); };
 $('bRec').onclick = function(){ if (S.rec.on) stopRec(); else startRec(); };
+$('bTakeBack').onclick = function(){ takeBackLive(5); };
 $('seek').addEventListener('input', function(){
   if (S.rec.on || !el.movie.duration) return;
   el.movie.currentTime = $('seek').value / 1000 * el.movie.duration;
@@ -1001,6 +1197,14 @@ $('rDuck').addEventListener('input', function(){
   S.ducker.p.duckedGain = this.value / 100; $('duckVal').textContent = this.value + '%'; logSetting('duck', false);
 });
 $('rDuck').addEventListener('change', function(){ logSetting('duck', true); });
+document.querySelectorAll('.duckpreset').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    var v = Number(btn.getAttribute('data-v'));
+    $('rDuck').value = String(v);
+    S.ducker.p.duckedGain = v / 100; $('duckVal').textContent = v + '%';
+    logSetting('duck', true);
+  });
+});
 function placeThr(){ $('meterThr').style.left = 'calc(' + (Math.max(0, Math.min(1, (S.ducker.p.thresholdDb + 70) / 60)) * 100) + '% - 1px)'; }
 $('rThr').addEventListener('input', function(){
   S.ducker.p.thresholdDb = Number(this.value); $('thrVal').textContent = this.value + ' dB'; placeThr(); logSetting('duck', false);
@@ -1033,6 +1237,14 @@ $('rOff').addEventListener('input', function(){
 $('rOff').addEventListener('change', function(){ if (S.sess) persistSession(S.sess, false); });
 $('bPickMovie').onclick = function(){ chooseMovie('preview'); };
 $('bAgain').onclick = function(){ el.voice.pause(); S.sess = null; if (!S.movieFile){ chooseMovie('new'); return; } enterStudio(); };
+$('bTakeBackHere').onclick = function(){
+  if (!S.sess || !S.movieFile){ toast('Choose the movie for this session first.'); return; }
+  var t = Math.round(Number($('pSeek').value) / 1000 * S.sess.durationMs);
+  var ok = confirm('Take back from ' + fmt(t) + '? Everything after this point in the recording will be discarded, and Naki will start recording again from here.');
+  if (!ok) return;
+  el.movie.pause();
+  takeBackFromPreview(t);
+};
 $('bHome').onclick = function(){ $('btnBack').click(); };
 $('dVoice').onclick = function(){
   var s = S.sess; if (!s) return;
@@ -1052,6 +1264,121 @@ $('dAll').onclick = function(){
   if (!S.sess) return;
   $('dPlan').click();
   setTimeout(function(){ $('dVoice').click(); toast('Saved the plan and the voice. Copy them next to your movie.', 6000); }, 400);
+};
+
+var exportEngineLoaded = false;
+function loadExportEngine(){
+  if (exportEngineLoaded) return Promise.resolve();
+  return new Promise(function(resolve, reject){
+    var s = document.createElement('script');
+    s.src = 'export-engine.js';
+    s.onload = function(){ exportEngineLoaded = true; resolve(); };
+    s.onerror = function(){ reject(new Error('The video engine could not be loaded. Check your connection and try again.')); };
+    document.head.appendChild(s);
+  });
+}
+var webcodecsEngineLoaded = false;
+function loadWebCodecsEngine(){
+  if (webcodecsEngineLoaded) return Promise.resolve();
+  return new Promise(function(resolve, reject){
+    var s = document.createElement('script');
+    s.src = 'webcodecs-export.js';
+    s.onload = function(){ webcodecsEngineLoaded = true; resolve(); };
+    s.onerror = function(){ reject(new Error('could not load webcodecs-export.js')); };
+    document.head.appendChild(s);
+  });
+}
+// Tries the hardware-accelerated engine first; falls back to the ffmpeg.wasm engine
+// automatically if WebCodecs/hardware encoding isn't available on this device, or if the
+// hardware path throws for any reason -- so nobody's export just stops working.
+function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callbacks){
+  return loadWebCodecsEngine().then(function(){
+    return WebCodecsExport.isSupported();
+  }).then(function(supported){
+    if (!supported) throw new Error('not supported, falling back');
+    return WebCodecsExport.run(movieFile, voiceBlob, plan, webcodecsOpts, callbacks);
+  }).catch(function(err){
+    console.warn('hardware export unavailable or failed, falling back to the built-in engine:', err);
+    return loadExportEngine().then(function(){
+      return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks);
+    });
+  });
+}
+S.exportVertical = false;
+S.exportQuality = 'faster';
+S.logoFile = null;
+function setShape(vertical){
+  S.exportVertical = vertical;
+  $('bShapeLandscape').setAttribute('aria-pressed', String(!vertical));
+  $('bShapeVertical').setAttribute('aria-pressed', String(vertical));
+}
+setShape(false);
+$('bShapeLandscape').onclick = function(){ setShape(false); };
+$('bShapeVertical').onclick = function(){ setShape(true); };
+function setQuality(q){
+  S.exportQuality = q;
+  $('bQualityFaster').setAttribute('aria-pressed', String(q === 'faster'));
+  $('bQualitySharper').setAttribute('aria-pressed', String(q === 'sharper'));
+}
+setQuality('faster');
+$('bQualityFaster').onclick = function(){ setQuality('faster'); };
+$('bQualitySharper').onclick = function(){ setQuality('sharper'); };
+$('bPickLogo').onclick = function(){ $('logoPick').click(); };
+$('logoPick').addEventListener('change', function(){
+  var f = this.files && this.files[0]; this.value = '';
+  if (!f) return;
+  S.logoFile = f;
+  $('logoName').textContent = f.name;
+  $('bClearLogo').hidden = false;
+});
+$('bClearLogo').onclick = function(){ S.logoFile = null; $('logoName').textContent = ''; $('bClearLogo').hidden = true; };
+
+$('bExport').onclick = function(){
+  if (!S.sess) return;
+  if (!S.movieFile){ toast('Choose the movie for this session first.'); return; }
+  var box = $('exportBox'), bar = $('exportBar'), statusEl = $('exportStatus'), pctEl = $('exportPct'),
+      doneRow = $('exportDone'), dl = $('exportDownload'), shareBtn = $('bShareVideo'), preview = $('exportPreview');
+  box.hidden = false; doneRow.hidden = true; bar.style.width = '0%'; pctEl.textContent = '';
+  statusEl.textContent = 'Starting...'; $('bExport').disabled = true;
+  var plan = buildExportPlan(S.sess);
+  // Match the source movie's own resolution instead of a fixed tier, so a higher-res
+  // source isn't needlessly softened -- but cap it per the speed/quality choice, since
+  // the fallback ffmpeg.wasm engine is single-threaded and a phone can be far slower
+  // than a desktop (the hardware engine doesn't need this cap nearly as much, but the
+  // same target size is used for both so Faster/Sharper mean the same thing either way).
+  var sourceH = el.movie.videoHeight || 720;
+  var sharper = S.exportQuality === 'sharper';
+  var cap = sharper ? 1080 : 720;
+  var targetH = Math.max(480, Math.min(cap, sourceH));
+  var ffmpegOpts = { height: targetH, crf: sharper ? 20 : 23, preset: sharper ? 'veryfast' : 'superfast', vertical: S.exportVertical };
+  var webcodecsOpts = { height: targetH, quality: S.exportQuality, vertical: S.exportVertical };
+  if (S.logoFile) { ffmpegOpts.logoFile = S.logoFile; webcodecsOpts.logoFile = S.logoFile; }
+  runExport(plan, ffmpegOpts, webcodecsOpts, S.movieFile, S.sess.voiceBlob, {
+    onStatus: function(t){ statusEl.textContent = t; },
+    onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
+  }).then(function(blob){
+    var url = URL.createObjectURL(blob);
+    var filename = safeName(S.sess.name) + '_naki.mp4';
+    preview.src = url;
+    dl.href = url; dl.download = filename;
+    var file = new File([blob], filename, { type: 'video/mp4' });
+    if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })){
+      shareBtn.hidden = false;
+      shareBtn.onclick = function(){
+        navigator.share({ files: [file], title: S.sess.name }).catch(function(){});
+      };
+    } else {
+      shareBtn.hidden = true;
+    }
+    doneRow.hidden = false; statusEl.textContent = 'Done.';
+    toast('Your video is ready — you can watch it right here, then save or share it.');
+  }).catch(function(err){
+    console.error('export failed', err);
+    statusEl.textContent = 'Something went wrong: ' + (err && err.message ? err.message : String(err));
+    toast('Export did not finish. You can also try the computer-based export below.', 8000);
+  }).then(function(){
+    $('bExport').disabled = false;
+  });
 };
 $('bReport').onclick = function(){
   storageLine().then(function(line){
@@ -1082,6 +1409,31 @@ document.addEventListener('visibilitychange', function(){
   }
 });
 window.addEventListener('beforeunload', function(e){ if (S.rec.on){ e.preventDefault(); e.returnValue = ''; } });
+
+var deferredInstall = null;
+window.addEventListener('beforeinstallprompt', function(e){ e.preventDefault(); deferredInstall = e; $('btnInstall').hidden = false; });
+window.addEventListener('appinstalled', function(){ deferredInstall = null; $('btnInstall').hidden = true; toast('Naki is installed.'); });
+$('btnInstall').onclick = function(){
+  if (!deferredInstall) return;
+  deferredInstall.prompt();
+  deferredInstall.userChoice.then(function(){}, function(){}).then(function(){ deferredInstall = null; $('btnInstall').hidden = true; });
+};
+$('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
+
+if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
+  var hadController = !!navigator.serviceWorker.controller;
+  navigator.serviceWorker.addEventListener('controllerchange', function(){
+    if (hadController && !IS_DEV) toast('Naki was updated. Close it and open it again to use the new version.', 8000);
+  });
+  navigator.serviceWorker.register('sw.js').then(function(){ return navigator.serviceWorker.ready; }).then(function(){
+    try {
+      if (!IS_DEV && !localStorage.getItem('naki.offlineToast')){
+        localStorage.setItem('naki.offlineToast', '1');
+        toast('Naki is ready to work offline.', 5000);
+      }
+    } catch (e) {}
+  }).catch(function(){});
+}
 
 placeThr();
 DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show('home'); return refreshHome(); });

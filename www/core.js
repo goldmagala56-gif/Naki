@@ -95,8 +95,9 @@ function simplifyGain(series, stepMs, tol){
 }
 
 function buildExportPlan(s){
-  var series = buildGainSeries(s);
-  return {
+  var vol = (s.movieVolume != null) ? s.movieVolume : 1;
+  var series = buildGainSeries(s).map(function (g) { return g * vol; });
+  var plan = {
     naki: 'export-plan', version: 1,
     durationMs: s.durationMs,
     movie: { name: s.movieName, durationMs: s.movieDurMs },
@@ -104,6 +105,11 @@ function buildExportPlan(s){
     movieGain: { stepMs: LEVEL_STEP_MS, points: simplifyGain(series, LEVEL_STEP_MS, 0.02) },
     voice: { file: 'voice', offsetMs: (s.voiceOffsetMs || 0) + (s.voiceNudgeMs || 0) }
   };
+  if (s.music) {
+    plan.music = { file: 'music', startMs: s.music.startMs || 0, volume: s.music.volume != null ? s.music.volume : 0.7,
+      fadeInMs: s.music.fadeInMs || 0, fadeOutMs: s.music.fadeOutMs || 0 };
+  }
+  return plan;
 }
 
 function fmt(ms){
@@ -136,9 +142,47 @@ function trimEventsAndLevels(events, levels, cutT) {
   return { events: newEvents, levels: newLevels };
 }
 
+// Removes a MIDDLE range [cutStart, cutEnd) from a session's timeline -- unlike Take Back
+// (which only ever cuts the tail), this is a ripple delete: content after the cut shifts
+// backward to close the gap. Chunks can only be dropped whole (see chunksToKeep above), so
+// the actual removed range snaps outward to the nearest chunk boundaries; the caller gets
+// back exactly what was removed (actualStart/actualEnd) in case it's not precisely what was
+// asked for. Returns null if the requested range doesn't fully span at least one chunk.
+function planRangeCut(events, levels, chunkTimes, cutStart, cutEnd) {
+  var firstDrop = -1, lastDrop = -1;
+  for (var i = 0; i < chunkTimes.length; i++) {
+    if (firstDrop === -1 && chunkTimes[i] > cutStart) firstDrop = i;
+    if (chunkTimes[i] <= cutEnd) lastDrop = i;
+  }
+  if (firstDrop === -1 || lastDrop < firstDrop) return null;
+
+  var actualStart = firstDrop > 0 ? chunkTimes[firstDrop - 1] : 0;
+  var actualEnd = chunkTimes[lastDrop];
+  var dur = actualEnd - actualStart;
+  if (dur <= 0) return null;
+
+  var keepChunkIdx = [];
+  for (var j = 0; j < chunkTimes.length; j++) { if (j < firstDrop || j > lastDrop) keepChunkIdx.push(j); }
+  var newChunkTimes = keepChunkIdx.map(function (j) { return chunkTimes[j] > actualEnd ? chunkTimes[j] - dur : chunkTimes[j]; });
+
+  var newEvents = [];
+  events.forEach(function (e) {
+    if (e.t < actualStart) newEvents.push(e);
+    else if (e.t >= actualEnd) { var e2 = Object.assign({}, e); e2.t = e.t - dur; newEvents.push(e2); }
+    // events with actualStart <= e.t < actualEnd fall inside the cut and are dropped
+  });
+
+  var stepsBefore = Math.floor(actualStart / LEVEL_STEP_MS);
+  var stepsCut = Math.round(dur / LEVEL_STEP_MS);
+  var newLevels = levels.slice(0, stepsBefore).concat(levels.slice(stepsBefore + stepsCut));
+
+  return { actualStart: actualStart, actualEnd: actualEnd, dur: dur, keepChunkIdx: keepChunkIdx,
+    chunkTimes: newChunkTimes, events: newEvents, levels: newLevels };
+}
+
 if (typeof module !== 'undefined' && module.exports){
   module.exports = { NAKI_VERSION: NAKI_VERSION, DB_MIN: DB_MIN, LEVEL_STEP_MS: LEVEL_STEP_MS, rmsToDb: rmsToDb, dbToByte: dbToByte, byteToDb: byteToDb,
     Ducker: Ducker, stateAt: stateAt, buildVideoSpans: buildVideoSpans, buildGainSeries: buildGainSeries,
     simplifyGain: simplifyGain, buildExportPlan: buildExportPlan, fmt: fmt,
-    chunksToKeep: chunksToKeep, trimEventsAndLevels: trimEventsAndLevels };
+    chunksToKeep: chunksToKeep, trimEventsAndLevels: trimEventsAndLevels, planRangeCut: planRangeCut };
 }

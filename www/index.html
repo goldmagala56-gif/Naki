@@ -278,6 +278,11 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <button type="button" id="bShapeLandscape" class="btn" aria-pressed="true">Landscape</button>
             <button type="button" id="bShapeVertical" class="btn">Vertical (TikTok)</button>
           </div>
+          <div class="row wrap" style="margin-bottom:4px">
+            <button type="button" id="bQualityFaster" class="btn" aria-pressed="true">Faster export</button>
+            <button type="button" id="bQualitySharper" class="btn">Sharper (slower)</button>
+          </div>
+          <p class="dim small" style="margin:2px 0 8px">Faster finishes in roughly the time it used to. Sharper looks noticeably better but can take much longer on an older phone -- try Faster first if you're not sure.</p>
           <div class="row wrap" style="margin-bottom:10px">
             <button type="button" id="bPickLogo" class="btn">Add logo (optional)</button>
             <span id="logoName" class="dim small" style="align-self:center"></span>
@@ -411,13 +416,14 @@ var DB = {
     var self = this;
     return new Promise(function(res, rej){
       if (!window.indexedDB) return rej(new Error('no indexedDB'));
-      var r = indexedDB.open('naki', 2);
+      var r = indexedDB.open('naki', 3);
       r.onupgradeneeded = function(){
         var d = r.result;
         if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions', { keyPath: 'id' });
         if (!d.objectStoreNames.contains('chunks')) d.createObjectStore('chunks', { keyPath: ['sid', 'i'] });
         if (!d.objectStoreNames.contains('levels')) d.createObjectStore('levels', { keyPath: ['sid', 'i'] });
         if (!d.objectStoreNames.contains('movies')) d.createObjectStore('movies', { keyPath: 'sid' });
+        if (!d.objectStoreNames.contains('music')) d.createObjectStore('music', { keyPath: 'sid' });
       };
       r.onsuccess = function(){ self.db = r.result; self.ok = true; res(); };
       r.onerror = function(){ rej(r.error); };
@@ -1271,7 +1277,35 @@ function loadExportEngine(){
     document.head.appendChild(s);
   });
 }
+var webcodecsEngineLoaded = false;
+function loadWebCodecsEngine(){
+  if (webcodecsEngineLoaded) return Promise.resolve();
+  return new Promise(function(resolve, reject){
+    var s = document.createElement('script');
+    s.src = 'webcodecs-export.js';
+    s.onload = function(){ webcodecsEngineLoaded = true; resolve(); };
+    s.onerror = function(){ reject(new Error('could not load webcodecs-export.js')); };
+    document.head.appendChild(s);
+  });
+}
+// Tries the hardware-accelerated engine first; falls back to the ffmpeg.wasm engine
+// automatically if WebCodecs/hardware encoding isn't available on this device, or if the
+// hardware path throws for any reason -- so nobody's export just stops working.
+function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callbacks){
+  return loadWebCodecsEngine().then(function(){
+    return WebCodecsExport.isSupported();
+  }).then(function(supported){
+    if (!supported) throw new Error('not supported, falling back');
+    return WebCodecsExport.run(movieFile, voiceBlob, plan, webcodecsOpts, callbacks);
+  }).catch(function(err){
+    console.warn('hardware export unavailable or failed, falling back to the built-in engine:', err);
+    return loadExportEngine().then(function(){
+      return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks);
+    });
+  });
+}
 S.exportVertical = false;
+S.exportQuality = 'faster';
 S.logoFile = null;
 function setShape(vertical){
   S.exportVertical = vertical;
@@ -1281,6 +1315,14 @@ function setShape(vertical){
 setShape(false);
 $('bShapeLandscape').onclick = function(){ setShape(false); };
 $('bShapeVertical').onclick = function(){ setShape(true); };
+function setQuality(q){
+  S.exportQuality = q;
+  $('bQualityFaster').setAttribute('aria-pressed', String(q === 'faster'));
+  $('bQualitySharper').setAttribute('aria-pressed', String(q === 'sharper'));
+}
+setQuality('faster');
+$('bQualityFaster').onclick = function(){ setQuality('faster'); };
+$('bQualitySharper').onclick = function(){ setQuality('sharper'); };
 $('bPickLogo').onclick = function(){ $('logoPick').click(); };
 $('logoPick').addEventListener('change', function(){
   var f = this.files && this.files[0]; this.value = '';
@@ -1298,19 +1340,22 @@ $('bExport').onclick = function(){
       doneRow = $('exportDone'), dl = $('exportDownload'), shareBtn = $('bShareVideo'), preview = $('exportPreview');
   box.hidden = false; doneRow.hidden = true; bar.style.width = '0%'; pctEl.textContent = '';
   statusEl.textContent = 'Starting...'; $('bExport').disabled = true;
-  loadExportEngine().then(function(){
-    var plan = buildExportPlan(S.sess);
-    // Match the source movie's own resolution instead of a fixed 720 tier, so a
-    // higher-res source isn't needlessly softened; still capped for phones with
-    // limited RAM, and never upscaled past what the source actually has.
-    var sourceH = el.movie.videoHeight || 720;
-    var targetH = Math.max(480, Math.min(1080, sourceH));
-    var opts = { height: targetH, crf: 20, preset: 'veryfast', vertical: S.exportVertical };
-    if (S.logoFile) opts.logoFile = S.logoFile;
-    return NakiExport.run(S.movieFile, S.sess.voiceBlob, plan, opts, {
-      onStatus: function(t){ statusEl.textContent = t; },
-      onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
-    });
+  var plan = buildExportPlan(S.sess);
+  // Match the source movie's own resolution instead of a fixed tier, so a higher-res
+  // source isn't needlessly softened -- but cap it per the speed/quality choice, since
+  // the fallback ffmpeg.wasm engine is single-threaded and a phone can be far slower
+  // than a desktop (the hardware engine doesn't need this cap nearly as much, but the
+  // same target size is used for both so Faster/Sharper mean the same thing either way).
+  var sourceH = el.movie.videoHeight || 720;
+  var sharper = S.exportQuality === 'sharper';
+  var cap = sharper ? 1080 : 720;
+  var targetH = Math.max(480, Math.min(cap, sourceH));
+  var ffmpegOpts = { height: targetH, crf: sharper ? 20 : 23, preset: sharper ? 'veryfast' : 'superfast', vertical: S.exportVertical };
+  var webcodecsOpts = { height: targetH, quality: S.exportQuality, vertical: S.exportVertical };
+  if (S.logoFile) { ffmpegOpts.logoFile = S.logoFile; webcodecsOpts.logoFile = S.logoFile; }
+  runExport(plan, ffmpegOpts, webcodecsOpts, S.movieFile, S.sess.voiceBlob, {
+    onStatus: function(t){ statusEl.textContent = t; },
+    onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
   }).then(function(blob){
     var url = URL.createObjectURL(blob);
     var filename = safeName(S.sess.name) + '_naki.mp4';
