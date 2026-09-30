@@ -190,5 +190,5 @@ if (typeof module !== 'undefined' && module.exports){
   module.exports = { NAKI_VERSION: NAKI_VERSION, DB_MIN: DB_MIN, LEVEL_STEP_MS: LEVEL_STEP_MS, rmsToDb: rmsToDb, dbToByte: dbToByte, byteToDb: byteToDb,
     Ducker: Ducker, stateAt: stateAt, buildVideoSpans: buildVideoSpans, buildGainSeries: buildGainSeries,
     simplifyGain: simplifyGain, buildExportPlan: buildExportPlan, fmt: fmt,
-    chunksToKeep: chunksToKeep, trimEventsAndLevels: trimEventsAndLevels, planRangeCut: planRangeCut, snapCutT: snapCutT};
+    chunksToKeep: chunksToKeep, snapCutT: snapCutT, trimEventsAndLevels: trimEventsAndLevels, planRangeCut: planRangeCut};
 }
