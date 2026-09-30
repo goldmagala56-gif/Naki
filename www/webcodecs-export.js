@@ -211,12 +211,16 @@ var WebCodecsExport = (function () {
 
       if (sp.type === 'play') {
         var i = 0;
-        for await (var sample of sink.samples(sp.movieStart / 1000)) {
-          if (i >= nFrames) { sample.close(); break; }
-          drawSampleFit(sample);
+        var startSec = sp.movieStart / 1000;
+        // one requested timestamp per OUTPUT frame, so a 24fps movie is sampled
+        // at 30fps by time instead of playing 25% too fast
+        var stamps = (function* () {
+          for (var k = 0; k < nFrames; k++) yield startSec + k / FPS;
+        })();
+        for await (var sample of sink.samplesAtTimestamps(stamps)) {
+          if (sample) { drawSampleFit(sample); sample.close(); }  // null => keep last drawn frame
           var t = (sp.sessionStart + i * 1000 / FPS) / 1000;
           await videoSource.add(t, 1 / FPS);
-          sample.close();
           i++; framesDone++;
         }
         // If the source ran out before nFrames were produced (session outlasted the movie),

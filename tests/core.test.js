@@ -17,6 +17,11 @@ ok('auto-lowering ducks under voice and recovers', () => {
   assert.strictEqual(new C.Ducker({ enabled: false }).step(-10, 50), 1);
 });
 
+const { snapCutT } = require('../www/core.js');
+assert.strictEqual(snapCutT([1000, 2000, 3000], 2500), 2000);
+assert.strictEqual(snapCutT([1000, 2000, 3000], 500), 0);
+assert.strictEqual(snapCutT([], 500), 0);
+
 const events = [
   { t: 0, type: 'rec_start', movieMs: 0 }, { t: 0, type: 'vol', value: 1 },
   { t: 0, type: 'duck', enabled: true, thresholdDb: -40, duckedGain: 0.2 },

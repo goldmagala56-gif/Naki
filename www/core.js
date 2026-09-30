@@ -132,6 +132,12 @@ function chunksToKeep(chunkEndTimes, cutT) {
   return keep;
 }
 
+// The cut point actually used: the end of the last chunk we keep (0 if none).
+function snapCutT(chunkEndTimes, cutT) {
+  var k = chunksToKeep(chunkEndTimes, cutT);
+  return k > 0 ? chunkEndTimes[k - 1] : 0;
+}
+
 // Truncates a session's event log and mic-level history to a cut point in session time.
 // Pure and Blob-free by design (see chunksToKeep) so the actual audio chunks are trimmed
 // separately by the caller, using the same cutT.
@@ -184,5 +190,5 @@ if (typeof module !== 'undefined' && module.exports){
   module.exports = { NAKI_VERSION: NAKI_VERSION, DB_MIN: DB_MIN, LEVEL_STEP_MS: LEVEL_STEP_MS, rmsToDb: rmsToDb, dbToByte: dbToByte, byteToDb: byteToDb,
     Ducker: Ducker, stateAt: stateAt, buildVideoSpans: buildVideoSpans, buildGainSeries: buildGainSeries,
     simplifyGain: simplifyGain, buildExportPlan: buildExportPlan, fmt: fmt,
-    chunksToKeep: chunksToKeep, trimEventsAndLevels: trimEventsAndLevels, planRangeCut: planRangeCut };
+    chunksToKeep: chunksToKeep, trimEventsAndLevels: trimEventsAndLevels, planRangeCut: planRangeCut, snapCutT: snapCutT};
 }

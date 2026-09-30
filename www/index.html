@@ -785,32 +785,43 @@ function attachRecorder(sess, isFirst){
 // The actual cut: drops chunks/events/levels after cutT, re-anchors S.rec.t0 so recording
 // continues with no dead air, and repositions the movie to match. Assumes S.rec.t0 already
 // exists (recording is active by the time this runs, whether freshly or just resumed).
-function applyTakeBack(sess, cutT) {
+function applyTakeBack(sess, cutT, flushAbs) {
+  var snapT = snapCutT(sess.chunkTimes, cutT);      // read BEFORE trimming
   var keep = chunksToKeep(sess.chunkTimes, cutT);
   sess.chunks.length = keep; sess.chunkTimes.length = keep;
-  var trimmed = trimEventsAndLevels(sess.events, sess.levels, cutT);
+  var trimmed = trimEventsAndLevels(sess.events, sess.levels, snapT);
   sess.events = trimmed.events; sess.levels = trimmed.levels;
-  S.rec.t0 = performance.now() - cutT;
+  // New audio starts at flushAbs (when we asked the recorder to flush), and that
+  // moment must map to snapT on the timeline, so the voice stays in sync.
+  var now = performance.now();
+  var lag = flushAbs ? now - flushAbs : 0;
+  S.rec.t0 = now - snapT - lag;
   persistTrimmed(sess);
-  var st = stateAt(sess.events, cutT);
+  var st = stateAt(sess.events, snapT);
   S.rec.playing = st.playing;
-  el.movie.currentTime = st.movieMs / 1000;
+  el.movie.currentTime = (st.movieMs + (st.playing ? lag : 0)) / 1000;
   if (st.playing) { if (el.movie.paused) { var p = el.movie.play(); if (p && p.catch) p.catch(function () {}); } }
   else if (!el.movie.paused) { el.movie.pause(); }
   updateStudioUI();
+  return snapT;
 }
 
-// Live "Take back Ns" while recording. Chunks only arrive roughly once per second, so this
-// forces an early flush first to get as close to the requested cut point as the encoder allows
-// (see chunksToKeep in core.js for why chunks can only ever be dropped whole).
 function takeBackLive(seconds) {
   var r = S.rec;
   if (!r.on || r.starting) return;
-  var curT = Math.round(performance.now() - r.t0);
-  var cutT = Math.max(0, curT - seconds * 1000);
-  toast('Taking back the last ' + seconds + ' seconds\u2026', 2500);
-  try { r.mr.requestData(); } catch (e) {}
-  setTimeout(function () { applyTakeBack(r.sess, cutT); toast('Taken back \u2014 keep talking from here.', 2500); }, 120);
+  var flushAbs = performance.now();
+  var cutT = Math.max(0, Math.round(flushAbs - r.t0) - seconds * 1000);
+  var done = false;
+  function go() {
+    if (done) return; done = true;
+    r.mr.removeEventListener('dataavailable', go);
+    var snapT = applyTakeBack(r.sess, cutT, flushAbs);
+    toast('Taken back to ' + fmt(snapT) + ' \u2014 keep talking from here.', 2500);
+  }
+  toast('Taking back\u2026', 2000);
+  r.mr.addEventListener('dataavailable', go);   // runs right after the chunk is stored
+  setTimeout(go, 500);                          // fallback if no data event arrives
+  try { r.mr.requestData(); } catch (e) { go(); }
 }
 
 // From Preview: scrub to a point, discard everything after it, and drop straight back into an
