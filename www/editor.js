@@ -394,15 +394,21 @@ var NakiEditor = (function () {
 
   // ---------- opening and closing ----------
   function init(hooks){ E.hooks = hooks; }
+    function cacheFor(sess, opts){
+    var key = sess.id || 'session', sig = [sess.durationMs, (sess.events || []).length, sess.voiceNudgeMs || 0, sess.voiceOffsetMs || 0].join('|'), c = E.cache[key];
+    if (!c || c.sig !== sig){
+      var proj = P.compileFromSession(Object.assign({}, sess, { voiceDurMs: (opts && opts.voiceDurMs) || null }));
+      var hist = new P.EditHistory(); hist.reset(proj); c = E.cache[key] = { sig: sig, hist: hist };
+    }
+    return c;
+  }
+  // The edited timeline as an export plan. If the editor was never opened, the untouched recording is used.
+  function planFor(sess, opts){ return NakiPlan.projectToPlan(cacheFor(sess, opts).hist.cur); }
   function open(sess, opts){
     if (!E.hooks) throw new Error('NakiEditor.init() must be called first');
     if (!E.root) build();
     opts = opts || {};
-    var key = sess.id || 'session', sig = [sess.durationMs, (sess.events || []).length, sess.voiceNudgeMs || 0, sess.voiceOffsetMs || 0].join('|'), c = E.cache[key];
-    if (!c || c.sig !== sig){
-      var proj = P.compileFromSession(Object.assign({}, sess, { voiceDurMs: opts.voiceDurMs || null }));
-      var hist = new P.EditHistory(); hist.reset(proj); c = E.cache[key] = { sig: sig, hist: hist };
-    }
+    var c = cacheFor(sess, opts);
     E.hist = c.hist; E.proj = c.hist.cur; E.sess = sess; E.sel = null; E.t = 0; E.playing = false; E.quiet = null;
     E.quietDb = -42; (sess.events || []).forEach(function (e){ if (e.type === 'duck' && typeof e.thresholdDb === 'number') E.quietDb = e.thresholdDb; });
     var m = E.hooks.movie; E.home = m.parentNode ? { parent: m.parentNode, next: m.nextSibling } : null;
@@ -425,6 +431,6 @@ var NakiEditor = (function () {
 
   return { init: init, open: open, close: close, isOpen: function (){ return E.isOpen; },
     project: function (){ return E.proj; }, split: split, cutOut: cutOut, deleteSel: deleteSel, undo: undo, redo: redo, select: select,
-    seek: seek, scanQuiet: scanQuiet, play: play, pause: pause, setZoom: setZoom, fit: fit };
+    seek: seek, planFor: planFor, scanQuiet: scanQuiet, play: play, pause: pause, setZoom: setZoom, fit: fit };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NakiEditor;

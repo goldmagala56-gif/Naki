@@ -1,7 +1,7 @@
 'use strict';
-// Tests the pure, platform-independent parts of the in-browser export engine:
-// parsing ffmpeg's own log text, and turning a session plan into a job list.
-// The actual ffmpeg.wasm runner can only run in a real browser, so it isn't tested here —
+// Tests the pure, platform-independent parts of the in-browser export engine (ffmpeg.wasm version):
+// parsing ffmpeg's own log text, and turning an export plan (v2, see www/plan.js) into a job list.
+// The actual ffmpeg.wasm runner can only run in a real browser, so it isn't tested here --
 // see docs/PHONE-TEST.md for the manual test steps.
 // Run with:  node tests/export-engine.test.js   (or: npm test)
 const assert = require('assert');
@@ -37,7 +37,7 @@ ok('garbage input never throws, just reports nothing found', () => {
 
 const movieInfo = { width: 1280, height: 720, sar: 1, hasAudio: true, audioMono: false, durationSec: 30 };
 const plan = {
-  durationMs: 20000,
+  naki: 'export-plan', version: 2, durationMs: 20000,
   movie: { name: 'Test.mp4', durationMs: 30000 },
   video: [
     { type: 'freeze', sessionStart: 0, sessionEnd: 2000, movieAt: 0 },
@@ -45,71 +45,125 @@ const plan = {
     { type: 'freeze', sessionStart: 9500, sessionEnd: 11900, movieAt: 4000 },
     { type: 'play', sessionStart: 11900, sessionEnd: 20000, movieStart: 4000 }
   ],
-  movieGain: { stepMs: 50, points: [[0, 1], [9500, 1], [9600, 0.2], [11500, 0.2], [11900, 1], [20000, 1]] },
-  voice: { file: 'voice.webm', offsetMs: 100 }
+  audio: [
+    { src: 'movie', startMs: 2000, durMs: 7500, inMs: 0, points: [[0, 1], [7500, 1]] },
+    { src: 'movie', startMs: 11900, durMs: 8000, inMs: 4000, points: [[0, 1], [8000, 1]] },
+    { src: 'voice', startMs: 100, durMs: 19800, inMs: 0, points: [[0, 1]] },
+    { src: 'music', startMs: 15000, durMs: 4900, inMs: 0, points: [[0, 0.7]] }
+  ]
 };
+const filterOf = (job) => job.args[job.args.indexOf('-filter_complex') + 1];
 
 ok('every video span becomes a job, in order, nothing skipped', () => {
   const built = E.planToJobs(plan, movieInfo, { height: 480 });
-  assert.strictEqual(built.videoList.length, 4);
   assert.deepStrictEqual(built.videoList, ['v0000.ts', 'v0001.ts', 'v0002.ts', 'v0003.ts']);
-  // freeze spans additionally produce a still frame before the held picture
   const labels = built.jobs.map(j => j.label);
   assert(labels.some(l => l.startsWith('frozen frame 1')));
   assert(labels.some(l => l.startsWith('picture 2')));
+});
+ok('a blank (black) span is drawn from a generated colour, not from the movie', () => {
+  const p = Object.assign({}, plan, { video: [{ type: 'black', sessionStart: 0, sessionEnd: 2000 }, { type: 'play', sessionStart: 2000, sessionEnd: 4000, movieStart: 0 }] });
+  const built = E.planToJobs(p, movieInfo, { height: 480 });
+  const blank = built.jobs.find(j => j.label.startsWith('blank picture 1'));
+  assert(blank, 'no blank picture job');
+  assert(blank.args.some(a => typeof a === 'string' && a.startsWith('color=c=')));
+  assert(!blank.args.includes('movie.in'));
+  assert.deepStrictEqual(built.videoList, ['v0000.ts', 'v0001.ts']);
 });
 ok('output width stays even and matches the movie\'s own shape', () => {
   const built = E.planToJobs(plan, movieInfo, { height: 480 });
   assert.strictEqual(built.height, 480);
   assert.strictEqual(built.width % 2, 0);
-  assert.strictEqual(built.width, 854); // 1280x720 at 480p tall keeps a 16:9-ish width, rounded even
+  assert.strictEqual(built.width, 854);
 });
-ok('a silent movie gets a generated-silence job instead of extracted sound', () => {
+ok('vertical export uses a tall 9:16 canvas', () => {
+  const built = E.planToJobs(plan, movieInfo, { height: 480, vertical: true });
+  assert.strictEqual(built.width, 480); assert.strictEqual(built.height, 854);
+});
+ok('a silent movie gets no movie-sound jobs, but voice and music still render', () => {
   const silentInfo = Object.assign({}, movieInfo, { hasAudio: false });
   const built = E.planToJobs(plan, silentInfo, { height: 480 });
-  const silenceJobs = built.jobs.filter(j => j.label.startsWith('silence'));
-  assert(silenceJobs.length > 0);
-  silenceJobs.forEach(j => assert(!j.args.includes('movie.in')));
+  assert(!built.jobs.some(j => j.label.startsWith('sound movie')));
+  assert(!built.lanes.movie);
+  assert(built.lanes.voice && built.lanes.music);
 });
 ok('a mono movie gets upmixed to stereo, not left quieter', () => {
   const monoInfo = Object.assign({}, movieInfo, { audioMono: true });
   const built = E.planToJobs(plan, monoInfo, { height: 480 });
-  const soundJob = built.jobs.find(j => j.label.startsWith('movie sound'));
-  assert(soundJob.args.some(a => typeof a === 'string' && a.includes('pan=stereo')));
+  const soundJob = built.jobs.find(j => j.label.startsWith('sound movie'));
+  assert(filterOf(soundJob).includes('pan=stereo'));
 });
-ok('every produced file name is actually used by video.txt or audio.txt', () => {
+ok('your voice is cleaned with a low-cut filter; music is not', () => {
+  const built = E.planToJobs(plan, movieInfo, { height: 480 });
+  assert(filterOf(built.jobs.find(j => j.label.startsWith('sound voice'))).includes('highpass'));
+  assert(!filterOf(built.jobs.find(j => j.label.startsWith('sound music'))).includes('highpass'));
+});
+ok('each sound clip carries its own volume curve as a file the job reads', () => {
+  const built = E.planToJobs(plan, movieInfo, { height: 480 });
+  built.jobs.filter(j => j.label.startsWith('sound ')).forEach(j => {
+    const names = Object.keys(j.files || {});
+    assert.strictEqual(names.length, 1);
+    assert(j.args.includes(names[0]), 'job does not read its gain file');
+    assert(j.files[names[0]] instanceof Uint8Array && j.files[names[0]].length > 0);
+  });
+});
+ok('every sound lane runs the whole session and only lists files that were produced', () => {
   const built = E.planToJobs(plan, movieInfo, { height: 480 });
   const produced = new Set(built.jobs.map(j => j.produces));
-  built.videoList.concat(built.audioList).forEach(f => assert(produced.has(f), f + ' was never produced'));
+  Object.keys(built.lanes).forEach(src => {
+    built.lanes[src].forEach(f => assert(produced.has(f), f + ' was never produced'));
+    assert(/^t.\.wav$/.test(built.lanes[src][built.lanes[src].length - 1]), src + ' lane has no closing silence');
+  });
+  built.videoList.forEach(f => assert(produced.has(f), f + ' was never produced'));
+});
+ok('a lane that already ends exactly at the end of the video gets no extra silence', () => {
+  const p = Object.assign({}, plan, { audio: [{ src: 'voice', startMs: 0, durMs: 20000, inMs: 0, points: [[0, 1]] }] });
+  const built = E.planToJobs(p, movieInfo, { height: 480 });
+  assert.deepStrictEqual(built.lanes.voice, ['av0000.wav']);
+});
+ok('a clip that starts late is preceded by silence, so it lands at the right time', () => {
+  const built = E.planToJobs(plan, movieInfo, { height: 480 });
+  assert(/^s.\d+\.wav$/.test(built.lanes.music[0]), 'music lane should open with a silent gap');
 });
 ok('a genuinely empty span (start equals end) is skipped, not crashed on', () => {
-  const tinyPlan = Object.assign({}, plan, { video: [{ type: 'play', sessionStart: 5000, sessionEnd: 5000, movieStart: 0 }] });
-  const built = E.planToJobs(tinyPlan, movieInfo, { height: 480 });
+  const tiny = Object.assign({}, plan, { video: [{ type: 'play', sessionStart: 5000, sessionEnd: 5000, movieStart: 0 }], audio: [] });
+  const built = E.planToJobs(tiny, movieInfo, { height: 480 });
+  assert.strictEqual(built.videoList.length, 0);
   assert.strictEqual(built.jobs.length, 0);
 });
-ok('a span under one video frame still gets its (short) audio, not silently dropped', () => {
-  const tinyPlan = Object.assign({}, plan, { video: [{ type: 'play', sessionStart: 0, sessionEnd: 1, movieStart: 0 }] });
-  const built = E.planToJobs(tinyPlan, movieInfo, { height: 480 });
-  assert.strictEqual(built.videoList.length, 0);
-  assert.strictEqual(built.audioList.length, 1);
+ok('a sound clip under one video frame is still rendered, not silently dropped', () => {
+  const tiny = Object.assign({}, plan, { video: [], audio: [{ src: 'voice', startMs: 0, durMs: 5, inMs: 0, points: [[0, 1]] }] });
+  const built = E.planToJobs(tiny, movieInfo, { height: 480 });
+  assert(built.jobs.some(j => j.label.startsWith('sound voice')));
+});
+ok('two clips that overlap a little on one lane do not break the lane', () => {
+  const p = Object.assign({}, plan, { audio: [
+    { src: 'voice', startMs: 0, durMs: 5000, inMs: 0, points: [[0, 1]] },
+    { src: 'voice', startMs: 4900, durMs: 5000, inMs: 5000, points: [[0, 1]] }] });
+  const built = E.planToJobs(p, movieInfo, { height: 480 });
+  assert.strictEqual(built.jobs.filter(j => j.label.startsWith('sound voice')).length, 2);
 });
 
-ok('the final mix command references every input it needs, in order', () => {
-  const args = E.finalMixArgs(100, 20000);
-  const i = args.indexOf('-i');
-  assert(args.includes('video.txt') && args.includes('audio.txt') && args.includes('gain.f32') && args.includes('voice.in'));
+ok('the final mix reads the picture list and one list per sound lane', () => {
+  const args = E.finalMixArgs(['movie', 'voice', 'music'], 20000);
+  ['video.txt', 'lane_movie.txt', 'lane_voice.txt', 'lane_music.txt', 'out.mp4'].forEach(f => assert(args.includes(f), f));
+  assert(args[args.indexOf('-filter_complex') + 1].includes('amix=inputs=3'));
+  assert(args[args.indexOf('-filter_complex') + 1].includes('normalize=0'));
+});
+ok('a single sound lane is not sent through the mixer', () => {
+  const fc = E.finalMixArgs(['voice'], 20000);
+  assert(!fc[fc.indexOf('-filter_complex') + 1].includes('amix'));
+});
+ok('a video with no sound at all still gets a silent audio track', () => {
+  const args = E.finalMixArgs([], 20000);
+  assert(args.some(a => typeof a === 'string' && a.startsWith('anullsrc')));
   assert(args.includes('out.mp4'));
-  assert(args.some(a => typeof a === 'string' && a.includes('amultiply')));
 });
-ok('a negative voice offset trims the start instead of going back in time', () => {
-  const args = E.finalMixArgs(-250, 20000);
-  const fc = args[args.indexOf('-filter_complex') + 1];
-  assert(fc.includes('atrim=start=0.25'));
-});
-ok('a positive voice offset delays the voice instead of starting early', () => {
-  const args = E.finalMixArgs(300, 20000);
-  const fc = args[args.indexOf('-filter_complex') + 1];
-  assert(fc.includes('adelay=300|300'));
+ok('the gain file turns a volume curve into stereo floats', () => {
+  const raw = E.buildGainRaw([[0, 1], [1000, 0]], 1000);
+  const f = new Float32Array(raw.buffer, raw.byteOffset, raw.byteLength / 4);
+  assert(Math.abs(f[0] - 1) < 1e-6 && f[0] === f[1]);            // both channels
+  assert(Math.abs(f[2 * 500] - 0.5) < 0.01);                      // halfway down at 0.5 s
 });
 
 console.log('\n' + n + ' checks passed');

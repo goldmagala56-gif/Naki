@@ -355,6 +355,8 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 
 <script src="core.js"></script>
 <script src="project.js"></script>
+<script src="voice.js"></script>
+<script src="plan.js"></script>
 <script src="editor.js"></script>
 <script>
 'use strict';
@@ -463,8 +465,9 @@ function sessionRecord(s){
   return { id: s.id, name: s.name, created: s.created, status: s.status, movieName: s.movieName, movieSize: s.movieSize,
     movieDurMs: s.movieDurMs, events: s.events, durationMs: s.durationMs, voiceMime: s.voiceMime,
     voiceOffsetMs: s.voiceOffsetMs, voiceNudgeMs: s.voiceNudgeMs, stats: s.stats, warnings: s.warnings,
-    chunkCount: s.chunks.length, chunkTimes: s.chunkTimes };
+    chunkCount: s.chunks.length, chunkTimes: s.chunkTimes, baseChunks: s.baseChunks || 0, voiceRanges: s.voiceRanges || null };
 }
+
 function levelChunks(s, from){
   var out = [], n = s.levels.length, last = Math.floor((n - 1) / LEVEL_CHUNK);
   for (var i = from; i <= last; i++) out.push({ sid: s.id, i: i, data: s.levels.slice(i * LEVEL_CHUNK, (i + 1) * LEVEL_CHUNK) });
@@ -500,20 +503,33 @@ function loadSession(id){
       rec.stats = rec.stats || {}; rec.warnings = rec.warnings || [];
       rec.voiceNudgeMs = rec.voiceNudgeMs || 0;
       if (!rec.chunkTimes || !rec.chunkTimes.length){
-        // Sessions recorded before Take Back existed have no per-chunk timing. Approximate
-        // each chunk as covering ~1000ms (MediaRecorder's normal timeslice), capped to the
-        // session length; good enough for a coarse take-back, not for anything exact.
         rec.chunkTimes = chunks.map(function(_, i){ return Math.min(rec.durationMs || (i + 1) * 1000, (i + 1) * 1000); });
       }
-      if (rec.status === 'recording'){
+      var recovering = rec.status === 'recording';
+      if (recovering){
         rec.status = 'recovered';
         var lastT = rec.events.length ? rec.events[rec.events.length - 1].t : 0;
         rec.durationMs = Math.max(rec.durationMs || 0, lastT, levels.length * LEVEL_STEP_MS);
+      }
+      if (recovering && rec.voiceRanges){
+        var bc = rec.baseChunks || 0, vr = rec.voiceRanges, mime = rec.voiceMime || 'audio/webm';
+        var pieces = bc
+          ? [{ blob: new Blob(chunks.slice(0, bc), { type: mime }), ranges: vr[0] }, { blob: new Blob(chunks.slice(bc), { type: mime }), ranges: vr[1] }]
+          : [{ blob: rec.voiceBlob, ranges: vr[0] }];
+        return assembleVoice(pieces).then(function(res){
+          if (res){
+            rec.voiceBlob = res.blob; rec.voiceMime = res.mime; rec.chunks = [res.blob]; rec.chunkTimes = [rec.durationMs];
+            rec.baseChunks = 0; rec.voiceRanges = null;
+            persistTrimmed(rec);
+          }
+          return rec;
+        }, function(){ return rec; });
       }
       return rec;
     });
   });
 }
+ 
 
 /* ---------- views ---------- */
 function show(view){
@@ -760,6 +776,19 @@ function showCount(n){ var c = $('count'); c.hidden = (n == null); if (n != null
 // both are "keep recording into this same session", just starting from a different point.
 // isFirst controls whether this recorder is allowed to set sess.voiceOffsetMs/voiceMime (only
 // true the very first time, so a later resume never re-anchors already-kept audio).
+/*"function attachRecorder(sess, isFirst){"
+   and ENDS with the closing brace of "function takeBackFromPreview(cutT) {". That is four functions:
+   attachRecorder, applyTakeBack, takeBackLive, takeBackFromPreview (plus their comments).
+   Delete that whole block and put ALL of this in its place. */
+ 
+// Loads the same mediabunny file the export uses (it is saved on the phone for offline use).
+var voiceLibPromise = null;
+function assembleVoice(pieces){
+  if (!voiceLibPromise) voiceLibPromise = import(new URL('vendor/mediabunny/mediabunny.min.mjs', location.href).href);
+  return voiceLibPromise.then(function(M){ return NakiVoice.assemble(M, pieces); });
+}
+ 
+// Creates and wires a MediaRecorder writing into sess. Shared by starting fresh and by carrying on after Take Back.
 function attachRecorder(sess, isFirst){
   var mime = pickMime(), mr;
   try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
@@ -775,57 +804,70 @@ function attachRecorder(sess, isFirst){
       if (DB.ok) DB.put('chunks', { sid: sess.id, i: i, blob: e.data }).catch(function () {});
     }
   };
-  if (isFirst) {
-    mr.onstart = function () { sess.voiceOffsetMs = Math.round(performance.now() - S.rec.t0); if (mr.mimeType) sess.voiceMime = mr.mimeType; };
-  } else if (mr.mimeType && !sess.voiceMime) { sess.voiceMime = mr.mimeType; }
+  mr.onstart = function () {
+    // When this recorder's own clock reads 0. Take Back works out where to cut from this.
+    S.rec.segStartAbs = performance.now();
+    if (isFirst) sess.voiceOffsetMs = Math.round(S.rec.segStartAbs - S.rec.t0);
+    if (mr.mimeType && (isFirst || !sess.voiceMime)) sess.voiceMime = mr.mimeType;
+  };
   mr.onerror = function () { sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'recorder_error' }); toast('The recorder reported a problem.', 6000); };
   return mr;
 }
-
-// The actual cut: drops chunks/events/levels after cutT, re-anchors S.rec.t0 so recording
-// continues with no dead air, and repositions the movie to match. Assumes S.rec.t0 already
-// exists (recording is active by the time this runs, whether freshly or just resumed).
-function applyTakeBack(sess, cutT, flushAbs) {
-  var snapT = snapCutT(sess.chunkTimes, cutT);      // read BEFORE trimming
-  var keep = chunksToKeep(sess.chunkTimes, cutT);
-  sess.chunks.length = keep; sess.chunkTimes.length = keep;
-  var trimmed = trimEventsAndLevels(sess.events, sess.levels, snapT);
+ 
+// Rewinds the events, the mic levels and the movie to cutT, and makes "right now" the new cutT on the session clock.
+function rewindSession(sess, cutT, nowAbs) {
+  var trimmed = trimEventsAndLevels(sess.events, sess.levels, cutT);
   sess.events = trimmed.events; sess.levels = trimmed.levels;
-  // New audio starts at flushAbs (when we asked the recorder to flush), and that
-  // moment must map to snapT on the timeline, so the voice stays in sync.
-  var now = performance.now();
-  var lag = flushAbs ? now - flushAbs : 0;
-  S.rec.t0 = now - snapT - lag;
-  persistTrimmed(sess);
-  var st = stateAt(sess.events, snapT);
+  S.rec.t0 = nowAbs - cutT;
+  var st = stateAt(sess.events, cutT);
   S.rec.playing = st.playing;
-  el.movie.currentTime = (st.movieMs + (st.playing ? lag : 0)) / 1000;
+  el.movie.currentTime = st.movieMs / 1000;
   if (st.playing) { if (el.movie.paused) { var p = el.movie.play(); if (p && p.catch) p.catch(function () {}); } }
   else if (!el.movie.paused) { el.movie.pause(); }
-  updateStudioUI();
-  return snapT;
 }
-
+ 
+// Remembers how the voice is being put together, so a crash can still be recovered correctly.
+function noteVoiceState(sess) {
+  sess.baseChunks = S.rec.baseChunks || 0;
+  sess.voiceRanges = S.rec.pieces.map(function (p) { return p.ranges; });
+}
+ 
+// Saves the shortened levels and the session record. The audio chunks are NOT touched by a live Take Back.
+function persistAfterCut(s) {
+  if (!DB.ok) return Promise.resolve();
+  return DB.delRange('levels', s.id)
+    .then(function () { return DB.putMany('levels', levelChunks(s, 0)); })
+    .then(function () { return DB.put('sessions', sessionRecord(s)); })
+    .catch(function (e) { console.warn('cut save failed', e); });
+}
+ 
+// The cut itself, while recording. Nothing is thrown away from the recorder: we only note which stretch
+// of the voice to keep, and carry on recording from this very moment with no gap.
+function applyTakeBack(sess, cutT, nowAbs) {
+  var r = S.rec;
+  var cp = NakiVoice.cutPoint(cutT, sess.voiceOffsetMs || 0);
+  sess.voiceOffsetMs = cp.voiceOffsetMs;
+  var liveNow = (nowAbs - r.segStartAbs) / 1000;
+  r.pieces = NakiVoice.cutAt(r.pieces, cp.outSec, liveNow, liveNow);
+  r.dirtyVoice = true;
+  noteVoiceState(sess);
+  rewindSession(sess, cutT, nowAbs);
+  persistAfterCut(sess);
+  updateStudioUI();
+}
+ 
+// Live "Take back Ns" while recording. Happens instantly.
 function takeBackLive(seconds) {
   var r = S.rec;
   if (!r.on || r.starting) return;
-  var flushAbs = performance.now();
-  var cutT = Math.max(0, Math.round(flushAbs - r.t0) - seconds * 1000);
-  var done = false;
-  function go() {
-    if (done) return; done = true;
-    r.mr.removeEventListener('dataavailable', go);
-    var snapT = applyTakeBack(r.sess, cutT, flushAbs);
-    toast('Taken back to ' + fmt(snapT) + ' \u2014 keep talking from here.', 2500);
-  }
-  toast('Taking back\u2026', 2000);
-  r.mr.addEventListener('dataavailable', go);   // runs right after the chunk is stored
-  setTimeout(go, 500);                          // fallback if no data event arrives
-  try { r.mr.requestData(); } catch (e) { go(); }
+  var nowAbs = performance.now();
+  var cutT = Math.max(0, Math.round(nowAbs - r.t0) - seconds * 1000);
+  applyTakeBack(r.sess, cutT, nowAbs);
+  toast('Taken back to ' + fmt(cutT) + ' \u2014 keep talking from here.', 2500);
 }
-
-// From Preview: scrub to a point, discard everything after it, and drop straight back into an
-// active recording that continues seamlessly from there.
+ 
+// From Preview: scrub to a point, discard everything after it, and drop straight back into an active
+// recording that carries on from there. The kept part of the old voice becomes one clean file first.
 function takeBackFromPreview(cutT) {
   if (!S.sess || !S.movieFile) return Promise.resolve();
   var sess = S.sess;
@@ -833,19 +875,42 @@ function takeBackFromPreview(cutT) {
   return openMic().then(function (ok) {
     if (!ok) return;
     ensureAudio(); S.audio.ctx.resume();
-    var mr = attachRecorder(sess, false);
-    if (!mr) { toast('Could not resume recording on this device.'); return; }
-    show('work'); setMode('studio');
-    S.rec.sess = sess; S.rec.mr = mr; S.rec.on = true; S.rec.starting = false;
-    S.rec.everPlayed = true; S.rec.playNudged = true; S.ducker.reset();
-    applyTakeBack(sess, cutT);
-    mr.start(1000);
-    keepAwake();
-    S.rec.autosave = setInterval(function () { persistSession(sess); }, 3000);
-    updateStudioUI();
-    toast('Continuing this session from where you cut it.', 4000);
+    toast('Getting ready\u2026', 2000);
+    var cp = NakiVoice.cutPoint(cutT, sess.voiceOffsetMs || 0);
+    var base = (cp.outSec > 0 && sess.voiceBlob)
+      ? assembleVoice([{ blob: sess.voiceBlob, ranges: [[0, cp.outSec]] }])
+      : Promise.resolve(null);
+    return base.then(function (res) {
+      var mr = attachRecorder(sess, false);
+      if (!mr) { toast('Could not resume recording on this device.'); return; }
+      sess.voiceOffsetMs = cp.voiceOffsetMs;
+      sess.chunks = res ? [res.blob] : []; sess.chunkTimes = res ? [cutT] : [];
+      sess.baseChunks = sess.chunks.length;
+      if (res) { sess.voiceMime = res.mime; sess.voiceBlob = res.blob; }
+      sess.durationMs = cutT; sess.status = 'recording';
+      show('work'); setMode('studio');
+      var r = S.rec;
+      r.sess = sess; r.mr = mr; r.on = true; r.starting = false; r.everPlayed = true; r.playNudged = true; S.ducker.reset();
+      r.baseChunks = sess.baseChunks;
+      r.pieces = (res ? [{ blob: res.blob, ranges: [[0, res.durationSec]] }] : []).concat([{ blob: null, ranges: [[0, null]] }]);
+      r.dirtyVoice = true;
+      var nowAbs = performance.now();
+      r.segStartAbs = nowAbs;
+      rewindSession(sess, cutT, nowAbs);
+      noteVoiceState(sess);
+      mr.start(1000);
+      keepAwake();
+      persistTrimmed(sess);
+      r.autosave = setInterval(function () { persistSession(sess); }, 3000);
+      updateStudioUI();
+      toast('Continuing this session from ' + fmt(cutT) + '.', 4000);
+    }, function (err) {
+      console.warn('could not prepare the voice', err);
+      toast('Could not prepare the voice for continuing. Nothing was changed.', 6000);
+    });
   });
 }
+ 
 
 function startRec(){
   if (S.rec.on || S.rec.starting) return Promise.resolve();
@@ -868,6 +933,7 @@ function startRec(){
       } else if (!DB.ok){
         sess.warnings.push({ t: Math.round(performance.now() - S.rec.t0), type: 'movie_not_remembered_no_db' });
       }
+      S.rec.pieces = [{ blob: null, ranges: [[0, null]] }]; S.rec.baseChunks = 0; S.rec.dirtyVoice = false;
       var mr = attachRecorder(sess, true);
       if (!mr){ S.rec.starting = false; updateStudioUI(); toast('Could not start recording on this device.'); return; }
       S.rec.mr = mr; S.rec.t0 = performance.now(); S.rec.on = true; S.rec.starting = false;
@@ -883,6 +949,21 @@ function startRec(){
   });
 }
 
+function finishVoice(sess, r){
+  var live = new Blob(sess.chunks.slice(r.baseChunks || 0), { type: sess.voiceMime });
+  if (!r.dirtyVoice){ sess.voiceBlob = live; return Promise.resolve(); }   // no Take Back used: exactly as before
+  var last = r.pieces.length - 1;
+  var pieces = r.pieces.map(function(p, i){ return { blob: i === last ? live : p.blob, ranges: p.ranges }; });
+  return assembleVoice(pieces).then(function(res){
+    if (res){ sess.voiceBlob = res.blob; sess.voiceMime = res.mime; sess.chunks = [res.blob]; sess.chunkTimes = [sess.durationMs]; }
+    else { sess.voiceBlob = new Blob([], { type: sess.voiceMime }); sess.chunks = []; sess.chunkTimes = []; toast('Nothing was kept of the voice recording.', 6000); }
+  }, function(err){
+    console.warn('voice assembly failed', err);
+    sess.voiceBlob = new Blob(sess.chunks, { type: sess.voiceMime });
+    toast('Could not tidy up the voice after Take Back. The voice may be out of step with the picture.', 8000);
+  }).then(function(){ sess.baseChunks = 0; sess.voiceRanges = null; });
+}
+ 
 function stopRec(){
   var r = S.rec;
   if (!r.on) return Promise.resolve();
@@ -899,17 +980,19 @@ function stopRec(){
   }).then(function(){
     var lv = sess.levels, need = Math.ceil(sess.durationMs / LEVEL_STEP_MS) + 1, lastB = lv.length ? lv[lv.length - 1] : 0;
     while (lv.length < need) lv.push(lastB);
-    sess.voiceBlob = new Blob(sess.chunks, { type: sess.voiceMime });
     sess.status = 'stopped';
     var q = v.getVideoPlaybackQuality ? v.getVideoPlaybackQuality() : null;
     if (q) sess.stats.frames = { dropped: q.droppedVideoFrames, total: q.totalVideoFrames };
     sess.stats.audioDecodedBytes = typeof v.webkitAudioDecodedByteCount === 'number' ? v.webkitAudioDecodedByteCount : null;
-    return persistSession(sess, true);
+    return finishVoice(sess, r);
+  }).then(function(){
+    return r.dirtyVoice ? persistTrimmed(sess) : persistSession(sess, true);
   }).then(function(){
     closeMic();
     openPreview(sess);
   });
 }
+ 
 
 /* ---------- ticks ---------- */
 function studioTick(now, dt){
@@ -1355,7 +1438,8 @@ $('bExport').onclick = function(){
       doneRow = $('exportDone'), dl = $('exportDownload'), shareBtn = $('bShareVideo'), preview = $('exportPreview');
   box.hidden = false; doneRow.hidden = true; bar.style.width = '0%'; pctEl.textContent = '';
   statusEl.textContent = 'Starting...'; $('bExport').disabled = true;
-  var plan = buildExportPlan(S.sess);
+    var vd = el.voice.duration;
+  var plan = NakiEditor.planFor(S.sess, { voiceDurMs: isFinite(vd) && vd > 0 ? Math.round(vd * 1000) : null });
   // Match the source movie's own resolution instead of a fixed tier, so a higher-res
   // source isn't needlessly softened -- but cap it per the speed/quality choice, since
   // the fallback ffmpeg.wasm engine is single-threaded and a phone can be far slower

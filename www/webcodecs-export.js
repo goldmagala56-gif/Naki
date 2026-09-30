@@ -1,36 +1,32 @@
 'use strict';
 /*
-  Naki hardware-accelerated export engine, built on WebCodecs (via the mediabunny library)
-  instead of ffmpeg.wasm. Real hardware video encoding from inside a browser is only reachable
-  through WebCodecs -- ffmpeg.wasm is a single-threaded WASM *software* encoder, and roughly
-  5-20x slower than realtime on a phone is normal for it, not a bug. This is what actually
-  closes the gap with apps like CapCut/Canva, which use the device's hardware encoder chip.
+  Naki hardware-accelerated export engine, built on WebCodecs (via the mediabunny library, hosted
+  in vendor/mediabunny/ so it works offline) instead of ffmpeg.wasm.
 
-  Mirrors the same rendering logic as export-engine.js (NakiExport): each "play" part of the
-  session is drawn frame-by-frame from the movie, each "pause" becomes a held frame, the
-  movie's own sound is lowered wherever you spoke, and your voice plays over everything.
+  It renders an export plan v2 (see plan.js), so your EDITS are what get exported:
+   - picture: every "play" part is drawn from the movie by TIME (so a 24 fps movie is not sped up),
+     every "pause" becomes a held frame, gaps are drawn as the navy background;
+   - sound: movie sound, your voice and music are mixed from the plan's audio clips, each shaped by its
+     own volume curve. Sound is rendered in 20-second windows and handed to the encoder one window at a
+     time, so a long movie never has to sit decoded in memory (the old version decoded the whole movie
+     at once, which would crash a 2 GB phone).
 
-  index.html tries this engine first (when isSupported() says yes) and falls back to the
-  existing ffmpeg.wasm engine automatically if it's unsupported or if anything here throws --
-  see the bExport handler. Nothing about the fallback engine changes.
+  index.html tries this engine first (when isSupported() says yes) and falls back to the ffmpeg.wasm
+  engine (export-engine.js) if it is unsupported or if anything here throws.
 
-  IMPORTANT: this file was built and unit-verified against the mediabunny API surface and a
-  synthetic test in Node (which has no real hardware and no Canvas, so only the *shape* of the
-  calls was checked there, not real device behavior or speed). The actual hardware encode path,
-  the canvas-drawing path, and the audio-mixing path have NOT been run on a real device yet.
-  Test thoroughly before trusting this for real exports.
+  IMPORTANT: the hardware encode path, canvas drawing and audio mixing here have only been checked
+  against mediabunny's published API, not run on a real phone. Test an export on your phone.
 */
 
 var WebCodecsExport = (function () {
   var FPS = 30;
   var AUDIO_SR = 48000;
-  var MB_CACHE_NAME = 'naki-mediabunny-v1';
-  var modPromise = null;
+  var WINDOW_S = 20;   // seconds of sound rendered at a time
 
-   // Captured right now, while this script is running (see export-engine.js for why).
+  // Captured right now, while this script is running (document.currentScript is gone after the first await).
   var SELF_URL = (typeof document !== 'undefined' && document.currentScript) ? document.currentScript.src
     : (typeof location !== 'undefined' ? location.href : '');
-  var MEDIABUNNY_URL = new URL('vendor/mediabunny/mediabunny.min.mjs', SELF_URL).href;
+  var MEDIABUNNY_URL = new URL('vendor/mediabunny/mediabunny.min.mjs', SELF_URL || 'http://localhost/').href;
   var modPromise = null;
 
   function loadMediabunny() {
@@ -49,8 +45,7 @@ var WebCodecsExport = (function () {
     } catch (e) { return false; }
   }
 
-  // Whether this device's encoder actually reports hardware acceleration for our target size.
-  // Informational only (index.html can show this to the person); never blocks the export.
+  // Informational only: does this device report a hardware H.264 encoder?
   async function hasHardwareEncoder(width, height) {
     try {
       var support = await VideoEncoder.isConfigSupported({
@@ -60,9 +55,7 @@ var WebCodecsExport = (function () {
     } catch (e) { return false; }
   }
 
-  // Same tier math as export-engine.js's planToJobs -- landscape scales straight to the tier
-  // height at the source's own aspect ratio; vertical uses the tier as the short (width) side
-  // of a 9:16 canvas, letterboxed via drawWithFit's 'contain' rather than blurred/cropped.
+  // Same tier math as export-engine.js's planToJobs.
   function targetSize(tier, vertical, movieW, movieH) {
     var width, height;
     if (vertical) {
@@ -88,59 +81,94 @@ var WebCodecsExport = (function () {
     ctx.drawImage(logoImg, pos[0], pos[1], logoW, logoH);
   }
 
-  // Builds the final mixed audio track entirely with native Web Audio scheduling: each "play"
-  // span becomes an AudioBufferSourceNode.start(sessionTime, movieOffset, duration) pulling
-  // straight from the decoded movie audio, routed through a GainNode automated with the same
-  // ducking envelope core.js already computed (plan.movieGain.points). The voice recording is
-  // laid on top through a highpass filter, matching the old ffmpeg 'highpass=f=80' step. No
-  // manual PCM chunking needed -- this replaces the old raw-gain-file ffmpeg filter entirely.
-  async function renderAudio(plan, movieArrayBuffer, voiceArrayBuffer, movieHasAudio) {
-    var totalSec = plan.durationMs / 1000;
-    var offline = new OfflineAudioContext(2, Math.ceil((totalSec + 1) * AUDIO_SR), AUDIO_SR);
-
-    var voiceBuf = await offline.decodeAudioData(voiceArrayBuffer.slice(0));
-    var movieBuf = null;
-    if (movieHasAudio) {
-      try { movieBuf = await offline.decodeAudioData(movieArrayBuffer.slice(0)); }
-      catch (e) { movieBuf = null; } // some containers' audio can fail to decode; export continues without movie sound rather than failing entirely
+  /* ---------- sound ---------- */
+  // Gain of a clip's curve at ms since the clip started (linear between points).
+  function gainOfClip(points, rel) {
+    if (!points || !points.length) return 1;
+    if (rel <= points[0][0]) return points[0][1];
+    for (var i = 1; i < points.length; i++) if (rel <= points[i][0]) {
+      var a = points[i - 1], b = points[i];
+      return b[0] === a[0] ? b[1] : a[1] + (b[1] - a[1]) * (rel - a[0]) / (b[0] - a[0]);
     }
-
-    if (movieBuf) {
-      var gainNode = offline.createGain();
-      gainNode.connect(offline.destination);
-      var pts = (plan.movieGain && plan.movieGain.points && plan.movieGain.points.length) ? plan.movieGain.points : [[0, 1]];
-      gainNode.gain.setValueAtTime(pts[0][1], 0);
-      for (var i = 1; i < pts.length; i++) {
-        gainNode.gain.linearRampToValueAtTime(pts[i][1], Math.max(0.0001, pts[i][0] / 1000));
-      }
-      plan.video.forEach(function (sp) {
-        if (sp.type !== 'play') return;
-        var startSec = sp.sessionStart / 1000;
-        var spanSec = (sp.sessionEnd - sp.sessionStart) / 1000;
-        var movieStartSec = sp.movieStart / 1000;
-        if (movieStartSec >= movieBuf.duration || spanSec <= 0) return;
-        var src = offline.createBufferSource();
-        src.buffer = movieBuf;
-        src.connect(gainNode);
-        var dur = Math.min(spanSec, movieBuf.duration - movieStartSec);
-        if (dur > 0) src.start(startSec, movieStartSec, dur);
-      });
+    return points[points.length - 1][1];
+  }
+  // Applies a clip's curve to a GainNode's parameter, for a window that starts at winStartMs.
+  function automate(param, points, clipStartMs, winStartMs, winMs) {
+    param.setValueAtTime(gainOfClip(points, winStartMs - clipStartMs), 0);
+    for (var i = 0; i < points.length; i++) {
+      var t = (clipStartMs + points[i][0] - winStartMs) / 1000;
+      if (t > 0 && t <= winMs / 1000) param.linearRampToValueAtTime(points[i][1], t);
     }
-
-    var voiceHp = offline.createBiquadFilter();
-    voiceHp.type = 'highpass'; voiceHp.frequency.value = 80;
-    voiceHp.connect(offline.destination);
-    var voiceSrc = offline.createBufferSource();
-    voiceSrc.buffer = voiceBuf;
-    voiceSrc.connect(voiceHp);
-    var voiceOffsetSec = ((plan.voice && plan.voice.offsetMs) || 0) / 1000;
-    if (voiceOffsetSec >= 0) voiceSrc.start(voiceOffsetSec, 0);
-    else voiceSrc.start(0, -voiceOffsetSec);
-
-    return offline.startRendering();
   }
 
-  // opts: { height, vertical, quality: 'faster'|'sharper', logoFile, logoCorner }
+  async function decodeWhole(blob) {
+    var tmp = new OfflineAudioContext(2, 1, AUDIO_SR);
+    return tmp.decodeAudioData(await blob.arrayBuffer());
+  }
+
+  // Renders the whole session's sound, one window at a time, straight into the encoder.
+  async function renderAudio(M, plan, sources, audioSource, prog) {
+    var clips = plan.audio || [];
+    var voiceBuf = null, musicBuf = null, movieSink = null;
+    if (sources.voiceBlob && clips.some(function (c) { return c.src === 'voice'; })) {
+      try { voiceBuf = await decodeWhole(sources.voiceBlob); } catch (e) { voiceBuf = null; }
+    }
+    if (sources.musicFile && clips.some(function (c) { return c.src === 'music'; })) {
+      try { musicBuf = await decodeWhole(sources.musicFile); } catch (e) { musicBuf = null; }
+    }
+    if (sources.movieAudioTrack && clips.some(function (c) { return c.src === 'movie'; })) {
+      movieSink = new M.AudioBufferSink(sources.movieAudioTrack);
+    }
+
+    var totalSamples = Math.round(plan.durationMs / 1000 * AUDIO_SR);
+    var stepSamples = WINDOW_S * AUDIO_SR;
+    for (var pos = 0; pos < totalSamples; pos += stepSamples) {
+      var n = Math.min(stepSamples, totalSamples - pos);
+      var winStartMs = pos / AUDIO_SR * 1000, winMs = n / AUDIO_SR * 1000, winEndMs = winStartMs + winMs;
+      var ctx = new OfflineAudioContext(2, n, AUDIO_SR);
+      var hp = ctx.createBiquadFilter();
+      hp.type = 'highpass'; hp.frequency.value = 80;
+      hp.connect(ctx.destination);
+
+      for (var i = 0; i < clips.length; i++) {
+        var c = clips[i];
+        var cEnd = c.startMs + c.durMs;
+        if (c.startMs >= winEndMs || cEnd <= winStartMs) continue;
+        var oStart = Math.max(c.startMs, winStartMs), oEnd = Math.min(cEnd, winEndMs);
+        var gainNode = ctx.createGain();
+        gainNode.connect(c.src === 'voice' ? hp : ctx.destination);
+        automate(gainNode.gain, c.points, c.startMs, winStartMs, winMs);
+
+        var inStartSec = (c.inMs + (oStart - c.startMs)) / 1000;
+        var spanSec = (oEnd - oStart) / 1000;
+        if (c.src === 'voice' || c.src === 'music') {
+          var buf = c.src === 'voice' ? voiceBuf : musicBuf;
+          if (!buf || inStartSec >= buf.duration) continue;
+          var src = ctx.createBufferSource();
+          src.buffer = buf; src.connect(gainNode);
+          src.start((oStart - winStartMs) / 1000, inStartSec, Math.min(spanSec, buf.duration - inStartSec));
+        } else if (movieSink) {
+          // decode only the little piece of movie sound this window needs
+          for await (var wrapped of movieSink.buffers(inStartSec, inStartSec + spanSec)) {
+            var cut = Math.max(0, inStartSec - wrapped.timestamp);          // buffer began before our piece
+            var sessSec = c.startMs / 1000 + (wrapped.timestamp - c.inMs / 1000) + cut;
+            var when = sessSec - winStartMs / 1000;
+            var len = Math.min(wrapped.buffer.duration - cut, oEnd / 1000 - sessSec);
+            if (len <= 0 || when < 0) continue;
+            var ms = ctx.createBufferSource();
+            ms.buffer = wrapped.buffer; ms.connect(gainNode);
+            ms.start(when, cut, len);
+          }
+        }
+      }
+      var mixed = await ctx.startRendering();
+      await audioSource.add(mixed);
+      prog(0.85 + Math.min(1, (pos + n) / totalSamples) * 0.12);
+    }
+  }
+
+  /* ---------- the export ---------- */
+  // opts: { height, vertical, quality: 'faster'|'sharper', logoFile, logoCorner, musicFile }
   // callbacks: onStatus(text), onProgress(0..1)
   async function run(movieFile, voiceBlob, plan, opts, callbacks) {
     callbacks = callbacks || {};
@@ -162,7 +190,7 @@ var WebCodecsExport = (function () {
     var size = targetSize(tier, !!opts.vertical, videoTrack.codedWidth || 1280, videoTrack.codedHeight || 720);
 
     var canvas = (typeof OffscreenCanvas !== 'undefined') ? new OffscreenCanvas(size.width, size.height) : document.createElement('canvas');
-    if (!(canvas instanceof OffscreenCanvas)) { canvas.width = size.width; canvas.height = size.height; }
+    if (!(typeof OffscreenCanvas !== 'undefined' && canvas instanceof OffscreenCanvas)) { canvas.width = size.width; canvas.height = size.height; }
     var ctx = canvas.getContext('2d');
 
     var logoImg = null;
@@ -171,9 +199,12 @@ var WebCodecsExport = (function () {
       logoImg = await createImageBitmap(opts.logoFile);
     }
 
-    function drawSampleFit(sample) {
+    function paintBackground() {
       ctx.fillStyle = '#111b24';
       ctx.fillRect(0, 0, size.width, size.height);
+    }
+    function drawSampleFit(sample) {
+      paintBackground();
       sample.drawWithFit(ctx, { fit: opts.vertical ? 'contain' : 'fill' });
       if (logoImg) drawWatermark(ctx, logoImg, size.width, size.height, opts.logoCorner);
     }
@@ -202,52 +233,49 @@ var WebCodecsExport = (function () {
       if (sp.type === 'play') {
         var i = 0;
         var startSec = sp.movieStart / 1000;
-        // one requested timestamp per OUTPUT frame, so a 24fps movie is sampled
-        // at 30fps by time instead of playing 25% too fast
+        // one requested timestamp per OUTPUT frame, so a 24 fps movie is sampled at 30 fps by time
         var stamps = (function* () {
           for (var k = 0; k < nFrames; k++) yield startSec + k / FPS;
         })();
         for await (var sample of sink.samplesAtTimestamps(stamps)) {
-          if (sample) { drawSampleFit(sample); sample.close(); }  // null => keep last drawn frame
+          if (sample) { drawSampleFit(sample); sample.close(); }   // null => keep the last drawn frame
           var t = (sp.sessionStart + i * 1000 / FPS) / 1000;
           await videoSource.add(t, 1 / FPS);
           i++; framesDone++;
         }
-        // If the source ran out before nFrames were produced (session outlasted the movie),
-        // pad with whatever's last on the canvas rather than leaving the span short.
-        while (i < nFrames) {
+        while (i < nFrames) {   // safety net if the source ended early
           var t2 = (sp.sessionStart + i * 1000 / FPS) / 1000;
           await videoSource.add(t2, 1 / FPS);
           i++; framesDone++;
         }
       } else {
-        var held = await sink.getSample(sp.movieAt / 1000);
-        if (held) { drawSampleFit(held); held.close(); }
+        if (sp.type === 'freeze') {
+          var held = await sink.getSample(sp.movieAt / 1000);
+          if (held) { drawSampleFit(held); held.close(); } else paintBackground();
+        } else {   // 'black': the navy background (and the logo, if any)
+          paintBackground();
+          if (logoImg) drawWatermark(ctx, logoImg, size.width, size.height, opts.logoCorner);
+        }
         for (var j = 0; j < nFrames; j++) {
           var tf = (sp.sessionStart + j * 1000 / FPS) / 1000;
-          // Each add() re-captures the SAME unchanged canvas -- deliberately not redrawing
-          // per frame here. An earlier prototyping pass found that repeatedly wrapping/cloning
-          // an already-decoded frame for a "held" span could confuse an encoder's internal
-          // reorder buffer; capturing fresh from canvas each time avoids that path entirely.
+          // Each add() re-captures the SAME unchanged canvas; see the note in the earlier version:
+          // capturing fresh from the canvas avoids confusing the encoder's reorder buffer.
           await videoSource.add(tf, 1 / FPS);
           framesDone++;
         }
       }
-      prog(0.05 + (framesDone / totalFrames) * 0.85);
+      prog(0.05 + (framesDone / totalFrames) * 0.8);
       say('Rendering video... ' + Math.round((s + 1) / plan.video.length * 100) + '%');
     }
     videoSource.close();
 
     say('Mixing your voice with the movie...');
-    prog(0.92);
-    var movieBytes = await movieFile.arrayBuffer();
-    var voiceBytes = await voiceBlob.arrayBuffer();
-    var mixed = await renderAudio(plan, movieBytes, voiceBytes, !!audioTrack);
-    await audioSource.add(mixed);
+    prog(0.85);
+    await renderAudio(M, plan, { movieAudioTrack: audioTrack, voiceBlob: voiceBlob, musicFile: opts.musicFile }, audioSource, prog);
     audioSource.close();
 
     say('Finishing up...');
-    prog(0.97);
+    prog(0.98);
     await output.finalize();
     if (input.dispose) input.dispose();
 
@@ -255,10 +283,10 @@ var WebCodecsExport = (function () {
     return new Blob([output.target.buffer], { type: 'video/mp4' });
   }
 
-  return { isSupported: isSupported, hasHardwareEncoder: hasHardwareEncoder, run: run };
+  return { isSupported: isSupported, hasHardwareEncoder: hasHardwareEncoder, run: run,
+    _test: { gainOfClip: gainOfClip, automate: automate, targetSize: targetSize, renderAudio: renderAudio } };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { WebCodecsExport: WebCodecsExport };
 }
-

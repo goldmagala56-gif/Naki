@@ -308,6 +308,6 @@ EditHistory.prototype.redo = function (){ if (this.future.length){ this.past.pus
 var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDelete: rippleDelete, rippleDeleteRanges: rippleDeleteRanges,
   deleteClip: deleteClip, trimClipStart: trimClipStart, trimClipEnd: trimClipEnd, moveClip: moveClip, setClipProps: setClipProps, setTrackProps: setTrackProps,
   sourceAt: sourceAt, validate: validate, snapTime: snapTime, findSilentRanges: findSilentRanges, freezeRanges: freezeRanges, intersectRanges: intersectRanges,
-  gainAt: gainAt, gainSlice: gainSlice, findClip: findClip, EditHistory: EditHistory };
+  gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
