@@ -24,27 +24,17 @@
 var WebCodecsExport = (function () {
   var FPS = 30;
   var AUDIO_SR = 48000;
-  var MEDIABUNNY_URL = 'https://cdn.jsdelivr.net/npm/mediabunny@1/dist/bundles/mediabunny.mjs';
   var MB_CACHE_NAME = 'naki-mediabunny-v1';
   var modPromise = null;
 
+   // Captured right now, while this script is running (see export-engine.js for why).
+  var SELF_URL = (typeof document !== 'undefined' && document.currentScript) ? document.currentScript.src
+    : (typeof location !== 'undefined' ? location.href : '');
+  var MEDIABUNNY_URL = new URL('vendor/mediabunny/mediabunny.min.mjs', SELF_URL).href;
+  var modPromise = null;
+
   function loadMediabunny() {
-    if (modPromise) return modPromise;
-    modPromise = (async function () {
-      // Try to serve from the Cache API first, same pattern the ffmpeg engine uses for its
-      // vendor files, so this also works offline after the first successful export.
-      try {
-        if ('caches' in window) {
-          var cache = await caches.open(MB_CACHE_NAME);
-          var hit = await cache.match(MEDIABUNNY_URL);
-          if (!hit) {
-            var resp = await fetch(MEDIABUNNY_URL);
-            if (resp.ok) await cache.put(MEDIABUNNY_URL, resp.clone());
-          }
-        }
-      } catch (e) { /* caching is a nice-to-have, never block on it */ }
-      return import(/* webpackIgnore: true */ MEDIABUNNY_URL);
-    })();
+    if (!modPromise) modPromise = import(/* webpackIgnore: true */ MEDIABUNNY_URL);
     return modPromise;
   }
 
