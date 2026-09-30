@@ -16,6 +16,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Naki">
 <title>Naki</title>
+<link rel="stylesheet" href="editor.css">
 <style>
 :root{
   --ink:#111b24; --panel:#192733; --panel-2:#20313f; --line:#2f4556;
@@ -271,6 +272,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
           <div class="row">
             <button id="bAgain" class="btn">Record again</button>
             <button id="bTakeBackHere" class="btn">Take back from here</button>
+            <button id="bEdit" class="btn primary">Edit video</button>
             <button id="bHome" class="btn">Home</button>
           </div>
           <h3>Export</h3>
@@ -352,6 +354,8 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <div id="toast" class="toast" hidden></div>
 
 <script src="core.js"></script>
+<script src="project.js"></script>
+<script src="editor.js"></script>
 <script>
 'use strict';
 
@@ -1434,6 +1438,19 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
     } catch (e) {}
   }).catch(function(){});
 }
+
+NakiEditor.init({
+  movie: el.movie, voice: el.voice, simple: SIMPLE,
+  ensureAudio: ensureAudio, getCtx: function(){ return S.audio.ctx; },
+  setMovieGain: applyGain, movieReady: function(){ return !!S.movieFile; },
+  toast: toast, onClose: function(){ if (S.sess) preparePreview(S.sess); }
+});
+$('bEdit').onclick = function(){
+  if (!S.sess) return;
+  el.voice.pause(); el.movie.pause();
+  var d = el.voice.duration;
+  NakiEditor.open(S.sess, { voiceDurMs: isFinite(d) && d > 0 ? Math.round(d * 1000) : null });
+};
 
 placeThr();
 DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show('home'); return refreshHome(); });
