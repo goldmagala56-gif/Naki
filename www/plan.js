@@ -5,13 +5,15 @@
    plan = {
      naki:'export-plan', version:2, durationMs,
      movie:{ name, durationMs },
-     video:[ {type:'play',  sessionStart, sessionEnd, movieStart}
-           | {type:'freeze',sessionStart, sessionEnd, movieAt}
+     video:[ {type:'play',  sessionStart, sessionEnd, movieStart, speed?, filter?, vFadeIn?, vFadeOut?}
+           | {type:'freeze',sessionStart, sessionEnd, movieAt,            filter?, vFadeIn?, vFadeOut?}
            | {type:'black', sessionStart, sessionEnd} ],          // covers 0..durationMs with no gaps
-     audio:[ {src:'movie'|'voice'|'music', startMs, durMs, inMs, points:[[msSinceClipStart, gain],...]} ]
+     audio:[ {src:'movie'|'voice'|'music', startMs, durMs, inMs, speed?, points:[[msSinceClipStart, gain],...]} ],
+     texts:[ {startMs, durMs, text, size, color, pos, weight, bg} ]     // only present when there is text
    }
    Each audio clip's points already include track volume, mute, clip volume, ducking and fades,
-   so the engines only have to apply the curve. */
+   so the engines only have to apply the curve. speed, filter, vFadeIn/Out and texts are only present
+   when used, so a plan without them is exactly what the earlier engines expect. */
 var NakiPlan = (function () {
   var P = (typeof module !== 'undefined' && module.exports) ? require('./project.js') : window.NakiProject;
   var C = (typeof module !== 'undefined' && module.exports) ? require('./core.js')
@@ -28,9 +30,14 @@ var NakiPlan = (function () {
       if (e <= cursor) return;
       if (s > cursor) video.push({ type: 'black', sessionStart: cursor, sessionEnd: s });
       else s = cursor;
-      video.push(c.type === 'freeze'
+      var sp = c.type === 'freeze'
         ? { type: 'freeze', sessionStart: s, sessionEnd: e, movieAt: c.in }
-        : { type: 'play', sessionStart: s, sessionEnd: e, movieStart: c.in + (s - Math.round(c.start)) });
+        : { type: 'play', sessionStart: s, sessionEnd: e, movieStart: c.in + Math.round((s - Math.round(c.start)) * (c.speed || 1)) };
+      if (sp.type === 'play' && c.speed && c.speed !== 1) sp.speed = c.speed;
+      if (c.filter) sp.filter = { brightness: c.filter.brightness, contrast: c.filter.contrast, saturate: c.filter.saturate };
+      if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;
+      if (c.vFadeOut) sp.vFadeOut = c.vFadeOut;
+      video.push(sp);
       cursor = e;
     });
     if (cursor < total) video.push({ type: 'black', sessionStart: cursor, sessionEnd: total });
@@ -48,14 +55,30 @@ var NakiPlan = (function () {
           series.push(g);
         }
         if (!any) return;
-        audio.push({ src: src, startMs: Math.round(c.start), durMs: Math.round(c.dur), inMs: Math.round(c.in),
-          points: C.simplifyGain(series, STEP, 0.01) });
+        var a = { src: src, startMs: Math.round(c.start), durMs: Math.round(c.dur), inMs: Math.round(c.in),
+          points: C.simplifyGain(series, STEP, 0.01) };
+        if (src === 'movie' && c.speed && c.speed !== 1) a.speed = c.speed;
+        audio.push(a);
       });
     });
     audio.sort(function (a, b) { return a.startMs - b.startMs; });
+
+    var texts = [];
+    p.tracks.forEach(function (tr) {
+      if (tr.kind !== 'text' || tr.hidden) return;
+      tr.clips.forEach(function (c) {
+        if (!(c.dur > 0) || !String(c.text || '').trim()) return;
+        var s = Math.max(0, Math.round(c.start)), e = Math.min(total, Math.round(c.start + c.dur));
+        if (e > s) texts.push({ startMs: s, durMs: e - s, text: String(c.text), size: c.size, color: c.color, pos: c.pos, weight: c.weight, bg: !!c.bg });
+      });
+    });
+    texts.sort(function (a, b) { return a.startMs - b.startMs; });
+
     var mv = p.assets && p.assets.movie;
-    return { naki: 'export-plan', version: 2, durationMs: total,
+    var plan = { naki: 'export-plan', version: 2, durationMs: total,
       movie: { name: mv && mv.name, durationMs: mv && mv.durMs }, video: video, audio: audio };
+    if (texts.length) plan.texts = texts;
+    return plan;
   }
 
   // Which audio clips touch the session window [a,b) in ms.
@@ -74,7 +97,10 @@ var NakiPlan = (function () {
     return points[points.length - 1][1];
   }
 
-  var api = { projectToPlan: projectToPlan, clipsInWindow: clipsInWindow, gainOfClip: gainOfClip };
+  // Text placement shared by the editor preview and the exported picture, as a fraction of the picture height.
+  var TEXT_POS = { top: 0.07, center: 0.40, bottom: 0.76 };
+
+  var api = { projectToPlan: projectToPlan, clipsInWindow: clipsInWindow, gainOfClip: gainOfClip, TEXT_POS: TEXT_POS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.NakiPlan = api;
   return api;

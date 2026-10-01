@@ -61,7 +61,7 @@ function sliceClip(c, from, to){   // the part of clip c covering timeline [from
   from = Math.max(from, c.start); to = Math.min(to, clipEnd(c));
   var n = JSON.parse(JSON.stringify(c));
   n.id = newId('c'); n.start = from; n.dur = to - from;
-  if (c.type !== 'freeze') n.in = c.in + Math.round((from - c.start) * (c.speed || 1));
+  if (c.type !== 'freeze' && c.type !== 'text') n.in = c.in + Math.round((from - c.start) * (c.speed || 1));
   if (c.gain && c.gain.length) n.gain = gainSlice(c.gain, from - c.start, to - c.start);
   // fades belong to the original clip's ends: remember how much of each fade a piece has already used up
   if (from > c.start){ n.fadeInOff = (c.fadeInOff || 0) + (from - c.start); if (n.fadeInOff >= (c.fadeIn || 0)){ n.fadeIn = 0; n.fadeInOff = 0; } }
@@ -171,7 +171,7 @@ function deleteClip(p, id){   // removes the clip and its linked partner, leavin
   return finish(q);
 }
 function maxDur(p, c){   // how long this clip could be at most, given its source
-  if (c.type === 'freeze') return Infinity;
+  if (c.type === 'freeze' || c.type === 'text') return Infinity;
   var d = p.assets[c.asset] && p.assets[c.asset].durMs;
   return d ? Math.floor((d - c.in) / (c.speed || 1)) : Infinity;
 }
@@ -193,7 +193,7 @@ function trimClipStart(p, id, newStart){
   linkedIds(q, id).forEach(function (cid){
     var c = findClip(q, cid).clip, delta = Math.round(newStart) - c.start, sp = c.speed || 1;
     if (delta >= c.dur || c.start + delta < 0) return;
-    if (c.type !== 'freeze'){ if (c.in + delta * sp < 0) return; c.in += Math.round(delta * sp); }
+    if (c.type !== 'freeze' && c.type !== 'text'){ if (c.in + delta * sp < 0) return; c.in += Math.round(delta * sp); }
     if (c.gain && c.gain.length){
       if (delta > 0) c.gain = gainSlice(c.gain, delta, c.dur);
       else if (delta < 0) c.gain = [[0, c.gain[0][1]]].concat(c.gain.map(function (pt){ return [pt[0] - delta, pt[1]]; }));
@@ -239,7 +239,7 @@ function sourceAt(p, t){
       if (!(c.start <= t && t < clipEnd(c))) return;
       var srcMs = c.type === 'freeze' ? c.in : c.in + (t - c.start) * (c.speed || 1);
       if (tr.kind === 'video'){ if (!tr.hidden) out.video = { clip: c, type: c.type, movieMs: srcMs }; }
-      else out.audio.push({ role: tr.role, clip: c, sourceMs: srcMs, gain: clipGainAt(tr, c, t) });
+      else if (tr.kind === 'audio') out.audio.push({ role: tr.role, clip: c, sourceMs: srcMs, gain: clipGainAt(tr, c, t) });
     });
   });
   return out;
@@ -251,7 +251,7 @@ function validate(p){
     cs.forEach(function (c, i){
       if (!(c.dur > 0)) errs.push(tr.id + ': clip ' + c.id + ' has no length');
       if (c.start < 0) errs.push(tr.id + ': clip ' + c.id + ' starts before 0');
-      if (!p.assets[c.asset]) errs.push(tr.id + ': clip ' + c.id + ' uses missing asset ' + c.asset);
+      if (c.type !== 'text' && !p.assets[c.asset]) errs.push(tr.id + ': clip ' + c.id + ' uses missing asset ' + c.asset);
       if (i > 0 && cs[i - 1].start + cs[i - 1].dur > c.start) errs.push(tr.id + ': clips overlap at ' + c.start);
     });
   });
@@ -293,6 +293,135 @@ function intersectRanges(A, B){
   return out.sort(function (a, b){ return a.start - b.start; });
 }
 
+// ---------- text, speed, fades, filters, freeze frames, music ----------
+// Text lives on its own track (kind 'text'). Text clips split, trim, move and cut like any other clip.
+var TEXT_DEFAULTS = { text: 'Your text', size: 7, color: '#ffffff', pos: 'bottom', weight: 700, bg: false };
+function textTrackOf(p){ return p.tracks.filter(function (t){ return t.kind === 'text'; })[0] || null; }
+function addTextClip(p, t, dur, out){
+  t = Math.round(t); dur = Math.round(dur || 3000);
+  var total = p.durationMs; if (!(total > 0)) return p;
+  var q = cloneProject(p), tr = textTrackOf(q);
+  if (!tr){ tr = { id: 't-text', kind: 'text', role: 'text', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr); }
+  var start = Math.max(0, Math.min(t, total)), moved = true;
+  while (moved){ moved = false; tr.clips.forEach(function (c){ if (start >= c.start && start < clipEnd(c)){ start = clipEnd(c); moved = true; } }); }
+  var d = Math.min(dur, total - start), nextStart = null;
+  tr.clips.forEach(function (c){ if (c.start >= start && (nextStart === null || c.start < nextStart)) nextStart = c.start; });
+  if (nextStart !== null) d = Math.min(d, nextStart - start);
+  if (d < 300) return p;
+  var clip = Object.assign({ id: newId('c'), type: 'text', asset: null, start: start, dur: d, in: 0, speed: 1 }, TEXT_DEFAULTS);
+  tr.clips.push(clip); if (out) out.id = clip.id;
+  return finish(q);
+}
+function setTextProps(p, id, patch){
+  var ok = ['text', 'size', 'color', 'pos', 'weight', 'bg'], q = cloneProject(p), f = findClip(q, id);
+  if (!f || f.clip.type !== 'text') return p;
+  ok.forEach(function (k){ if (patch[k] !== undefined) f.clip[k] = patch[k]; });
+  f.clip.size = Math.max(3, Math.min(16, +f.clip.size || 7));
+  return finish(q);
+}
+function textsAt(p, t){
+  var out = [];
+  p.tracks.forEach(function (tr){ if (tr.kind !== 'text' || tr.hidden) return; tr.clips.forEach(function (c){ if (c.start <= t && t < clipEnd(c)) out.push(c); }); });
+  return out;
+}
+
+// Speed of a movie clip (0.25x to 4x). Its linked sound changes with it, and the movie clips after it
+// move up or back so the picture stays in one piece. Voice, music and text stay where they are.
+function setClipSpeed(p, id, speed){
+  speed = Math.round(Math.max(0.25, Math.min(4, +speed || 1)) * 100) / 100;
+  var f = findClip(p, id); if (!f || f.clip.type !== 'video') return p;
+  var old = f.clip.speed || 1; if (Math.abs(old - speed) < 0.001) return p;
+  var q = cloneProject(p), ids = linkedIds(q, id), c0 = findClip(q, id).clip;
+  var oldDur = c0.dur, newDur = Math.max(1, Math.round(oldDur * old / speed)), delta = newDur - oldDur, ratio = newDur / oldDur, anchor = c0.start + oldDur;
+  ids.forEach(function (cid){
+    var c = findClip(q, cid).clip; c.speed = speed; c.dur = newDur;
+    if (c.gain && c.gain.length) c.gain = c.gain.map(function (pt){ return [Math.round(pt[0] * ratio), pt[1]]; });
+    c.fadeInOff = Math.round((c.fadeInOff || 0) * ratio); c.fadeOutOff = Math.round((c.fadeOutOff || 0) * ratio);
+    c.fadeIn = Math.min(c.fadeIn || 0, Math.floor(newDur / 2)); c.fadeOut = Math.min(c.fadeOut || 0, Math.floor(newDur / 2));
+    if (c.vFadeIn) c.vFadeIn = Math.min(c.vFadeIn, Math.floor(newDur / 2)); if (c.vFadeOut) c.vFadeOut = Math.min(c.vFadeOut, Math.floor(newDur / 2));
+  });
+  q.tracks.forEach(function (tr){
+    if (tr.role !== 'movie' && tr.role !== 'movieSound') return;
+    tr.clips.forEach(function (c){ if (ids.indexOf(c.id) < 0 && c.start >= anchor) c.start += delta; });
+  });
+  return validate(q).length ? p : finish(q);
+}
+
+// "Fade through black" at the start and/or end of a picture clip (ms). Sound is not touched.
+function setVFade(p, id, patch){
+  var q = cloneProject(p), f = findClip(q, id); if (!f || f.track.kind !== 'video') return p;
+  var maxF = Math.min(1500, Math.floor(f.clip.dur / 2));
+  ['vFadeIn', 'vFadeOut'].forEach(function (k){ if (patch[k] !== undefined){ var v = Math.max(0, Math.min(maxF, Math.round(+patch[k] || 0))); if (v) f.clip[k] = v; else delete f.clip[k]; } });
+  return finish(q);
+}
+
+// Brightness / contrast / colour for one picture clip, or for all of them when id is null.
+function setFilter(p, id, patch){
+  var q = cloneProject(p), targets = [];
+  q.tracks.forEach(function (tr){ if (tr.kind === 'video') tr.clips.forEach(function (c){ if (id === null || c.id === id) targets.push(c); }); });
+  if (!targets.length) return p;
+  targets.forEach(function (c){
+    var f = Object.assign({ brightness: 1, contrast: 1, saturate: 1 }, c.filter || {}, patch || {});
+    f.brightness = Math.max(0.4, Math.min(1.6, +f.brightness || 1)); f.contrast = Math.max(0.4, Math.min(1.6, +f.contrast || 1)); f.saturate = Math.max(0, Math.min(2, f.saturate == null ? 1 : +f.saturate));
+    if (Math.abs(f.brightness - 1) < 0.001 && Math.abs(f.contrast - 1) < 0.001 && Math.abs(f.saturate - 1) < 0.001) delete c.filter; else c.filter = f;
+  });
+  return finish(q);
+}
+
+// Holds the picture still at time t for dur ms. Everything after t (picture, movie sound, voice, text) moves
+// later by dur so nothing slips out of step; the voice simply has a silent gap there. Music keeps playing.
+function insertFreeze(p, t, dur){
+  t = Math.round(t); dur = Math.round(dur);
+  if (!(dur > 0)) return p;
+  var s = sourceAt(p, t); if (!s.video) return p;
+  var inFreeze = s.video.type === 'freeze', movieMs = Math.round(s.video.movieMs);
+  var q = cloneProject(p), rightLink = {};
+  q.tracks.forEach(function (tr){
+    if (tr.role === 'music') return;
+    var out = [];
+    tr.clips.forEach(function (c){
+      var e = clipEnd(c);
+      if (tr.kind === 'text'){ if (c.start >= t) c.start += dur; else if (e > t) c.dur += dur; out.push(c); return; }
+      if (inFreeze && tr.role === 'movie' && c.start <= t && t < e){ c.dur += dur; out.push(c); return; }
+      if (c.start >= t){ c.start += dur; out.push(c); return; }
+      if (e <= t){ out.push(c); return; }
+      var left = sliceClip(c, c.start, t), right = sliceClip(c, t, e); left.id = c.id; right.start += dur;
+      if (c.link){ rightLink[c.link] = rightLink[c.link] || newId('l'); right.link = rightLink[c.link]; }
+      out.push(left, right);
+    });
+    if (tr.role === 'movie' && !inFreeze)
+      out.push({ id: newId('c'), type: 'freeze', asset: 'movie', start: t, dur: dur, in: movieMs, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0, link: newId('l') });
+    tr.clips = out;
+  });
+  if (p.levels && p.levels.length){
+    var at = Math.min(p.levels.length, Math.round(t / _C.LEVEL_STEP_MS)), n = Math.round(dur / _C.LEVEL_STEP_MS), gap = [];
+    for (var i = 0; i < n; i++) gap.push(0);
+    q.levels = p.levels.slice(0, at).concat(gap, p.levels.slice(at));
+  }
+  return finish(q);
+}
+
+// Background music: adds the music track (or swaps the file behind the existing one). info = { name, durMs }
+function ensureMusic(p, info){
+  var q = cloneProject(p), dm = (info && info.durMs) || null;
+  q.assets.music = { type: 'audio', name: (info && info.name) || 'music', durMs: dm };
+  var tr = q.tracks.filter(function (t){ return t.role === 'music'; })[0];
+  if (tr && tr.clips.length){
+    tr.clips.forEach(function (c){ if (dm) c.dur = Math.max(1, Math.min(c.dur, dm - c.in)); });
+    return finish(q);
+  }
+  var total = q.durationMs, d = dm ? Math.min(dm, total) : total;
+  if (!(d > 0)) return p;
+  if (!tr){ tr = { id: 't-music', kind: 'audio', role: 'music', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.splice(3, 0, tr); }
+  tr.clips.push({ id: newId('c'), type: 'audio', asset: 'music', start: 0, dur: d, in: 0, speed: 1, volume: 0.7, fadeIn: 0, fadeOut: Math.min(1500, Math.floor(d / 2)) });
+  return finish(q);
+}
+function removeMusic(p){
+  var q = cloneProject(p);
+  q.tracks = q.tracks.filter(function (t){ return t.role !== 'music'; }); delete q.assets.music;
+  return finish(q);
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -308,6 +437,8 @@ EditHistory.prototype.redo = function (){ if (this.future.length){ this.past.pus
 var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDelete: rippleDelete, rippleDeleteRanges: rippleDeleteRanges,
   deleteClip: deleteClip, trimClipStart: trimClipStart, trimClipEnd: trimClipEnd, moveClip: moveClip, setClipProps: setClipProps, setTrackProps: setTrackProps,
   sourceAt: sourceAt, validate: validate, snapTime: snapTime, findSilentRanges: findSilentRanges, freezeRanges: freezeRanges, intersectRanges: intersectRanges,
-  gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory };
+  gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
+  addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
+  insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;

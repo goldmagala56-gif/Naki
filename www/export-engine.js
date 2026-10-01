@@ -106,14 +106,49 @@ function planToJobs(plan, movieInfo, opts) {
   var maxMovieSec = Math.max(0, (plan.movie && plan.movie.durationMs ? plan.movie.durationMs / 1000 : movieInfo.durationSec) - 0.1);
   var clampSec = function (ms) { return Math.max(0, Math.min(ms / 1000, maxMovieSec || ms / 1000)); };
 
-  function pictureArgs(sourceArgs, fitChain, nFrames, vfile) {
+  // Titles are drawn by the page as transparent full-size pictures (textFiles) and laid over the video
+  // with ffmpeg's overlay, so ffmpeg never needs a font file.
+  var texts = plan.texts || [], textFiles = texts.map(function (t, i) { return { name: 'txt' + String(i).padStart(3, '0') + '.png', clip: t, width: width, height: height }; });
+
+  // The colour / speed / fade part of a picture chain. Empty for a plain clip.
+  function lookChain(sp, spanSec) {
+    var parts = [];
+    var f = sp.filter;
+    if (f && (f.contrast !== 1 || f.saturate !== 1)) parts.push('eq=contrast=' + f.contrast + ':saturation=' + f.saturate);
+    if (f && f.brightness !== 1) parts.push("lutyuv=y='clip(val*" + f.brightness + ",16,235)'");
+    if (sp.vFadeIn) parts.push('fade=t=in:st=0:d=' + (sp.vFadeIn / 1000).toFixed(3));
+    if (sp.vFadeOut) parts.push('fade=t=out:st=' + Math.max(0, spanSec - sp.vFadeOut / 1000).toFixed(3) + ':d=' + (sp.vFadeOut / 1000).toFixed(3));
+    return parts.join(',');
+  }
+
+  // sourceArgs: the input(s) for this part; fitChain: how to fit it to the output size; sp: the plan span;
+  // speed: playback speed of a movie part; tpadSec: how long to keep repeating the last frame if the movie ends early.
+  function pictureArgs(sourceArgs, fitChain, nFrames, vfile, sp, spanSec, speed, tpadSec) {
     var tailEnc = enc.concat(ts, [vfile]);
-    if (!wm) {
-      return sourceArgs.concat(['-an', '-vf', fitChain + ',setsar=1,fps=' + FPS + ',format=yuv420p', '-frames:v', String(nFrames)], tailEnc);
+    var look = lookChain(sp, spanSec);
+    var over = textFiles.filter(function (t) { return t.clip.startMs < sp.sessionEnd && t.clip.startMs + t.clip.durMs > sp.sessionStart; });
+    var tpad = tpadSec ? 'tpad=stop_mode=clone:stop_duration=' + tpadSec : '';
+    if (!wm && !over.length && !look && !(speed && speed !== 1)) {
+      // a plain clip: exactly the chain the earlier versions used
+      return sourceArgs.concat(['-an', '-vf', fitChain + (tpad ? ',' + tpad : '') + ',setsar=1,fps=' + FPS + ',format=yuv420p', '-frames:v', String(nFrames)], tailEnc);
     }
-    var fc = '[0:v]' + fitChain + ',setsar=1,fps=' + FPS + ',format=yuv420p[base];' +
-      '[1:v]scale=' + wm.logoW + ':-1[wm];[base][wm]overlay=' + wm.overlayPos + '[outv]';
-    return sourceArgs.concat(['-i', 'logo.png', '-an', '-filter_complex', fc, '-map', '[outv]', '-frames:v', String(nFrames)], tailEnc);
+    var inputs = sourceArgs.slice(), next = 1, fc = [], n = 0;
+    var head = (fitChain === 'null' ? '' : fitChain + ',') + 'setsar=1' + (speed && speed !== 1 ? ',setpts=PTS/' + speed : '') + ',fps=' + FPS +
+      (tpad ? ',' + tpad : '') + ',format=yuv420p' + (look ? ',' + look : '');
+    fc.push('[0:v]' + head + '[v0]');
+    var cur = 'v0';
+    if (wm) {
+      inputs.push('-i', 'logo.png');
+      fc.push('[' + next + ':v]scale=' + wm.logoW + ':-1[wm]'); fc.push('[' + cur + '][wm]overlay=' + wm.overlayPos + '[v' + (++n) + ']');
+      cur = 'v' + n; next++;
+    }
+    over.forEach(function (t) {
+      var a = Math.max(0, (t.clip.startMs - sp.sessionStart) / 1000), b = (Math.min(sp.sessionEnd, t.clip.startMs + t.clip.durMs) - sp.sessionStart) / 1000;
+      inputs.push('-i', t.name);
+      fc.push('[' + cur + '][' + next + ':v]overlay=0:0:enable=\'between(t,' + a.toFixed(3) + ',' + b.toFixed(3) + ')\'[v' + (++n) + ']');
+      cur = 'v' + n; next++;
+    });
+    return inputs.concat(['-an', '-filter_complex', fc.join(';'), '-map', '[' + cur + ']', '-frames:v', String(nFrames)], tailEnc);
   }
 
   var jobs = [], videoList = [];
@@ -127,18 +162,18 @@ function planToJobs(plan, movieInfo, opts) {
     var vfile = 'v' + id + '.ts';
     var spanSec = (sp.sessionEnd - sp.sessionStart) / 1000;
     if (sp.type === 'play') {
-      var playFit = fit + ',tpad=stop_mode=clone:stop_duration=' + Math.ceil(spanSec + 1);
+      var speed = sp.speed && sp.speed !== 1 ? sp.speed : 1;
       jobs.push({ label: 'picture ' + (i + 1), produces: vfile,
-        args: pictureArgs(['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in'], playFit, nFrames, vfile) });
+        args: pictureArgs(['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in'], fit, nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
     } else if (sp.type === 'freeze') {
       var png = 'f' + id + '.png';
       jobs.push({ label: 'frozen frame ' + (i + 1), produces: png, args: ['-ss', clampSec(sp.movieAt).toFixed(3), '-i', 'movie.in', '-an', '-frames:v', '1',
         '-vf', fit + ',setsar=1', png] });
       jobs.push({ label: 'frozen picture ' + (i + 1), produces: vfile,
-        args: pictureArgs(['-loop', '1', '-framerate', String(FPS), '-i', png], 'null', nFrames, vfile) });
+        args: pictureArgs(['-loop', '1', '-framerate', String(FPS), '-i', png], 'null', nFrames, vfile, sp, spanSec, 1, 0) });
     } else {
       jobs.push({ label: 'blank picture ' + (i + 1), produces: vfile,
-        args: pictureArgs(['-f', 'lavfi', '-i', 'color=c=0x111b24:s=' + width + 'x' + height + ':r=' + FPS], 'null', nFrames, vfile) });
+        args: pictureArgs(['-f', 'lavfi', '-i', 'color=c=0x111b24:s=' + width + 'x' + height + ':r=' + FPS], 'null', nFrames, vfile, sp, spanSec, 1, 0) });
     }
     videoList.push(vfile);
   });
@@ -150,6 +185,15 @@ function planToJobs(plan, movieInfo, opts) {
     return { label: 'silence', produces: name, args: ['-f', 'lavfi', '-i', 'anullsrc=r=' + SR + ':cl=stereo',
       '-af', 'aformat=sample_fmts=s16:channel_layouts=stereo,atrim=end_sample=' + samples,
       '-t', (samples / SR + 0.05).toFixed(3), '-c:a', 'pcm_s16le', '-f', 'wav', name] };
+  }
+  // ffmpeg's atempo only accepts 0.5 to 2 per step, so 0.25x and 4x take two steps.
+  function tempoChain(speed) {
+    if (!speed || speed === 1) return '';
+    var parts = [], s = speed;
+    while (s > 2) { parts.push('atempo=2'); s /= 2; }
+    while (s < 0.5) { parts.push('atempo=0.5'); s /= 0.5; }
+    parts.push('atempo=' + s.toFixed(4));
+    return ',' + parts.join(',');
   }
   (plan.audio || []).forEach(function (c, i) {
     var src = c.src;
@@ -165,12 +209,13 @@ function planToJobs(plan, movieInfo, opts) {
     }
     var afile = 'a' + src[0] + id + '.wav', gfile = 'g' + id + '.f32';
     var lostMs = (startS - Sm(c.startMs)) * 1000 / SR;   // only non-zero if clips overlapped
-    var fc = '[0:a]' + sourceChain(src, movieInfo) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
+    var spd = c.speed && c.speed !== 1 ? c.speed : 1;
+    var fc = '[0:a]' + sourceChain(src, movieInfo) + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
       '[1:a]aresample=' + SR + ',aformat=sample_fmts=fltp:channel_layouts=stereo[g];' +
       '[a][g]amultiply,aformat=sample_fmts=s16:channel_layouts=stereo[o]';
     var files = {}; files[gfile] = buildGainRaw(c.points, c.durMs + lostMs);
     jobs.push({ label: 'sound ' + src + ' ' + (i + 1), produces: afile, files: files,
-      args: ['-ss', clampSec(c.inMs + lostMs).toFixed(3), '-i', SRC_FILE[src],
+      args: ['-ss', clampSec(c.inMs + lostMs * spd).toFixed(3), '-i', SRC_FILE[src],
         '-f', 'f32le', '-ar', String(GAIN_HZ), '-ac', '2', '-i', gfile,
         '-filter_complex', fc, '-map', '[o]', '-t', (n / SR + 0.05).toFixed(3), '-c:a', 'pcm_s16le', '-f', 'wav', afile] });
     lanes[src].push(afile);
@@ -186,7 +231,7 @@ function planToJobs(plan, movieInfo, opts) {
     }
     laneLists[src] = lanes[src];
   });
-  return { jobs: jobs, videoList: videoList, lanes: laneLists, width: width, height: height };
+  return { jobs: jobs, videoList: videoList, lanes: laneLists, width: width, height: height, textFiles: textFiles };
 }
 
 /* ---------- pure: the final concat + mix command ---------- */
@@ -210,6 +255,41 @@ function finalMixArgs(laneNames, totalMs) {
   return args.concat(['-filter_complex', fc.join(';'),
     '-map', '0:v', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
     '-t', (totalMs / 1000).toFixed(3), '-movflags', '+faststart', 'out.mp4']);
+}
+
+/* ---------- titles: drawn by the page onto a transparent picture of the output size ---------- */
+var TITLE_POS = { top: 0.07, center: 0.40, bottom: 0.76 };   // same numbers as plan.js / the editor preview
+function drawTitle(g, t, W, H) {
+  var px = Math.max(10, Math.round((t.size || 7) / 100 * H));
+  g.font = (t.weight || 700) + ' ' + px + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  g.textAlign = 'center'; g.textBaseline = 'top';
+  var maxW = W * 0.88, lines = [];
+  String(t.text || '').split('\n').forEach(function (par) {
+    var line = '';
+    par.split(' ').forEach(function (w) {
+      var test = line ? line + ' ' + w : w;
+      if (line && g.measureText(test).width > maxW) { lines.push(line); line = w; } else line = test;
+    });
+    lines.push(line);
+  });
+  var lh = Math.round(px * 1.2), y0 = Math.round((TITLE_POS[t.pos] != null ? TITLE_POS[t.pos] : TITLE_POS.bottom) * H);
+  if (t.bg) {
+    var widest = 0; lines.forEach(function (l) { widest = Math.max(widest, g.measureText(l).width); });
+    var bw = Math.min(W, widest + px * 0.8);
+    g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(Math.round(W / 2 - bw / 2), Math.round(y0 - px * 0.2), Math.round(bw), Math.round(lines.length * lh + px * 0.4));
+  }
+  g.fillStyle = t.color || '#ffffff';
+  g.shadowColor = 'rgba(0,0,0,0.7)'; g.shadowBlur = Math.max(2, px * 0.08); g.shadowOffsetY = Math.max(1, px * 0.04);
+  lines.forEach(function (l, i) { g.fillText(l, W / 2, y0 + i * lh); });
+  return lines;
+}
+async function renderTitlePng(tf) {
+  var W = tf.width, H = tf.height, cv;
+  if (typeof OffscreenCanvas !== 'undefined') cv = new OffscreenCanvas(W, H);
+  else { cv = document.createElement('canvas'); cv.width = W; cv.height = H; }
+  drawTitle(cv.getContext('2d'), tf.clip, W, H);
+  var blob = cv.convertToBlob ? await cv.convertToBlob({ type: 'image/png' }) : await new Promise(function (r) { cv.toBlob(r, 'image/png'); });
+  return new Uint8Array(await blob.arrayBuffer());
 }
 
 /* ---------- reads a File/Blob/URL into raw bytes ---------- */
@@ -312,6 +392,13 @@ var NakiExport = (function () {
     }
 
     var built = planToJobs(plan, info, opts);
+    if (built.textFiles.length) {
+      say('Preparing your titles...');
+      for (var tfi = 0; tfi < built.textFiles.length; tfi++) {
+        ffmpeg.writeFile(built.textFiles[tfi].name, await renderTitlePng(built.textFiles[tfi]));
+        extra.push(built.textFiles[tfi].name);
+      }
+    }
     var total = built.jobs.length;
     for (var i = 0; i < total; i++) {
       var job = built.jobs[i];
@@ -383,5 +470,5 @@ var NakiExport = (function () {
 })();
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parseProbeInfo: parseProbeInfo, buildGainRaw: buildGainRaw, planToJobs: planToJobs, finalMixArgs: finalMixArgs, FPS: FPS, SR: SR };
+  module.exports = { parseProbeInfo: parseProbeInfo, buildGainRaw: buildGainRaw, planToJobs: planToJobs, finalMixArgs: finalMixArgs, drawTitle: drawTitle, FPS: FPS, SR: SR };
 }

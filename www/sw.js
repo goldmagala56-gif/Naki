@@ -4,7 +4,7 @@
 const BUILD = '__BUILD__';
 const DEV = BUILD.indexOf('__') === 0;   // true when running from your own folder: no caching, so edits show at once
 const CACHE = 'naki-' + BUILD;
-const FILES = ['./', './index.html', './core.js', './project.js', './editor.js', './editor.css', './plan.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-192-maskable.png', './icon-512-maskable.png', './apple-touch-icon.png', './favicon.ico', './webcodecs-export.js', './vendor/mediabunny/mediabunny.min.mjs'];
+const FILES = ['./', './index.html', './core.js', './project.js', './voice.js', './editor.js', './editor.css', './plan.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-192-maskable.png', './icon-512-maskable.png', './apple-touch-icon.png', './favicon.ico', './webcodecs-export.js', './vendor/mediabunny/mediabunny.min.mjs'];
 // export-engine.js and vendor/ffmpeg/* are NOT in the list above on purpose: they're
 // ~30MB, so they're only fetched (and cached, into VENDOR_CACHE below) the first time
 // someone actually taps Export, instead of every phone downloading them just to install Naki.

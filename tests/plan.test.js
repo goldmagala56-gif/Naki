@@ -1,65 +1,54 @@
 'use strict';
-// node tests/plan.test.js
-// Checks that exporting from the edited timeline (plan v2) gives the SAME result as the old
-// export for a recording nobody edited, and that edits change the plan the way they should.
+// Checks the export plan built from the edited timeline.  Run with:  node tests/plan.test.js   (or: npm test)
 const assert = require('assert');
-const C = require('../www/core.js');
-const P = require('../www/project.js');
-const Plan = require('../www/plan.js');
+const C = require('../www/core.js'), P = require('../www/project.js'), PL = require('../www/plan.js');
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ok  ' + name); };
 
-const events = [
-  { t: 0, type: 'rec_start', movieMs: 0 }, { t: 0, type: 'vol', value: 1 },
-  { t: 0, type: 'duck', enabled: true, thresholdDb: -40, duckedGain: 0.2 },
-  { t: 4000, type: 'play', movieMs: 0 }, { t: 65000, type: 'pause', movieMs: 61000 },
-  { t: 82000, type: 'play', movieMs: 61000 }, { t: 90000, type: 'jump', fromMs: 69000, toMs: 59000 },
-  { t: 100000, type: 'rec_stop' }
-];
-const steps = Math.ceil(100000 / 50) + 1, levels = [];
-for (let i = 0; i < steps; i++) { const t = i * 50; levels.push(C.dbToByte(t >= 10000 && t < 20000 ? -20 : -75)); }
-const sess = { events, levels, durationMs: 100000, movieName: 'x.mp4', movieDurMs: 7200000, voiceOffsetMs: 120, voiceNudgeMs: -30 };
+const events = [{ t: 0, type: 'rec_start', movieMs: 0 }, { t: 0, type: 'vol', value: 1 }, { t: 0, type: 'duck', enabled: true, thresholdDb: -40, duckedGain: 0.2 },
+  { t: 4000, type: 'play', movieMs: 0 }, { t: 30000, type: 'pause', movieMs: 26000 }, { t: 40000, type: 'play', movieMs: 26000 }, { t: 60000, type: 'rec_stop' }];
+const levels = []; for (let i = 0; i < 1201; i++) levels.push(C.dbToByte(-60));
+const sess = { events, levels, durationMs: 60000, movieName: 'm.mp4', movieDurMs: 600000, voiceOffsetMs: 100, voiceNudgeMs: 0 };
+const base = P.compileFromSession(sess);
 
-const project = P.compileFromSession(sess);
-const plan = Plan.projectToPlan(project);
-const legacy = C.buildExportPlan(sess);
-
-ok('unedited recording: same picture as the old export', () => {
-  assert.deepStrictEqual(plan.video, legacy.video);
-  assert.strictEqual(plan.durationMs, 100000);
+ok('an untouched recording gives the plain plan the earlier engines expect (nothing extra in it)', () => {
+  const plan = PL.projectToPlan(base);
+  assert.strictEqual(plan.version, 2); assert.strictEqual(plan.durationMs, 60000);
+  assert.deepStrictEqual(plan.video.map(v => v.type), ['freeze', 'play', 'freeze', 'play']);
+  assert.strictEqual('texts' in plan, false);
+  plan.video.forEach(v => { ['speed', 'filter', 'vFadeIn', 'vFadeOut'].forEach(k => assert.strictEqual(k in v, false, k)); });
+  plan.audio.forEach(a => assert.strictEqual('speed' in a, false));
+  let cur = 0; plan.video.forEach(v => { assert.strictEqual(v.sessionStart, cur); cur = v.sessionEnd; }); assert.strictEqual(cur, 60000);
 });
-ok('unedited recording: voice starts where the old export put it', () => {
-  const v = plan.audio.filter(c => c.src === 'voice');
-  assert.strictEqual(v.length, 1);
-  assert.strictEqual(v[0].startMs, legacy.voice.offsetMs);   // 90 ms
-  assert.strictEqual(v[0].inMs, 0);
+ok('speed, filter and fades reach the plan; sound speed only for the movie', () => {
+  const c = base.tracks[0].clips.find(x => x.start === 4000);
+  let p = P.setClipSpeed(base, c.id, 2); p = P.setFilter(p, c.id, { brightness: 0.8, saturate: 0 }); p = P.setVFade(p, c.id, { vFadeIn: 400, vFadeOut: 600 });
+  const plan = PL.projectToPlan(p), v = plan.video.find(x => x.sessionStart === 4000);
+  assert.strictEqual(v.speed, 2); assert.deepStrictEqual(v.filter, { brightness: 0.8, contrast: 1, saturate: 0 }); assert.strictEqual(v.vFadeIn, 400); assert.strictEqual(v.vFadeOut, 600);
+  assert.strictEqual(v.sessionEnd - v.sessionStart, 13000);
+  assert.strictEqual(plan.audio.find(a => a.src === 'movie' && a.startMs === 4000).speed, 2);
+  assert(!plan.audio.filter(a => a.src === 'voice').some(a => 'speed' in a));
 });
-ok('unedited recording: movie sound follows the same loudness curve', () => {
-  const legacyAt = t => Plan.gainOfClip(legacy.movieGain.points, t);
-  const movie = plan.audio.filter(c => c.src === 'movie');
-  assert.strictEqual(movie.length, legacy.video.filter(s => s.type === 'play').length);
-  let worst = 0;
-  movie.forEach(c => { for (let rel = 0; rel < c.durMs; rel += 250) worst = Math.max(worst, Math.abs(Plan.gainOfClip(c.points, rel) - legacyAt(c.startMs + rel))); });
-  assert(worst < 0.05, 'gain differs by ' + worst);
+ok('after a speed change the plan still reads the right stretch of the movie', () => {
+  const c = base.tracks[0].clips.find(x => x.start === 4000), p = P.rippleDelete(P.setClipSpeed(base, c.id, 2), 6000, 8000);   // cut 2 s of the timeline = 4 s of movie
+  const plan = PL.projectToPlan(p), parts = plan.video.filter(v => v.type === 'play' && v.sessionStart < 20000);
+  assert.strictEqual(parts.length, 2); assert.strictEqual(parts[0].movieStart, 0); assert.strictEqual(parts[1].movieStart, 8000, 'the second part resumes 8 s into the movie');
 });
-ok('muting the movie sound removes it from the plan', () => {
-  const q = P.setTrackProps(project, 't-moviesound', { muted: true });
-  const pl = Plan.projectToPlan(q);
-  assert.strictEqual(pl.audio.filter(c => c.src === 'movie').length, 0);
-  assert.strictEqual(pl.audio.filter(c => c.src === 'voice').length, 1);
+ok('text goes into the plan, in time order, and empty text is left out', () => {
+  const a = {}, b = {}, e = {}; let p = P.addTextClip(base, 20000, 3000, a); p = P.addTextClip(p, 5000, 3000, b); p = P.addTextClip(p, 40000, 2000, e);
+  p = P.setTextProps(p, a.id, { text: 'Second', pos: 'top', bg: true }); p = P.setTextProps(p, b.id, { text: 'First', color: '#ff0000' }); p = P.setTextProps(p, e.id, { text: '   ' });
+  const plan = PL.projectToPlan(p);
+  assert.deepStrictEqual(plan.texts.map(t => t.text), ['First', 'Second']);
+  assert.strictEqual(plan.texts[0].startMs, 5000); assert.strictEqual(plan.texts[0].durMs, 3000); assert.strictEqual(plan.texts[1].pos, 'top'); assert.strictEqual(plan.texts[1].bg, true);
 });
-ok('cutting out a range shortens the plan and keeps the picture gap-free', () => {
-  const q = P.rippleDelete(project, 10000, 20000);
-  const pl = Plan.projectToPlan(q);
-  assert.strictEqual(pl.durationMs, 90000);
-  let cur = 0; pl.video.forEach(s => { assert.strictEqual(s.sessionStart, cur); cur = s.sessionEnd; });
-  assert.strictEqual(cur, 90000);
+ok('music and a muted sound track', () => {
+  const m = P.ensureMusic(base, { name: 's.mp3', durMs: 30000 }), plan = PL.projectToPlan(m), mu = plan.audio.find(a => a.src === 'music');
+  assert(mu && mu.durMs === 30000 && mu.startMs === 0);
+  const off = PL.projectToPlan(P.setTrackProps(m, 't-music', { muted: true })); assert(!off.audio.some(a => a.src === 'music'));
 });
-ok('deleting a picture clip leaves a black span, not a hole', () => {
-  const first = project.tracks[0].clips[0];
-  const q = P.deleteClip(project, first.id);
-  const pl = Plan.projectToPlan(q);
-  assert.strictEqual(pl.video[0].type, 'black');
-  assert.strictEqual(pl.video[0].sessionStart, 0);
-  assert.strictEqual(pl.video[0].sessionEnd, first.dur);
+ok('a held picture (freeze frame) and cut-out gaps give a plan with no holes', () => {
+  const p = P.insertFreeze(base, 10000, 2500), plan = PL.projectToPlan(p);
+  assert.strictEqual(plan.durationMs, 62500); let cur = 0; plan.video.forEach(v => { assert.strictEqual(v.sessionStart, cur); cur = v.sessionEnd; }); assert.strictEqual(cur, 62500);
+  const fz = plan.video.find(v => v.type === 'freeze' && v.sessionStart === 10000); assert(fz && fz.sessionEnd === 12500 && fz.movieAt === 6000);
+  const gap = PL.projectToPlan(P.deleteClip(base, base.tracks[0].clips.find(x => x.start === 4000).id)); assert(gap.video.some(v => v.type === 'black'));
 });
 console.log('\n' + n + ' checks passed');

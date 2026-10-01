@@ -11,8 +11,9 @@
      time, so a long movie never has to sit decoded in memory (the old version decoded the whole movie
      at once, which would crash a 2 GB phone).
 
-  index.html tries this engine first (when isSupported() says yes) and falls back to the ffmpeg.wasm
-  engine (export-engine.js) if it is unsupported or if anything here throws.
+  index.html tries this engine first (when isSupported() and canRender(plan) say yes) and falls back to
+  the ffmpeg.wasm engine (export-engine.js) if it is unsupported, if the edits need something only that
+  engine can draw (titles, speed, colour filters, fades), or if anything here throws.
 
   IMPORTANT: the hardware encode path, canvas drawing and audio mixing here have only been checked
   against mediabunny's published API, not run on a real phone. Test an export on your phone.
@@ -53,6 +54,18 @@ var WebCodecsExport = (function () {
       });
       return !!(support && support.supported);
     } catch (e) { return false; }
+  }
+
+  // The fast engine does not draw titles, speed changes, colour filters or fades yet. A plan that uses any
+  // of them must go to the ffmpeg engine instead, or those edits would silently vanish from the video.
+  function canRender(plan) {
+    var neutral = function (f) {
+      return !f || ((f.brightness == null || f.brightness === 1) && (f.contrast == null || f.contrast === 1) && (f.saturate == null || f.saturate === 1));
+    };
+    if ((plan.texts || []).some(function (t) { return t && String(t.text || '').trim(); })) return false;
+    if ((plan.video || []).some(function (s) { return (s.speed && s.speed !== 1) || !neutral(s.filter) || s.vFadeIn > 0 || s.vFadeOut > 0; })) return false;
+    if ((plan.audio || []).some(function (a) { return a.speed && a.speed !== 1; })) return false;
+    return true;
   }
 
   // Same tier math as export-engine.js's planToJobs.
@@ -283,10 +296,11 @@ var WebCodecsExport = (function () {
     return new Blob([output.target.buffer], { type: 'video/mp4' });
   }
 
-  return { isSupported: isSupported, hasHardwareEncoder: hasHardwareEncoder, run: run,
+  return { isSupported: isSupported, canRender: canRender, hasHardwareEncoder: hasHardwareEncoder, run: run,
     _test: { gainOfClip: gainOfClip, automate: automate, targetSize: targetSize, renderAudio: renderAudio } };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { WebCodecsExport: WebCodecsExport };
 }
+

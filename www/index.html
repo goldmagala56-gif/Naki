@@ -334,6 +334,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 
 <input type="file" id="filePick" accept="video/*,.mkv,.avi,.mov,.mp4,.webm" hidden>
 <input type="file" id="logoPick" accept="image/*" hidden>
+<input type="file" id="musicPick" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac" hidden>
 <div id="prepareModal" class="modalWrap" hidden>
   <div class="modalCard">
     <h3 style="margin-top:0">This file needs converting</h3>
@@ -351,6 +352,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
   </div>
 </div>
 <audio id="voice" preload="auto"></audio>
+<audio id="music" preload="auto"></audio>
 <div id="toast" class="toast" hidden></div>
 
 <script src="core.js"></script>
@@ -422,7 +424,7 @@ var DB = {
     var self = this;
     return new Promise(function(res, rej){
       if (!window.indexedDB) return rej(new Error('no indexedDB'));
-      var r = indexedDB.open('naki', 3);
+      var r = indexedDB.open('naki', 4);
       r.onupgradeneeded = function(){
         var d = r.result;
         if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions', { keyPath: 'id' });
@@ -430,6 +432,7 @@ var DB = {
         if (!d.objectStoreNames.contains('levels')) d.createObjectStore('levels', { keyPath: ['sid', 'i'] });
         if (!d.objectStoreNames.contains('movies')) d.createObjectStore('movies', { keyPath: 'sid' });
         if (!d.objectStoreNames.contains('music')) d.createObjectStore('music', { keyPath: 'sid' });
+                if (!d.objectStoreNames.contains('projects')) d.createObjectStore('projects', { keyPath: 'sid' });
       };
       r.onsuccess = function(){ self.db = r.result; self.ok = true; res(); };
       r.onerror = function(){ rej(r.error); };
@@ -456,9 +459,13 @@ var DB = {
       self.tx('sessions', 'readwrite', function(s){ return s.delete(sid); }),
       self.delRange('chunks', sid),
       self.delRange('levels', sid),
-      self.tx('movies', 'readwrite', function(s){ return s.delete(sid); })
+      self.tx('movies', 'readwrite', function(s){ return s.delete(sid); }),
+      self.tx('music', 'readwrite', function(s){ return s.delete(sid); }),
+      self.tx('projects', 'readwrite', function(s){ return s.delete(sid); })
     ]);
-  }
+  },
+  saveProject: function(sid, rec){ if (!this.ok) return Promise.reject(new Error('no storage')); return this.put('projects', Object.assign({ sid: sid }, rec)); },
+  loadProject: function(sid){ if (!this.ok) return Promise.resolve(null); return this.get('projects', sid).then(function(r){ return r || null; }, function(){ return null; }); }
 };
 
 function sessionRecord(s){
@@ -1093,6 +1100,7 @@ function preparePreview(s){
   var notRemembered = (s.warnings || []).some(function(w){ return w.type === 'movie_not_remembered' || w.type === 'movie_not_remembered_no_db'; });
   $('needName').textContent = 'Movie used: ' + s.movieName + (s.movieSize != null ? ' (' + fmtBytes(s.movieSize) + ')' : '') + (notRemembered ? ' — this movie could not be saved on this device, so pick the same file again.' : '');
   renderStats(s);
+  loadEdits(s);
   updatePreviewUI();
 }
 function updatePreviewUI(){
@@ -1393,6 +1401,10 @@ function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callba
   return loadWebCodecsEngine().then(function(){
     return WebCodecsExport.isSupported();
   }).then(function(supported){
+        if (!WebCodecsExport.canRender(plan)){
+      if (callbacks && callbacks.onStatus) callbacks.onStatus('Your edits need the compatible export engine. This can take longer.');
+      throw new Error('edits need the compatible engine');
+    }
     if (!supported) throw new Error('not supported, falling back');
     return WebCodecsExport.run(movieFile, voiceBlob, plan, webcodecsOpts, callbacks);
   }).catch(function(err){
@@ -1439,7 +1451,8 @@ $('bExport').onclick = function(){
   box.hidden = false; doneRow.hidden = true; bar.style.width = '0%'; pctEl.textContent = '';
   statusEl.textContent = 'Starting...'; $('bExport').disabled = true;
     var vd = el.voice.duration;
-  var plan = NakiEditor.planFor(S.sess, { voiceDurMs: isFinite(vd) && vd > 0 ? Math.round(vd * 1000) : null });
+    var plan = NakiEditor.planFor(S.sess, { voiceDurMs: isFinite(vd) && vd > 0 ? Math.round(vd * 1000) : null, saved: S.sess.savedProject });
+  if (!S.sess.musicFile) plan.audio = plan.audio.filter(function(a){ return a.src !== 'music'; });
   // Match the source movie's own resolution instead of a fixed tier, so a higher-res
   // source isn't needlessly softened -- but cap it per the speed/quality choice, since
   // the fallback ffmpeg.wasm engine is single-threaded and a phone can be far slower
@@ -1452,6 +1465,7 @@ $('bExport').onclick = function(){
   var ffmpegOpts = { height: targetH, crf: sharper ? 20 : 23, preset: sharper ? 'veryfast' : 'superfast', vertical: S.exportVertical };
   var webcodecsOpts = { height: targetH, quality: S.exportQuality, vertical: S.exportVertical };
   if (S.logoFile) { ffmpegOpts.logoFile = S.logoFile; webcodecsOpts.logoFile = S.logoFile; }
+    if (S.sess.musicFile) { ffmpegOpts.musicFile = S.sess.musicFile; webcodecsOpts.musicFile = S.sess.musicFile; }
   runExport(plan, ffmpegOpts, webcodecsOpts, S.movieFile, S.sess.voiceBlob, {
     onStatus: function(t){ statusEl.textContent = t; },
     onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
@@ -1534,17 +1548,54 @@ if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   }).catch(function(){});
 }
 
+function setMusicFile(f, noStore){
+  var a = $('music'); a.pause();
+  if (S.musicUrl){ URL.revokeObjectURL(S.musicUrl); S.musicUrl = null; }
+  if (S.sess) S.sess.musicFile = f || null;
+  if (f){
+    S.musicUrl = URL.createObjectURL(f); a.src = S.musicUrl;
+    if (!noStore && DB.ok && S.sess) DB.put('music', { sid: S.sess.id, name: f.name, blob: f }).catch(function(){ toast('This music is too large to remember on this device. You will need to add it again next time.', 7000); });
+  } else {
+    a.removeAttribute('src'); a.load();
+    if (!noStore && DB.ok && S.sess) DB.tx('music', 'readwrite', function(s){ return s.delete(S.sess.id); }).catch(function(){});
+  }
+}
+function loadEdits(s){
+  s.savedProject = null;
+  if (!DB.ok) return;
+  DB.loadProject(s.id).then(function(r){ s.savedProject = r; });
+  if (s.musicFile) return;
+  DB.get('music', s.id).then(function(rec){
+    if (rec && rec.blob) setMusicFile(new File([rec.blob], rec.name || 'music', { type: rec.blob.type }), true);
+    else setMusicFile(null, true);
+  }, function(){});
+}
+
 NakiEditor.init({
   movie: el.movie, voice: el.voice, simple: SIMPLE,
   ensureAudio: ensureAudio, getCtx: function(){ return S.audio.ctx; },
   setMovieGain: applyGain, movieReady: function(){ return !!S.movieFile; },
-  toast: toast, onClose: function(){ if (S.sess) preparePreview(S.sess); }
+    toast: toast, onClose: function(){ if (S.sess) preparePreview(S.sess); },
+  music: $('music'),
+  saveProject: function(sid, rec){ return DB.saveProject(sid, rec); },
+  setMusicFile: function(f){ setMusicFile(f); },
+  pickMusic: function(){ return new Promise(function(resolve){
+    var inp = $('musicPick'); inp.value = '';
+    inp.onchange = function(){
+      var f = inp.files && inp.files[0]; if (!f) return resolve(null);
+      var a = new Audio(), u = URL.createObjectURL(f); a.preload = 'metadata';
+      a.onloadedmetadata = function(){ URL.revokeObjectURL(u); resolve({ file: f, name: f.name, durMs: isFinite(a.duration) ? Math.round(a.duration * 1000) : null }); };
+      a.onerror = function(){ URL.revokeObjectURL(u); toast('This music file could not be read. Try an MP3 or M4A.'); resolve(null); };
+      a.src = u;
+    };
+    inp.click();
+  }); }
 });
 $('bEdit').onclick = function(){
   if (!S.sess) return;
   el.voice.pause(); el.movie.pause();
   var d = el.voice.duration;
-  NakiEditor.open(S.sess, { voiceDurMs: isFinite(d) && d > 0 ? Math.round(d * 1000) : null });
+    NakiEditor.open(S.sess, { voiceDurMs: isFinite(d) && d > 0 ? Math.round(d * 1000) : null, saved: S.sess.savedProject });
 };
 
 placeThr();
