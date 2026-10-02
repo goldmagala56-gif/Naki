@@ -1576,6 +1576,11 @@ NakiEditor.init({
   ensureAudio: ensureAudio, getCtx: function(){ return S.audio.ctx; },
   setMovieGain: applyGain, movieReady: function(){ return !!S.movieFile; },
     toast: toast, onClose: function(){ if (S.sess) preparePreview(S.sess); },
+      onExport: function(){
+    var b = $('bExport'); if (!b || b.disabled) return;
+    b.click();
+    var box = $('exportBox'); if (box && box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  },
   music: $('music'),
   saveProject: function(sid, rec){ return DB.saveProject(sid, rec); },
   setMusicFile: function(f){ setMusicFile(f); },
