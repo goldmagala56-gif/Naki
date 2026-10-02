@@ -1398,21 +1398,37 @@ function loadWebCodecsEngine(){
 // automatically if WebCodecs/hardware encoding isn't available on this device, or if the
 // hardware path throws for any reason -- so nobody's export just stops working.
 function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callbacks){
+  callbacks = callbacks || {};
+  // Music: use the file attached to this session. If the timeline has music but the file is gone, say so
+  // instead of quietly leaving it out.
+  var music = S.sess && S.sess.musicFile;
+  var hasMusicClip = (plan.audio || []).some(function(a){ return a.src === 'music'; });
+  if (music){ ffmpegOpts.musicFile = music; webcodecsOpts.musicFile = music; }
+  else if (hasMusicClip){
+    plan.audio = plan.audio.filter(function(a){ return a.src !== 'music'; });
+    toast('The music file is missing, so this video will have no music. Open Edit, Audio and choose it again.', 9000);
+  }
+  // A short record of this export, shown by "Copy test report" so a problem can be pinned down without developer tools.
+  S.lastExport = { build: BUILD, engine: '', titles: (plan.texts || []).length, musicClips: plan.audio.filter(function(a){ return a.src === 'music'; }).length,
+    musicFile: !!music, speedParts: plan.video.filter(function(s){ return s.speed && s.speed !== 1; }).length,
+    engineCanDrawTitles: typeof drawTitle === 'function' };
+  console.info('Naki export plan', plan);
+  // The ffmpeg engine can draw everything (titles, speed, filters, fades, opacity, zoom/rotate). The fast engine
+  // cannot, so a project that uses any of those goes straight to ffmpeg, or those edits would vanish.
+  function viaFfmpeg(why){
+    console.warn('using the compatible export engine:', why);
+    S.lastExport.engine = 'compatible'; S.lastExport.why = why;
+    toast('Using the compatible export engine so all your edits are included. This can take longer.', 6000);
+    return loadExportEngine().then(function(){ return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks); });
+  }
   return loadWebCodecsEngine().then(function(){
+    if (!WebCodecsExport.canRender(plan)) throw new Error('your edits need the compatible engine');
     return WebCodecsExport.isSupported();
   }).then(function(supported){
-        if (!WebCodecsExport.canRender(plan)){
-      if (callbacks && callbacks.onStatus) callbacks.onStatus('Your edits need the compatible export engine. This can take longer.');
-      throw new Error('edits need the compatible engine');
-    }
-    if (!supported) throw new Error('not supported, falling back');
+    if (!supported) throw new Error('fast export is not available on this device');
+    S.lastExport.engine = 'fast';
     return WebCodecsExport.run(movieFile, voiceBlob, plan, webcodecsOpts, callbacks);
-  }).catch(function(err){
-    console.warn('hardware export unavailable or failed, falling back to the built-in engine:', err);
-    return loadExportEngine().then(function(){
-      return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks);
-    });
-  });
+  }).catch(function(err){ return viaFfmpeg(err && err.message ? err.message : String(err)); });
 }
 S.exportVertical = false;
 S.exportQuality = 'faster';
@@ -1497,6 +1513,7 @@ $('bReport').onclick = function(){
   storageLine().then(function(line){
     var L = deviceLines(); if (line) L.push(line);
     if (S.sess) L = L.concat(sessionLines(S.sess));
+    if (S.lastExport) L.push('', 'Last export:', '  ' + JSON.stringify(S.lastExport));
     copyText(L.join('\n'));
   });
 };
