@@ -401,6 +401,55 @@ function insertFreeze(p, t, dur){
   return finish(q);
 }
 
+// ---------- opacity, zoom / rotate / flip, duplicate ----------
+// Opacity (0 to 1) of a picture clip. 1 means "normal" and is not stored.
+function setOpacity(p, id, v){
+  var q = cloneProject(p), f = findClip(q, id); if (!f || f.track.kind !== 'video') return p;
+  v = Math.max(0, Math.min(1, +v)); if (isNaN(v)) return p;
+  if (v > 0.999) delete f.clip.opacity; else f.clip.opacity = r3(v);
+  return finish(q);
+}
+// Zoom (1x to 4x), where the zoomed window sits (x, y from -1 to 1), turns in steps of 90 degrees, and flip.
+// The default look is not stored. Rotation and flip come first, then zoom works on what you see.
+var TRANSFORM_DEFAULT = { zoom: 1, x: 0, y: 0, rot: 0, flipH: false };
+function setTransform(p, id, patch){
+  var q = cloneProject(p), f = findClip(q, id); if (!f || f.track.kind !== 'video') return p;
+  var t = Object.assign({}, TRANSFORM_DEFAULT, f.clip.transform || {}, patch || {});
+  t.zoom = r3(Math.max(1, Math.min(4, +t.zoom || 1)));
+  t.x = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.x || 0))); t.y = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.y || 0)));
+  t.rot = (((Math.round((+t.rot || 0) / 90) * 90) % 360) + 360) % 360; t.flipH = !!t.flipH;
+  if (t.zoom === 1 && t.rot === 0 && !t.flipH) delete f.clip.transform; else f.clip.transform = t;
+  return finish(q);
+}
+// Copies a clip right after itself. A movie clip and its sound are copied together and the movie clips after
+// them move later (voice, music and text stay put). Voice, music and text copies go into the next free space.
+function duplicateClip(p, id, out){
+  var f = findClip(p, id); if (!f) return p;
+  var q = cloneProject(p), role = f.track.role, base = findClip(q, id), c0 = base.clip, end0 = clipEnd(c0), dur = c0.dur;
+  if (role === 'movie' || role === 'movieSound'){
+    var ids = linkedIds(q, id), link = newId('l'), mine = null;
+    q.tracks.forEach(function (tr){
+      if (tr.role !== 'movie' && tr.role !== 'movieSound') return;
+      tr.clips.forEach(function (c){ if (c.start >= end0) c.start += dur; });
+    });
+    ids.forEach(function (cid){
+      var f2 = findClip(q, cid), copy = JSON.parse(JSON.stringify(f2.clip));
+      copy.id = newId('c'); copy.start = end0; if (copy.link) copy.link = link;
+      f2.track.clips.push(copy); if (cid === id) mine = copy.id;
+    });
+    if (out) out.id = mine;
+    return finish(q);
+  }
+  var total = p.durationMs, track = base.track, start = end0, moved = true;
+  while (moved){ moved = false; track.clips.forEach(function (c){ if (start < clipEnd(c) && start + dur > c.start){ start = clipEnd(c); moved = true; } }); }
+  var d = Math.min(dur, total - start); if (d < 300) return p;
+  var copy = JSON.parse(JSON.stringify(c0)); copy.id = newId('c'); copy.start = start; copy.dur = d; delete copy.link;
+  if (copy.gain && copy.gain.length) copy.gain = gainSlice(c0.gain, 0, d);
+  if (d < dur){ copy.fadeOut = 0; copy.fadeOutOff = 0; }
+  track.clips.push(copy); if (out) out.id = copy.id;
+  return finish(q);
+}
+
 // Background music: adds the music track (or swaps the file behind the existing one). info = { name, durMs }
 function ensureMusic(p, info){
   var q = cloneProject(p), dm = (info && info.durMs) || null;
@@ -439,6 +488,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   sourceAt: sourceAt, validate: validate, snapTime: snapTime, findSilentRanges: findSilentRanges, freezeRanges: freezeRanges, intersectRanges: intersectRanges,
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
-  insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic };
+  insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;

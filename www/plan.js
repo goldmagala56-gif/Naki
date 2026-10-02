@@ -5,8 +5,8 @@
    plan = {
      naki:'export-plan', version:2, durationMs,
      movie:{ name, durationMs },
-     video:[ {type:'play',  sessionStart, sessionEnd, movieStart, speed?, filter?, vFadeIn?, vFadeOut?}
-           | {type:'freeze',sessionStart, sessionEnd, movieAt,            filter?, vFadeIn?, vFadeOut?}
+     video:[ {type:'play',  sessionStart, sessionEnd, movieStart, speed?, filter?, opacity?, transform?, vFadeIn?, vFadeOut?}
+           | {type:'freeze',sessionStart, sessionEnd, movieAt,            filter?, opacity?, transform?, vFadeIn?, vFadeOut?}
            | {type:'black', sessionStart, sessionEnd} ],          // covers 0..durationMs with no gaps
      audio:[ {src:'movie'|'voice'|'music', startMs, durMs, inMs, speed?, points:[[msSinceClipStart, gain],...]} ],
      texts:[ {startMs, durMs, text, size, color, pos, weight, bg} ]     // only present when there is text
@@ -35,6 +35,8 @@ var NakiPlan = (function () {
         : { type: 'play', sessionStart: s, sessionEnd: e, movieStart: c.in + Math.round((s - Math.round(c.start)) * (c.speed || 1)) };
       if (sp.type === 'play' && c.speed && c.speed !== 1) sp.speed = c.speed;
       if (c.filter) sp.filter = { brightness: c.filter.brightness, contrast: c.filter.contrast, saturate: c.filter.saturate };
+      if (c.opacity != null && c.opacity < 1) sp.opacity = c.opacity;
+      if (c.transform) sp.transform = { zoom: c.transform.zoom, x: c.transform.x, y: c.transform.y, rot: c.transform.rot, flipH: !!c.transform.flipH };
       if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;
       if (c.vFadeOut) sp.vFadeOut = c.vFadeOut;
       video.push(sp);

@@ -235,4 +235,42 @@ ok('edits that use the new tools also leave the original project untouched', () 
   assert.strictEqual(JSON.stringify(base.tracks), snap);
 });
 
+
+// ---------- opacity, zoom / rotate / flip, duplicate ----------
+ok('opacity and transform are kept per clip, within range, and the normal look is not stored', () => {
+  const c = vclip(base, 4000);
+  let q = P.setOpacity(base, c.id, 0.4); assert.strictEqual(P.findClip(q, c.id).clip.opacity, 0.4);
+  assert.strictEqual(P.findClip(P.setOpacity(q, c.id, 1), c.id).clip.opacity, undefined); assert.strictEqual(P.findClip(P.setOpacity(base, c.id, -5), c.id).clip.opacity, 0);
+  assert.strictEqual(P.setOpacity(base, base.tracks[2].clips[0].id, 0.5), base, 'only picture clips');
+  q = P.setTransform(base, c.id, { zoom: 9, x: 3, y: -3, rot: 450, flipH: 1 }); let t = P.findClip(q, c.id).clip.transform;
+  assert.deepStrictEqual(t, { zoom: 4, x: 1, y: -1, rot: 90, flipH: true });
+  q = P.setTransform(q, c.id, { zoom: 1 }); t = P.findClip(q, c.id).clip.transform; assert.deepStrictEqual(t, { zoom: 1, x: 0, y: 0, rot: 90, flipH: true }, 'panning resets with zoom');
+  q = P.setTransform(q, c.id, { rot: 0, flipH: false }); assert.strictEqual(P.findClip(q, c.id).clip.transform, undefined, 'back to normal removes it');
+  assert.strictEqual(P.findClip(P.setTransform(base, c.id, { rot: -90 }), c.id).clip.transform.rot, 270);
+  const cut = P.rippleDelete(P.setOpacity(P.setTransform(base, c.id, { rot: 180 }), c.id, 0.5), 20000, 30000), part = P.findClip(cut, c.id).clip;
+  assert.strictEqual(part.opacity, 0.5); assert.strictEqual(part.transform.rot, 180);
+  const fz = vclip(base, 0), q2 = P.setTransform(base, fz.id, { zoom: 2 }); assert.strictEqual(P.sourceAt(q2, 100).video.clip.transform.zoom, 2, 'held pictures can be zoomed too');
+});
+ok('duplicate: a movie clip and its sound are copied after it, and the movie clips after move later', () => {
+  const c = vclip(base, 4000), ms = base.tracks[1].clips.find(x => x.link === c.link), voice = JSON.stringify(base.tracks[2].clips), out = {};
+  const q = P.duplicateClip(base, c.id, out), cp = P.findClip(q, out.id).clip;
+  assert.deepStrictEqual(P.validate(q), []); assert.strictEqual(cp.start, 4000 + c.dur); assert.strictEqual(cp.in, c.in); assert.strictEqual(cp.dur, c.dur);
+  const partner = q.tracks[1].clips.find(x => x.link === cp.link); assert(partner && partner.start === cp.start && partner.in === ms.in && partner.link !== c.link);
+  assert.strictEqual(vclip(q, 65000 + c.dur).id, vclip(base, 65000).id, 'the next picture moved later');
+  assert.strictEqual(JSON.stringify(q.tracks[2].clips), voice, 'voice is not touched');
+  const a = P.sourceAt(q, 4000 + 5000), b = P.sourceAt(q, 4000 + c.dur + 5000); assert.strictEqual(a.video.movieMs, b.video.movieMs, 'the copy plays the same stretch');
+  assert.strictEqual(a.audio.find(x => x.role === 'movieSound').sourceMs, b.audio.find(x => x.role === 'movieSound').sourceMs);
+  const look = P.setOpacity(P.setFilter(base, c.id, { contrast: 1.4 }), c.id, 0.5), q3 = P.duplicateClip(look, c.id, out), cp3 = P.findClip(q3, out.id).clip;
+  assert.strictEqual(cp3.opacity, 0.5); assert.deepStrictEqual(cp3.filter, { brightness: 1, contrast: 1.4, saturate: 1 }, 'the copy keeps its look');
+});
+ok('duplicate: text and music go into the next free space, and nothing is added where there is no room', () => {
+  const t = {}; let p = P.addTextClip(base, 10000, 3000, t); const out = {}; p = P.duplicateClip(p, t.id, out);
+  assert.strictEqual(P.findClip(p, out.id).clip.start, 13000); assert.strictEqual(P.findClip(p, out.id).clip.text, 'Your text'); assert.deepStrictEqual(P.validate(p), []);
+  const t2 = {}; const crowded = P.addTextClip(P.addTextClip(base, 10000, 3000, t), 13000, 3000, t2); const o2 = {}; const d = P.duplicateClip(crowded, t.id, o2);
+  assert.strictEqual(P.findClip(d, o2.id).clip.start, 16000, 'skips past the text that is in the way');
+  const edge = {}; const late = P.addTextClip(base, 98000, 2000, edge); assert.strictEqual(P.duplicateClip(late, edge.id, {}), late, 'no room before the end');
+  const mu = P.ensureMusic(P.compileFromSession(Object.assign({}, sess, { music: null })), { name: 'a', durMs: 20000 }), m = mu.tracks.find(x => x.role === 'music').clips[0], o3 = {};
+  const dm = P.duplicateClip(mu, m.id, o3); assert.strictEqual(P.findClip(dm, o3.id).clip.start, 20000); assert.deepStrictEqual(P.validate(dm), []);
+});
+
 console.log('\n' + n + ' checks passed');

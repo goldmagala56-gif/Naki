@@ -116,6 +116,10 @@ function planToJobs(plan, movieInfo, opts) {
     var f = sp.filter;
     if (f && (f.contrast !== 1 || f.saturate !== 1)) parts.push('eq=contrast=' + f.contrast + ':saturation=' + f.saturate);
     if (f && f.brightness !== 1) parts.push("lutyuv=y='clip(val*" + f.brightness + ",16,235)'");
+    if (sp.opacity != null && sp.opacity < 1) {   // mix the picture with the navy background, plane by plane (navy = Y 37, U 133, V 123)
+      var o = sp.opacity, k = 1 - o;
+      parts.push("lutyuv=y='val*" + o.toFixed(3) + '+' + (37 * k).toFixed(2) + "':u='val*" + o.toFixed(3) + '+' + (133 * k).toFixed(2) + "':v='val*" + o.toFixed(3) + '+' + (123 * k).toFixed(2) + "'");
+    }
     if (sp.vFadeIn) parts.push('fade=t=in:st=0:d=' + (sp.vFadeIn / 1000).toFixed(3));
     if (sp.vFadeOut) parts.push('fade=t=out:st=' + Math.max(0, spanSec - sp.vFadeOut / 1000).toFixed(3) + ':d=' + (sp.vFadeOut / 1000).toFixed(3));
     return parts.join(',');
@@ -153,6 +157,24 @@ function planToJobs(plan, movieInfo, opts) {
 
   var jobs = [], videoList = [];
   var fit = fitFilter(width, height, vertical);
+  var containFit = fitFilter(width, height, true);   // fit inside the frame with navy bars (used when a picture is turned on its side)
+  // Flip and turn first, then zoom into what is on screen, then fit to the output size. Same order as the editor preview.
+  function transformFit(sp) {
+    var t = sp.transform;
+    if (!t) return fit;
+    var rot = t.rot || 0, parts = [], z = t.zoom || 1;
+    if (t.flipH) parts.push('hflip');
+    if (rot === 90) parts.push('transpose=1'); else if (rot === 180) parts.push('hflip,vflip'); else if (rot === 270) parts.push('transpose=2');
+    var crop = z > 1 ? 'crop=w=trunc(iw/' + z + '/2)*2:h=trunc(ih/' + z + '/2)*2:x=(iw-ow)/2*(1+(' + (t.x || 0) + ')):y=(ih-oh)/2*(1+(' + (t.y || 0) + '))' : '';
+    var sideways = rot === 90 || rot === 270;
+    if (sideways && !vertical) {   // fit first, then zoom into the framed picture (the bars are part of what you see)
+      parts.push(containFit); if (crop) parts.push(crop, 'scale=' + width + ':' + height + ':flags=bicubic');
+    } else {
+      if (crop) parts.push(crop);
+      parts.push(sideways ? containFit : fit);
+    }
+    return parts.join(',');
+  }
 
   /* --- picture --- */
   plan.video.forEach(function (sp, i) {
@@ -164,11 +186,11 @@ function planToJobs(plan, movieInfo, opts) {
     if (sp.type === 'play') {
       var speed = sp.speed && sp.speed !== 1 ? sp.speed : 1;
       jobs.push({ label: 'picture ' + (i + 1), produces: vfile,
-        args: pictureArgs(['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in'], fit, nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
+        args: pictureArgs(['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in'], transformFit(sp), nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
     } else if (sp.type === 'freeze') {
       var png = 'f' + id + '.png';
       jobs.push({ label: 'frozen frame ' + (i + 1), produces: png, args: ['-ss', clampSec(sp.movieAt).toFixed(3), '-i', 'movie.in', '-an', '-frames:v', '1',
-        '-vf', fit + ',setsar=1', png] });
+        '-vf', transformFit(sp) + ',setsar=1', png] });
       jobs.push({ label: 'frozen picture ' + (i + 1), produces: vfile,
         args: pictureArgs(['-loop', '1', '-framerate', String(FPS), '-i', png], 'null', nFrames, vfile, sp, spanSec, 1, 0) });
     } else {

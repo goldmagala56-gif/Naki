@@ -51,4 +51,14 @@ ok('a held picture (freeze frame) and cut-out gaps give a plan with no holes', (
   const fz = plan.video.find(v => v.type === 'freeze' && v.sessionStart === 10000); assert(fz && fz.sessionEnd === 12500 && fz.movieAt === 6000);
   const gap = PL.projectToPlan(P.deleteClip(base, base.tracks[0].clips.find(x => x.start === 4000).id)); assert(gap.video.some(v => v.type === 'black'));
 });
+ok('opacity and zoom / turn / flip reach the plan, and only where they are used', () => {
+  const c = base.tracks[0].clips.find(x => x.start === 4000), fz = base.tracks[0].clips[0];
+  let p = P.setOpacity(base, c.id, 0.5); p = P.setTransform(p, c.id, { zoom: 2, x: 0.5, y: -0.5, rot: 90, flipH: true }); p = P.setTransform(p, fz.id, { rot: 180 });
+  const plan = PL.projectToPlan(p), v = plan.video.find(x => x.sessionStart === 4000), f = plan.video[0];
+  assert.strictEqual(v.opacity, 0.5); assert.deepStrictEqual(v.transform, { zoom: 2, x: 0.5, y: -0.5, rot: 90, flipH: true });
+  assert.deepStrictEqual(f.transform, { zoom: 1, x: 0, y: 0, rot: 180, flipH: false }); assert.strictEqual('opacity' in f, false);
+  const other = plan.video.filter(x => x.sessionStart !== 4000 && x !== f); other.forEach(x => { assert.strictEqual('opacity' in x, false); assert.strictEqual('transform' in x, false); });
+  const dup = PL.projectToPlan(P.duplicateClip(p, c.id, {})); assert.strictEqual(dup.video.filter(x => x.opacity === 0.5).length, 2, 'a copy keeps the look');
+});
+
 console.log('\n' + n + ' checks passed');

@@ -47,10 +47,12 @@ var NakiEditor = (function () {
     u.close = btn('edClose', '‹ Back', 'ed-btn', 'Close editor');
     u.saved = mk('div', 'ed-saved'); u.saved.setAttribute('aria-live', 'polite');
     u.zout = btn('edZoomOut', '−', 'ed-btn ed-sq', 'Zoom out'); u.zin = btn('edZoomIn', '+', 'ed-btn ed-sq', 'Zoom in'); u.fit = btn('edFit', 'Fit', 'ed-btn ed-small', 'Fit the whole video');
-    add(top, u.close, mk('div', 'ed-title', 'Edit video'), u.saved, u.zout, u.zin, u.fit);
+    u.exportBtn = btn('edExport', 'Export', 'ed-btn primary ed-small', 'Export the finished video');
+    add(top, u.close, mk('div', 'ed-title', 'Edit video'), u.saved, u.zout, u.zin, u.fit, u.exportBtn);
 
     // preview: the movie goes in here when the editor opens; titles are drawn over it
     u.stage = mk('div', 'ed-stage'); u.stageMsg = mk('div', 'ed-stage-msg'); u.stage.appendChild(u.stageMsg);
+    u.picframe = mk('div', 'ed-picframe'); u.stage.appendChild(u.picframe);
     u.textlayer = mk('div', 'ed-textlayer'); u.stage.appendChild(u.textlayer);
 
     // desktop side panel: sound levels and the selected clip
@@ -87,6 +89,7 @@ var NakiEditor = (function () {
 
     u.close.onclick = close; u.undo.onclick = undo; u.redo.onclick = redo; u.play.onclick = togglePlay;
     u.fit.onclick = fit;
+    u.exportBtn.onclick = function (){ if (!E.hooks.onExport){ toast('Export is not available here.'); return; } close(); E.hooks.onExport(); };
     u.zin.onclick = function (){ setZoom(E.ppm * 1.4); }; u.zout.onclick = function (){ setZoom(E.ppm / 1.4); };
     u.scrub.addEventListener('input', function (){ seek(+u.scrub.value / 1000 * E.proj.durationMs); });
     u.scroll.addEventListener('pointerdown', onDown);
@@ -131,7 +134,7 @@ var NakiEditor = (function () {
   function clipTitle(tr, c){
     if (tr.kind === 'text') return c.text || 'Text';
     if (tr.kind === 'video'){
-      var extra = (c.speed && c.speed !== 1 ? ' ' + c.speed + '×' : '') + (c.filter ? ' · filter' : '') + (c.vFadeIn || c.vFadeOut ? ' · fade' : '');
+      var extra = (c.speed && c.speed !== 1 ? ' ' + c.speed + '×' : '') + (c.filter ? ' · filter' : '') + (c.vFadeIn || c.vFadeOut ? ' · fade' : '') + (c.opacity != null ? ' · ' + Math.round(c.opacity * 100) + '%' : '') + (c.transform ? ' · ' + (c.transform.zoom > 1 ? 'zoom ' : '') + (c.transform.rot ? c.transform.rot + '° ' : '') + (c.transform.flipH ? 'flip' : '') : '');
       return (c.type === 'freeze' ? 'Paused picture' : 'Movie playing') + extra;
     }
     return ROLE_NAME[tr.role] || 'Audio';
@@ -257,6 +260,23 @@ var NakiEditor = (function () {
     if (q === E.hist.cur){ toast('Move the playhead onto the picture first.'); return; }
     commit(q); toast('Picture held for ' + ((ms || E.freezeMs) / 1000) + ' s. Everything after it moved later.');
   }
+  function setSub(name){ E.editSub = E.editSub === name ? null : name; refreshSheet(); }
+  function duplicateSel(){
+    var id = E.sel || (targetVideo() && targetVideo().id);
+    if (!id){ toast('Tap a clip first, or move the playhead onto the picture.'); return; }
+    var out = {}, q = P.duplicateClip(E.hist.cur, id, out);
+    if (q === E.hist.cur){ toast('There is no room to copy that clip.'); return; }
+    var nf = out.id && P.findClip(q, out.id); if (nf) E.t = nf.clip.start;   // show the copy, so the tools that follow work on what you see
+    E.sel = out.id || E.sel; commit(q); toast('Copied. The copy is right after it.');
+  }
+  function rotateSel(){
+    var c = targetVideo(); if (!c){ toast('Move the playhead onto the picture, or tap a picture clip first.'); return; }
+    commit(P.setTransform(E.hist.cur, c.id, { rot: ((c.transform && c.transform.rot) || 0) + 90 }));
+  }
+  function flipSel(){
+    var c = targetVideo(); if (!c){ toast('Move the playhead onto the picture, or tap a picture clip first.'); return; }
+    commit(P.setTransform(E.hist.cur, c.id, { flipH: !(c.transform && c.transform.flipH) }));
+  }
   function scanQuiet(){
     var sil = P.findSilentRanges(E.proj.levels || [], { thresholdDb: E.quietDb, minMs: 700, padMs: 150 });
     var dead = P.intersectRanges(sil, P.freezeRanges(E.proj));
@@ -336,12 +356,38 @@ var NakiEditor = (function () {
   }
   var TOOLS = {
     edit: { title: 'Edit', build: function (body){
-      var u = E.ui, act = mk('div', 'ed-actions');
-      u.bSplit = btn('edSplit', 'Split', 'ed-btn', 'Split at the playhead'); u.bSplit.onclick = split;
-      u.bCut = btn('edCut', 'Cut out', 'ed-btn', 'Cut out the selected clip and close the gap'); u.bCut.onclick = cutOut;
-      u.bDel = btn('edDelete', 'Delete', 'ed-btn', 'Delete the selected clip and leave a gap'); u.bDel.onclick = deleteSel;
-      var bq = btn('edQuiet', 'Quiet pauses', 'ed-btn', 'Find quiet pauses'); bq.onclick = scanQuiet;
-      add(act, u.bSplit, u.bCut, u.bDel, bq); body.appendChild(act);
+      var u = E.ui, tiles = mk('div', 'ed-tiles');
+      function tile(id, label, icon, run, on){
+        var b = btn(id, null, 'ed-tile' + (on ? ' on' : ''), label); b.innerHTML = svg(icon) + '<span>' + label + '</span>'; b.onclick = run; tiles.appendChild(b); return b;
+      }
+      u.bSplit = tile('edSplit', 'Split', '<path d="M12 3v18M7 7l-3 3 3 3M17 7l3 3-3 3"/>', split);
+      u.bCut = tile('edCut', 'Cut out', '<circle cx="6" cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path d="M8.2 7.6L20 19M8.2 16.4L20 5"/>', cutOut);
+      u.bDel = tile('edDelete', 'Delete', '<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/>', deleteSel);
+      tile('edDuplicate', 'Duplicate', '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/>', duplicateSel);
+      tile('edZoom', 'Zoom', '<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5M11 8.5v5M8.5 11h5"/>', function (){ setSub('zoom'); }, E.editSub === 'zoom');
+      tile('edRotate', 'Rotate', '<path d="M20 12a8 8 0 11-2.6-5.9"/><path d="M20 4v5h-5"/>', rotateSel);
+      tile('edFlip', 'Flip', '<path d="M12 3v18"/><path d="M8 7L3 12l5 5zM16 7l5 5-5 5z"/>', flipSel);
+      tile('edOpacity', 'Opacity', '<path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z"/>', function (){ setSub('opacity'); }, E.editSub === 'opacity');
+      tile('edQuiet', 'Quiet', '<path d="M5 9v6h3l5 4V5L8 9zM17 9.5a4 4 0 010 5"/>', scanQuiet);
+      body.appendChild(tiles);
+      var c = targetVideo();
+      if (E.editSub === 'zoom' || E.editSub === 'opacity'){
+        if (!c) body.appendChild(mk('div', 'ed-hint', 'Move the playhead onto the picture, or tap a picture clip first.'));
+        else if (E.editSub === 'opacity'){
+          body.appendChild(sliderRow('Opacity', 0, 100, 5, Math.round((c.opacity != null ? c.opacity : 1) * 100), function (v){ return v + '%'; },
+            function (v){ live(P.setOpacity(E.hist.cur, c.id, v / 100)); }, function (v){ commit(P.setOpacity(E.hist.cur, c.id, v / 100)); }));
+        } else {
+          var t = Object.assign({ zoom: 1, x: 0, y: 0 }, c.transform || {});
+          function tz(o){ return P.setTransform(E.hist.cur, c.id, o); }
+          body.appendChild(sliderRow('Zoom', 1, 4, 0.05, t.zoom, function (v){ return v.toFixed(2) + '×'; }, function (v){ live(tz({ zoom: v })); }, function (v){ commit(tz({ zoom: v })); }));
+          if (t.zoom > 1){
+            body.appendChild(sliderRow('Left / right', -1, 1, 0.05, t.x, function (v){ return Math.round(v * 100); }, function (v){ live(tz({ x: v })); }, function (v){ commit(tz({ x: v })); }));
+            body.appendChild(sliderRow('Up / down', -1, 1, 0.05, t.y, function (v){ return Math.round(v * 100); }, function (v){ live(tz({ y: v })); }, function (v){ commit(tz({ y: v })); }));
+          }
+          var rz = btn('edZoomReset', 'Reset zoom, turn and flip', 'ed-btn ed-wide', 'Back to the original framing'); rz.onclick = function (){ commit(P.setTransform(E.hist.cur, c.id, { zoom: 1, x: 0, y: 0, rot: 0, flipH: false })); };
+          body.appendChild(rz);
+        }
+      }
       body.appendChild(mk('div', 'ed-hint', 'Hold the picture still at the playhead:'));
       body.appendChild(seg([{ label: '1 s', value: 1000 }, { label: '2 s', value: 2000 }, { label: '3 s', value: 3000 }, { label: '5 s', value: 5000 }], E.freezeMs,
         function (v){ E.freezeMs = v; refreshSheet(); }));
@@ -449,12 +495,20 @@ var NakiEditor = (function () {
 
   /* ---------- titles drawn over the preview ---------- */
   function layoutTextLayer(){
-    var m = E.hooks && E.hooks.movie, st = E.ui.stage, l = E.ui.textlayer; if (!l) return;
+    var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe]; if (!boxes[0]) return;
     var sw = st.clientWidth, sh = st.clientHeight, vw = m && m.videoWidth, vh = m && m.videoHeight;
-    if (sw && sh && vw && vh){
-      var sc = Math.min(sw / vw, sh / vh), w = vw * sc, h = vh * sc;
-      l.style.left = ((sw - w) / 2) + 'px'; l.style.top = ((sh - h) / 2) + 'px'; l.style.width = w + 'px'; l.style.height = h + 'px';
-    } else { l.style.left = l.style.top = '0'; l.style.width = l.style.height = '100%'; }
+    boxes.forEach(function (l){
+      if (sw && sh && vw && vh){
+        var sc = Math.min(sw / vw, sh / vh), w = vw * sc, h = vh * sc;
+        l.style.left = ((sw - w) / 2) + 'px'; l.style.top = ((sh - h) / 2) + 'px'; l.style.width = w + 'px'; l.style.height = h + 'px';
+      } else { l.style.left = l.style.top = '0'; l.style.width = l.style.height = '100%'; }
+    });
+  }
+  // CSS for a clip's zoom / turn / flip. Same order as the export: flip, turn, zoom into what you see.
+  function transformCss(t, aspect){
+    if (!t) return '';
+    var z = t.zoom || 1, rot = t.rot || 0, fit = (rot === 90 || rot === 270) ? Math.min(aspect, 1 / aspect) : 1;
+    return 'translate(' + (-(t.x || 0) * (z - 1) * 50) + '%,' + (-(t.y || 0) * (z - 1) * 50) + '%) scale(' + (z * fit) + ') rotate(' + rot + 'deg)' + (t.flipH ? ' scaleX(-1)' : '');
   }
   function renderTexts(list){
     var layer = E.ui.textlayer; if (!layer) return;
@@ -512,7 +566,9 @@ var NakiEditor = (function () {
   function syncMedia(){
     var h = E.hooks, m = h.movie, v = h.voice, s = P.sourceAt(E.proj, E.t);
     var look = s.video && s.video.clip.filter, css = look ? 'brightness(' + look.brightness + ') contrast(' + look.contrast + ') saturate(' + look.saturate + ')' : '';
-    var op = s.video ? String(fadeOpacity(s.video.clip, E.t)) : '0';
+    var vc = s.video && s.video.clip, op = vc ? String(fadeOpacity(vc, E.t) * (vc.opacity != null ? vc.opacity : 1)) : '0';
+    var tcss = vc ? transformCss(vc.transform, (m.videoWidth && m.videoHeight) ? m.videoWidth / m.videoHeight : 16 / 9) : '';
+    if (tcss !== E.lastTransform){ m.style.transform = tcss; E.lastTransform = tcss; }
     if (css !== E.lastFilter){ m.style.filter = css; E.lastFilter = css; }
     if (op !== E.lastOpacity){ m.style.opacity = op; E.lastOpacity = op; }
     if (movieReady()){
@@ -694,11 +750,11 @@ var NakiEditor = (function () {
     E.hist = c.hist; E.proj = c.hist.cur; E.sess = sess; E.sel = null; E.t = 0; E.playing = false; E.quiet = null; E.voiceDurMs = opts.voiceDurMs || null;
     E.quietDb = -42; (sess.events || []).forEach(function (e){ if (e.type === 'duck' && typeof e.thresholdDb === 'number') E.quietDb = e.thresholdDb; });
     var m = E.hooks.movie; E.home = m.parentNode ? { parent: m.parentNode, next: m.nextSibling } : null;
-    E.ui.stage.insertBefore(m, E.ui.stage.firstChild);
+    E.ui.picframe.insertBefore(m, E.ui.picframe.firstChild);
     E.ui.stageMsg.textContent = movieReady() ? '' : 'Choose the movie for this session in Preview first, then come back to edit.';
     E.ui.note.textContent = c.restored ? 'Your earlier edits were restored.' : '';
     showSaved(c.restored || c.hist.past.length ? 'Saved' : '');
-    E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1;
+    E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.editSub = null;
     E.root.classList.remove('sheet-open'); E.tool = null; E.ui.sheet.hidden = true; openTool(null);
     E.root.hidden = false; E.isOpen = true;
     document.addEventListener('keydown', onKey);
@@ -710,7 +766,7 @@ var NakiEditor = (function () {
     if (E.saveT) flushSave();
     document.removeEventListener('keydown', onKey);
     var h = E.hooks; try { h.voice.volume = 1; if (E.voiceGain) E.voiceGain.gain.value = 1; if (E.musicGain) E.musicGain.gain.value = 1; h.setMovieGain(1); } catch (e) {}
-    try { h.movie.style.filter = ''; h.movie.style.opacity = ''; h.movie.playbackRate = 1; } catch (e) {}
+    try { h.movie.style.filter = ''; h.movie.style.opacity = ''; h.movie.style.transform = ''; h.movie.playbackRate = 1; } catch (e) {}
     renderTexts([]);
     if (E.home && E.home.parent) E.home.parent.insertBefore(h.movie, E.home.next);
     E.root.hidden = true; E.isOpen = false;
@@ -720,6 +776,6 @@ var NakiEditor = (function () {
   return { init: init, open: open, close: close, isOpen: function (){ return E.isOpen; },
     project: function (){ return E.proj; }, split: split, cutOut: cutOut, deleteSel: deleteSel, undo: undo, redo: redo, select: select,
     seek: seek, planFor: planFor, scanQuiet: scanQuiet, play: play, pause: pause, setZoom: setZoom, fit: fit,
-    openTool: openTool, freezeHere: freezeHere, flushSave: flushSave };
+    openTool: openTool, freezeHere: freezeHere, flushSave: flushSave, duplicateSel: duplicateSel, rotateSel: rotateSel, flipSel: flipSel };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NakiEditor;
