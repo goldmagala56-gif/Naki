@@ -17,7 +17,8 @@ var NakiPlan = (function () {
       else s = cursor;
       var sp = c.type === 'freeze'
         ? { type: 'freeze', sessionStart: s, sessionEnd: e, movieAt: c.in }
-        : { type: 'play', sessionStart: s, sessionEnd: e, movieStart: c.in + Math.round((s - Math.round(c.start)) * (c.speed || 1)) };
+        : { type: 'play', sessionStart: s, sessionEnd: e, movieStart: c.in + (c.reverse ? 0 : Math.round((s - Math.round(c.start)) * (c.speed || 1))) };
+      if (sp.type === 'play' && c.reverse) sp.reverse = true;   // movieStart is then the START of the stretch; the part plays from its end back to it
       if (sp.type === 'play' && c.speed && c.speed !== 1) sp.speed = c.speed;
       if (c.filter){
         sp.filter = { brightness: c.filter.brightness, contrast: c.filter.contrast, saturate: c.filter.saturate };
@@ -48,6 +49,7 @@ var NakiPlan = (function () {
         var a = { src: src, startMs: Math.round(c.start), durMs: Math.round(c.dur), inMs: Math.round(c.in),
           points: C.simplifyGain(series, STEP, 0.01) };
         if (src === 'movie' && c.speed && c.speed !== 1) a.speed = c.speed;
+        if (src === 'movie' && c.reverse) a.reverse = true;
         audio.push(a);
       });
     });

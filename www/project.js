@@ -61,7 +61,8 @@ function sliceClip(c, from, to){   // the part of clip c covering timeline [from
   from = Math.max(from, c.start); to = Math.min(to, clipEnd(c));
   var n = JSON.parse(JSON.stringify(c));
   n.id = newId('c'); n.start = from; n.dur = to - from;
-  if (c.type !== 'freeze' && c.type !== 'text') n.in = c.in + Math.round((from - c.start) * (c.speed || 1));
+  if (c.type !== 'freeze' && c.type !== 'text')   // a reversed clip plays its stretch of the movie backwards, so a piece taken from its end reads the movie from the start
+    n.in = c.reverse ? c.in + Math.round((clipEnd(c) - to) * (c.speed || 1)) : c.in + Math.round((from - c.start) * (c.speed || 1));
   if (c.gain && c.gain.length) n.gain = gainSlice(c.gain, from - c.start, to - c.start);
   // fades belong to the original clip's ends: remember how much of each fade a piece has already used up
   if (from > c.start){ n.fadeInOff = (c.fadeInOff || 0) + (from - c.start); if (n.fadeInOff >= (c.fadeIn || 0)){ n.fadeIn = 0; n.fadeInOff = 0; } delete n.vFadeIn; }
@@ -164,6 +165,8 @@ function linkedIds(p, id){
   if (f.clip.link) p.tracks.forEach(function (tr){ tr.clips.forEach(function (c){ if (c.link === f.clip.link && c.id !== id) ids.push(c.id); }); });
   return ids;
 }
+// The clip and its linked partner (a movie clip and its sound), as { track, clip } pairs.
+function linkedClips(p, id){ return linkedIds(p, id).map(function (cid){ return findClip(p, cid); }); }
 function deleteClip(p, id){   // removes the clip and its linked partner, leaving a gap
   var ids = linkedIds(p, id); if (!ids.length) return p;
   var q = cloneProject(p);
@@ -172,6 +175,7 @@ function deleteClip(p, id){   // removes the clip and its linked partner, leavin
 }
 function maxDur(p, c){   // how long this clip could be at most, given its source
   if (c.type === 'freeze' || c.type === 'text') return Infinity;
+  if (c.reverse) return Math.floor((c.in + c.dur * (c.speed || 1)) / (c.speed || 1));   // lengthening it reads the movie further back, down to 0
   var d = p.assets[c.asset] && p.assets[c.asset].durMs;
   return d ? Math.floor((d - c.in) / (c.speed || 1)) : Infinity;
 }
@@ -184,6 +188,7 @@ function trimClipEnd(p, id, newEnd){
       if (nd < c.dur) c.gain = gainSlice(c.gain, 0, nd); else if (nd > c.dur) c.gain.push([nd, c.gain[c.gain.length - 1][1]]);
     }
     c.fadeOutOff = 0;
+    if (c.reverse && c.type !== 'freeze') c.in = Math.max(0, c.in + Math.round((c.dur - nd) * (c.speed || 1)));
     c.dur = nd;
   });
   return validate(q).length ? p : finish(q);
@@ -193,7 +198,10 @@ function trimClipStart(p, id, newStart){
   linkedIds(q, id).forEach(function (cid){
     var c = findClip(q, cid).clip, delta = Math.round(newStart) - c.start, sp = c.speed || 1;
     if (delta >= c.dur || c.start + delta < 0) return;
-    if (c.type !== 'freeze' && c.type !== 'text'){ if (c.in + delta * sp < 0) return; c.in += Math.round(delta * sp); }
+    if (c.type !== 'freeze' && c.type !== 'text'){
+      if (c.reverse){ var D = q.assets[c.asset] && q.assets[c.asset].durMs; if (delta < 0 && D && c.in + (c.dur - delta) * sp > D) return; }
+      else { if (c.in + delta * sp < 0) return; c.in += Math.round(delta * sp); }
+    }
     if (c.gain && c.gain.length){
       if (delta > 0) c.gain = gainSlice(c.gain, delta, c.dur);
       else if (delta < 0) c.gain = [[0, c.gain[0][1]]].concat(c.gain.map(function (pt){ return [pt[0] - delta, pt[1]]; }));
@@ -237,7 +245,7 @@ function sourceAt(p, t){
   p.tracks.forEach(function (tr){
     tr.clips.forEach(function (c){
       if (!(c.start <= t && t < clipEnd(c))) return;
-      var srcMs = c.type === 'freeze' ? c.in : c.in + (t - c.start) * (c.speed || 1);
+      var srcMs = c.type === 'freeze' ? c.in : c.reverse ? c.in + (c.dur - (t - c.start)) * (c.speed || 1) : c.in + (t - c.start) * (c.speed || 1);
       if (tr.kind === 'video'){ if (!tr.hidden) out.video = { clip: c, type: c.type, movieMs: srcMs }; }
       else if (tr.kind === 'audio') out.audio.push({ role: tr.role, clip: c, sourceMs: srcMs, gain: clipGainAt(tr, c, t) });
     });
@@ -469,6 +477,18 @@ function duplicateClip(p, id, out){
   return finish(q);
 }
 
+// ---------- reverse ----------
+// Plays a movie clip backwards: the same stretch of the movie, last picture first. Its linked movie sound is
+// reversed with it. A paused picture has nothing to play backwards. on = true / false, or leave out to switch.
+function setReverse(p, id, on){
+  var f = findClip(p, id); if (!f || f.track.kind !== 'video' || f.clip.type !== 'video') return p;
+  var want = on === undefined ? !f.clip.reverse : !!on;
+  if (want === !!f.clip.reverse) return p;
+  var q = cloneProject(p);
+  linkedIds(q, id).forEach(function (cid){ var c = findClip(q, cid).clip; if (want) c.reverse = true; else delete c.reverse; });
+  return finish(q);
+}
+
 // ---------- replacing the movie file ----------
 // How far into the movie file the edits reach (ms): the latest stretch of the movie any picture clip uses.
 function movieNeeded(p){
@@ -571,6 +591,6 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset };
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;

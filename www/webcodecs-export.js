@@ -89,6 +89,7 @@ var WebCodecsExport = (function () {
   // change speed without changing pitch, which Web Audio cannot do. Colour filters need a canvas that can filter.
   function canRender(plan) {
     if ((plan.video || []).some(function (s) { return s.speed && s.speed !== 1; })) return false;
+    if ((plan.video || []).some(function (s) { return s.reverse; }) || (plan.audio || []).some(function (a) { return a.reverse; })) return false;   // reversed clips are made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return s.filter && s.filter.sharpen > 0; })) return false;   // sharpen only exists in the ffmpeg engine
     if ((plan.audio || []).some(function (a) { return a.speed && a.speed !== 1; })) return false;
     if ((plan.video || []).some(function (s) { return !neutralFilter(s.filter); }) && !filterSupported()) return false;
