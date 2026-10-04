@@ -18,6 +18,7 @@
 var FPS = 30;
 var SR = 48000;
 var GAIN_HZ = 1000;
+var _LK = (typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook;
 
 /* ---------- pure: parse ffmpeg's own "-i" log text for basic movie info ---------- */
 function parseProbeInfo(logText) {
@@ -118,8 +119,10 @@ function planToJobs(plan, movieInfo, opts) {
     if (f && f.brightness !== 1) parts.push("lutyuv=y='clip(val*" + f.brightness + ",16,235)'");
     if (sp.opacity != null && sp.opacity < 1) {   // mix the picture with the navy background, plane by plane (navy = Y 37, U 133, V 123)
       var o = sp.opacity, k = 1 - o;
+      
       parts.push("lutyuv=y='val*" + o.toFixed(3) + '+' + (37 * k).toFixed(2) + "':u='val*" + o.toFixed(3) + '+' + (133 * k).toFixed(2) + "':v='val*" + o.toFixed(3) + '+' + (123 * k).toFixed(2) + "'");
     }
+    _LK.ffmpegExtras(f).forEach(function (x) { parts.push(x); });
     if (sp.vFadeIn) parts.push('fade=t=in:st=0:d=' + (sp.vFadeIn / 1000).toFixed(3));
     if (sp.vFadeOut) parts.push('fade=t=out:st=' + Math.max(0, spanSec - sp.vFadeOut / 1000).toFixed(3) + ':d=' + (sp.vFadeOut / 1000).toFixed(3));
     return parts.join(',');

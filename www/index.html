@@ -334,6 +334,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 
 <input type="file" id="filePick" accept="video/*,.mkv,.avi,.mov,.mp4,.webm" hidden>
 <input type="file" id="logoPick" accept="image/*" hidden>
+<input type="file" id="replacePick" accept="video/*,.mkv,.avi,.mov,.mp4,.webm" hidden>
 <input type="file" id="musicPick" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac" hidden>
 <div id="prepareModal" class="modalWrap" hidden>
   <div class="modalCard">
@@ -356,6 +357,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <div id="toast" class="toast" hidden></div>
 
 <script src="core.js"></script>
+<script src="look.js"></script>
 <script src="project.js"></script>
 <script src="voice.js"></script>
 <script src="plan.js"></script>
@@ -1346,7 +1348,9 @@ $('bAgain').onclick = function(){ el.voice.pause(); S.sess = null; if (!S.movieF
 $('bTakeBackHere').onclick = function(){
   if (!S.sess || !S.movieFile){ toast('Choose the movie for this session first.'); return; }
   var t = Math.round(Number($('pSeek').value) / 1000 * S.sess.durationMs);
-  var ok = confirm('Take back from ' + fmt(t) + '? Everything after this point in the recording will be discarded, and Naki will start recording again from here.');
+  var warnEdits = NakiEditor.hasEdits(S.sess, { saved: S.sess.savedProject })
+  ? '\n\nThe edits you made in the editor (cuts, titles, zoom...) will also be removed, because they belong to the old recording.' : '';
+  var ok = confirm('Take back from ' + fmt(t) + '? Everything after this point in the recording will be discarded, and Naki will start recording again from here.' + warnEdits);
   if (!ok) return;
   el.movie.pause();
   takeBackFromPreview(t);
@@ -1588,10 +1592,36 @@ function loadEdits(s){
   }, function(){});
 }
 
+function replaceMovie(){
+  var sess = S.sess; if (!sess) return Promise.resolve(null);
+  return new Promise(function(resolve){
+    var inp = $('replacePick'); inp.value = '';
+    inp.onchange = function(){
+      var f = inp.files && inp.files[0]; if (!f) return resolve(null);
+      var old = S.movieFile, oldDur = sess.movieDurMs || S.movieDurMs;
+      loadMovie(f).then(function(){
+        if (!el.movie.videoWidth) throw new Error('no picture');
+        resolve({ name: f.name, size: f.size, durMs: S.movieDurMs, oldDurMs: oldDur,
+          keep: function(){
+            sess.movieName = f.name; sess.movieSize = f.size; sess.movieDurMs = S.movieDurMs;
+            sess.warnings = (sess.warnings || []).filter(function(w){ return w.type.indexOf('movie_not_remembered') !== 0; });
+            persistSession(sess, false);
+            if (DB.ok) DB.put('movies', { sid: sess.id, name: f.name, size: f.size, blob: f }).catch(function(){ toast('This movie is too large to remember on this device. You will need to choose it again next time.', 8000); });
+          },
+          revert: function(){ return old ? loadMovie(old).catch(function(){}) : Promise.resolve(); } });
+      }).catch(function(){
+        toast('Naki cannot play "' + f.name + '" directly. Convert it first (Preview > Choose movie), then replace.', 8000);
+        (old ? loadMovie(old).catch(function(){}) : Promise.resolve()).then(function(){ resolve(null); });
+      });
+    };
+    inp.click();
+  });
+}
+
 NakiEditor.init({
   movie: el.movie, voice: el.voice, simple: SIMPLE,
   ensureAudio: ensureAudio, getCtx: function(){ return S.audio.ctx; },
-  setMovieGain: applyGain, movieReady: function(){ return !!S.movieFile; },
+  setMovieGain: applyGain, replaceMovie: replaceMovie, movieReady: function(){ return !!S.movieFile; },
     toast: toast, onClose: function(){ if (S.sess) preparePreview(S.sess); },
       onExport: function(){
     var b = $('bExport'); if (!b || b.disabled) return;

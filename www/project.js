@@ -64,8 +64,8 @@ function sliceClip(c, from, to){   // the part of clip c covering timeline [from
   if (c.type !== 'freeze' && c.type !== 'text') n.in = c.in + Math.round((from - c.start) * (c.speed || 1));
   if (c.gain && c.gain.length) n.gain = gainSlice(c.gain, from - c.start, to - c.start);
   // fades belong to the original clip's ends: remember how much of each fade a piece has already used up
-  if (from > c.start){ n.fadeInOff = (c.fadeInOff || 0) + (from - c.start); if (n.fadeInOff >= (c.fadeIn || 0)){ n.fadeIn = 0; n.fadeInOff = 0; } }
-  if (to < clipEnd(c)){ n.fadeOutOff = (c.fadeOutOff || 0) + (clipEnd(c) - to); if (n.fadeOutOff >= (c.fadeOut || 0)){ n.fadeOut = 0; n.fadeOutOff = 0; } }
+  if (from > c.start){ n.fadeInOff = (c.fadeInOff || 0) + (from - c.start); if (n.fadeInOff >= (c.fadeIn || 0)){ n.fadeIn = 0; n.fadeInOff = 0; } delete n.vFadeIn; }
+  if (to < clipEnd(c)){ n.fadeOutOff = (c.fadeOutOff || 0) + (clipEnd(c) - to); if (n.fadeOutOff >= (c.fadeOut || 0)){ n.fadeOut = 0; n.fadeOutOff = 0; } delete n.vFadeOut; }
   return n;
 }
 
@@ -355,7 +355,8 @@ function setVFade(p, id, patch){
   return finish(q);
 }
 
-// Brightness / contrast / colour for one picture clip, or for all of them when id is null.
+// Brightness / contrast / colour for one picture clip, or for all of them when id is null. The "More adjust" looks
+// (warmth, sharpen, vignette, matte; see look.js) live in the same object and are only stored when they are not zero.
 function setFilter(p, id, patch){
   var q = cloneProject(p), targets = [];
   q.tracks.forEach(function (tr){ if (tr.kind === 'video') tr.clips.forEach(function (c){ if (id === null || c.id === id) targets.push(c); }); });
@@ -363,18 +364,27 @@ function setFilter(p, id, patch){
   targets.forEach(function (c){
     var f = Object.assign({ brightness: 1, contrast: 1, saturate: 1 }, c.filter || {}, patch || {});
     f.brightness = Math.max(0.4, Math.min(1.6, +f.brightness || 1)); f.contrast = Math.max(0.4, Math.min(1.6, +f.contrast || 1)); f.saturate = Math.max(0, Math.min(2, f.saturate == null ? 1 : +f.saturate));
-    if (Math.abs(f.brightness - 1) < 0.001 && Math.abs(f.contrast - 1) < 0.001 && Math.abs(f.saturate - 1) < 0.001) delete c.filter; else c.filter = f;
+    var neutral = Math.abs(f.brightness - 1) < 0.001 && Math.abs(f.contrast - 1) < 0.001 && Math.abs(f.saturate - 1) < 0.001;
+    ['warmth', 'sharpen', 'vignette', 'matte'].forEach(function (k){
+      var v = +f[k]; if (isNaN(v)) v = 0;
+      v = r3(Math.max(k === 'warmth' ? -1 : 0, Math.min(1, v)));
+      if (Math.abs(v) < 0.001) delete f[k]; else { f[k] = v; neutral = false; }
+    });
+    if (neutral) delete c.filter; else c.filter = f;
   });
   return finish(q);
 }
 
 // Holds the picture still at time t for dur ms. Everything after t (picture, movie sound, voice, text) moves
 // later by dur so nothing slips out of step; the voice simply has a silent gap there. Music keeps playing.
+// The held picture keeps the look (colour, opacity, zoom / turn / flip) of the clip it is cut out of.
 function insertFreeze(p, t, dur){
   t = Math.round(t); dur = Math.round(dur);
   if (!(dur > 0)) return p;
   var s = sourceAt(p, t); if (!s.video) return p;
   var inFreeze = s.video.type === 'freeze', movieMs = Math.round(s.video.movieMs);
+  var look = {};
+  ['filter', 'opacity', 'transform'].forEach(function (k){ if (s.video.clip[k] !== undefined) look[k] = JSON.parse(JSON.stringify(s.video.clip[k])); });
   var q = cloneProject(p), rightLink = {};
   q.tracks.forEach(function (tr){
     if (tr.role === 'music') return;
@@ -390,7 +400,7 @@ function insertFreeze(p, t, dur){
       out.push(left, right);
     });
     if (tr.role === 'movie' && !inFreeze)
-      out.push({ id: newId('c'), type: 'freeze', asset: 'movie', start: t, dur: dur, in: movieMs, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0, link: newId('l') });
+      out.push(Object.assign({ id: newId('c'), type: 'freeze', asset: 'movie', start: t, dur: dur, in: movieMs, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0, link: newId('l') }, look));
     tr.clips = out;
   });
   if (p.levels && p.levels.length){
@@ -402,23 +412,32 @@ function insertFreeze(p, t, dur){
 }
 
 // ---------- opacity, zoom / rotate / flip, duplicate ----------
-// Opacity (0 to 1) of a picture clip. 1 means "normal" and is not stored.
+// The picture clips an edit should work on: the one with this id, or all of them when id is null.
+function pictureClips(q, id){
+  var out = [];
+  q.tracks.forEach(function (tr){ if (tr.kind === 'video') tr.clips.forEach(function (c){ if (id === null || c.id === id) out.push(c); }); });
+  return out;
+}
+// Opacity (0 to 1) of a picture clip, or of every picture clip when id is null. 1 means "normal" and is not stored.
 function setOpacity(p, id, v){
-  var q = cloneProject(p), f = findClip(q, id); if (!f || f.track.kind !== 'video') return p;
+  var q = cloneProject(p), list = pictureClips(q, id); if (!list.length) return p;
   v = Math.max(0, Math.min(1, +v)); if (isNaN(v)) return p;
-  if (v > 0.999) delete f.clip.opacity; else f.clip.opacity = r3(v);
+  list.forEach(function (c){ if (v > 0.999) delete c.opacity; else c.opacity = r3(v); });
   return finish(q);
 }
 // Zoom (1x to 4x), where the zoomed window sits (x, y from -1 to 1), turns in steps of 90 degrees, and flip.
 // The default look is not stored. Rotation and flip come first, then zoom works on what you see.
+// id null = every picture clip (each keeps the parts of its framing the patch does not mention).
 var TRANSFORM_DEFAULT = { zoom: 1, x: 0, y: 0, rot: 0, flipH: false };
 function setTransform(p, id, patch){
-  var q = cloneProject(p), f = findClip(q, id); if (!f || f.track.kind !== 'video') return p;
-  var t = Object.assign({}, TRANSFORM_DEFAULT, f.clip.transform || {}, patch || {});
-  t.zoom = r3(Math.max(1, Math.min(4, +t.zoom || 1)));
-  t.x = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.x || 0))); t.y = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.y || 0)));
-  t.rot = (((Math.round((+t.rot || 0) / 90) * 90) % 360) + 360) % 360; t.flipH = !!t.flipH;
-  if (t.zoom === 1 && t.rot === 0 && !t.flipH) delete f.clip.transform; else f.clip.transform = t;
+  var q = cloneProject(p), list = pictureClips(q, id); if (!list.length) return p;
+  list.forEach(function (c){
+    var t = Object.assign({}, TRANSFORM_DEFAULT, c.transform || {}, patch || {});
+    t.zoom = r3(Math.max(1, Math.min(4, +t.zoom || 1)));
+    t.x = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.x || 0))); t.y = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.y || 0)));
+    t.rot = (((Math.round((+t.rot || 0) / 90) * 90) % 360) + 360) % 360; t.flipH = !!t.flipH;
+    if (t.zoom === 1 && t.rot === 0 && !t.flipH) delete c.transform; else c.transform = t;
+  });
   return finish(q);
 }
 // Copies a clip right after itself. A movie clip and its sound are copied together and the movie clips after
@@ -447,6 +466,62 @@ function duplicateClip(p, id, out){
   if (copy.gain && copy.gain.length) copy.gain = gainSlice(c0.gain, 0, d);
   if (d < dur){ copy.fadeOut = 0; copy.fadeOutOff = 0; }
   track.clips.push(copy); if (out) out.id = copy.id;
+  return finish(q);
+}
+
+// ---------- replacing the movie file ----------
+// How far into the movie file the edits reach (ms): the latest stretch of the movie any picture clip uses.
+function movieNeeded(p){
+  var need = 0;
+  p.tracks.forEach(function (tr){
+    if (tr.kind !== 'video') return;
+    tr.clips.forEach(function (c){ need = Math.max(need, c.type === 'freeze' ? c.in : c.in + c.dur * (c.speed || 1)); });
+  });
+  return Math.round(need);
+}
+// Points the project at a different movie file (same movie, another copy): only the name and length change,
+// so every cut, title and look stays. info = { name, durMs }
+function setMovieAsset(p, info){
+  var q = cloneProject(p); if (!q.assets.movie) return p;
+  if (info && info.name) q.assets.movie.name = info.name;
+  q.assets.movie.durMs = (info && info.durMs) || null;
+  return q;
+}
+
+// ---------- voice timing ----------
+// Moves the voice track by deltaMs (positive = later) without touching anything else, so the "Voice timing"
+// slider can change after edits were made. The same result as building the project again with the new timing:
+// the voice never starts before 0, never runs past the end of the video, and a voice that reached the end
+// before is carried back out to the end when it moves earlier (as far as the recording has sound).
+function shiftVoice(p, deltaMs){
+  deltaMs = Math.round(deltaMs);
+  if (!deltaMs) return p;
+  var q = cloneProject(p), end = p.durationMs, vd = p.assets.voice && p.assets.voice.durMs;
+  q.tracks.forEach(function (tr){
+    if (tr.role !== 'voice') return;
+    tr.clips.forEach(function (c){
+      var wasAtEnd = clipEnd(c) >= end - 1, s = c.start + deltaMs, oldDur = c.dur;
+      if (s < 0){
+        var cut = -s;
+        c.in += cut; c.dur -= cut; s = 0; c.fadeInOff = 0;
+        if (c.gain && c.gain.length && c.dur > 0) c.gain = gainSlice(c.gain, cut, oldDur);
+      }
+      c.start = s;
+      if (deltaMs < 0 && wasAtEnd && c.dur > 0){
+        var want = Math.min(c.dur - deltaMs, end - c.start);
+        if (vd) want = Math.min(want, vd - c.in);
+        if (want > c.dur){
+          if (c.gain && c.gain.length) c.gain.push([want, c.gain[c.gain.length - 1][1]]);
+          c.dur = want; c.fadeOutOff = 0;
+        }
+      }
+      if (c.start + c.dur > end){
+        var nd = end - c.start;
+        if (c.gain && c.gain.length && nd > 0) c.gain = gainSlice(c.gain, 0, nd);
+        c.dur = nd; c.fadeOutOff = 0;
+      }
+    });
+  });
   return finish(q);
 }
 
@@ -482,6 +557,13 @@ EditHistory.prototype.commit = function (p){
 };
 EditHistory.prototype.undo = function (){ if (this.past.length){ this.future.push(this.cur); this.cur = this.past.pop(); } return this.cur; };
 EditHistory.prototype.redo = function (){ if (this.future.length){ this.past.push(this.cur); this.cur = this.future.pop(); } return this.cur; };
+// Applies the same change to the current project and every undo / redo step, for changes that are not edits
+// (such as the voice timing), so undoing never brings back the old setting.
+EditHistory.prototype.mapAll = function (fn){
+  var f = function (p){ return p ? fn(p) : p; };
+  this.past = this.past.map(f); this.future = this.future.map(f); this.cur = f(this.cur);
+  return this.cur;
+};
 
 var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDelete: rippleDelete, rippleDeleteRanges: rippleDeleteRanges,
   deleteClip: deleteClip, trimClipStart: trimClipStart, trimClipEnd: trimClipEnd, moveClip: moveClip, setClipProps: setClipProps, setTrackProps: setTrackProps,
@@ -489,6 +571,6 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip };
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;

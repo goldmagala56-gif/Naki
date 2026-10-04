@@ -1,19 +1,4 @@
 'use strict';
-/* Naki export plan, version 2: built from the EDITED timeline (project.js), not the raw recording.
-   Pure logic, no page or device code, so it is tested in Node.
-
-   plan = {
-     naki:'export-plan', version:2, durationMs,
-     movie:{ name, durationMs },
-     video:[ {type:'play',  sessionStart, sessionEnd, movieStart, speed?, filter?, opacity?, transform?, vFadeIn?, vFadeOut?}
-           | {type:'freeze',sessionStart, sessionEnd, movieAt,            filter?, opacity?, transform?, vFadeIn?, vFadeOut?}
-           | {type:'black', sessionStart, sessionEnd} ],          // covers 0..durationMs with no gaps
-     audio:[ {src:'movie'|'voice'|'music', startMs, durMs, inMs, speed?, points:[[msSinceClipStart, gain],...]} ],
-     texts:[ {startMs, durMs, text, size, color, pos, weight, bg} ]     // only present when there is text
-   }
-   Each audio clip's points already include track volume, mute, clip volume, ducking and fades,
-   so the engines only have to apply the curve. speed, filter, vFadeIn/Out and texts are only present
-   when used, so a plan without them is exactly what the earlier engines expect. */
 var NakiPlan = (function () {
   var P = (typeof module !== 'undefined' && module.exports) ? require('./project.js') : window.NakiProject;
   var C = (typeof module !== 'undefined' && module.exports) ? require('./core.js')
@@ -34,7 +19,10 @@ var NakiPlan = (function () {
         ? { type: 'freeze', sessionStart: s, sessionEnd: e, movieAt: c.in }
         : { type: 'play', sessionStart: s, sessionEnd: e, movieStart: c.in + Math.round((s - Math.round(c.start)) * (c.speed || 1)) };
       if (sp.type === 'play' && c.speed && c.speed !== 1) sp.speed = c.speed;
-      if (c.filter) sp.filter = { brightness: c.filter.brightness, contrast: c.filter.contrast, saturate: c.filter.saturate };
+      if (c.filter){
+        sp.filter = { brightness: c.filter.brightness, contrast: c.filter.contrast, saturate: c.filter.saturate };
+        ['warmth', 'sharpen', 'vignette', 'matte'].forEach(function (k) { if (c.filter[k]) sp.filter[k] = c.filter[k]; });
+      }
       if (c.opacity != null && c.opacity < 1) sp.opacity = c.opacity;
       if (c.transform) sp.transform = { zoom: c.transform.zoom, x: c.transform.x, y: c.transform.y, rot: c.transform.rot, flipH: !!c.transform.flipH };
       if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;
@@ -82,27 +70,8 @@ var NakiPlan = (function () {
     if (texts.length) plan.texts = texts;
     return plan;
   }
-
-  // Which audio clips touch the session window [a,b) in ms.
-  function clipsInWindow(plan, a, b) {
-    return plan.audio.filter(function (c) { return c.startMs < b && c.startMs + c.durMs > a; });
-  }
-
-  // Gain of a clip's curve at ms since the clip started (linear between points).
-  function gainOfClip(points, rel) {
-    if (!points || !points.length) return 1;
-    if (rel <= points[0][0]) return points[0][1];
-    for (var i = 1; i < points.length; i++) if (rel <= points[i][0]) {
-      var a = points[i - 1], b = points[i];
-      return b[0] === a[0] ? b[1] : a[1] + (b[1] - a[1]) * (rel - a[0]) / (b[0] - a[0]);
-    }
-    return points[points.length - 1][1];
-  }
-
-  // Text placement shared by the editor preview and the exported picture, as a fraction of the picture height.
   var TEXT_POS = { top: 0.07, center: 0.40, bottom: 0.76 };
-
-  var api = { projectToPlan: projectToPlan, clipsInWindow: clipsInWindow, gainOfClip: gainOfClip, TEXT_POS: TEXT_POS };
+  var api = { projectToPlan: projectToPlan, TEXT_POS: TEXT_POS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.NakiPlan = api;
   return api;

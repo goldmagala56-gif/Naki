@@ -5,11 +5,13 @@
 var NakiEditor = (function () {
   var P = (typeof module !== 'undefined' && module.exports) ? require('./project.js') : window.NakiProject;
   var NP = (typeof module !== 'undefined' && module.exports) ? require('./plan.js') : window.NakiPlan;
+  var LK = (typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook;
   var PAD = 16, MIN_PPM = 0.004, MAX_PPM = 0.6, FRAME_MS = 33;
   var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text' };
   var E = { hooks: null, root: null, ui: {}, hist: null, proj: null, sess: null, sel: null, t: 0, playing: false, ppm: 0.06,
     cache: {}, drag: null, raf: 0, wall: 0, wallT: 0, isOpen: false, home: null, pointers: {}, pinch: null,
-    voiceGain: null, musicGain: null, quiet: null, quietDb: -42, tool: null, textEls: {}, freezeMs: 2000, saveT: 0, voiceDurMs: null, lastFilter: '', lastOpacity: '', lastRate: 1 };
+    voiceGain: null, musicGain: null, quiet: null, quietDb: -42, tool: null, textEls: {}, freezeMs: 2000, saveT: 0, voiceDurMs: null, lastFilter: '', lastOpacity: '', lastRate: 1,
+    allClips: false, lastTint: '', lastVeil: '', lastSharp: -1 };
 
   function mk(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
   function add(parent){ for (var i = 1; i < arguments.length; i++) if (arguments[i]) parent.appendChild(arguments[i]); return parent; }
@@ -53,6 +55,15 @@ var NakiEditor = (function () {
     // preview: the movie goes in here when the editor opens; titles are drawn over it
     u.stage = mk('div', 'ed-stage'); u.stageMsg = mk('div', 'ed-stage-msg'); u.stage.appendChild(u.stageMsg);
     u.picframe = mk('div', 'ed-picframe'); u.stage.appendChild(u.picframe);
+    // "More adjust" looks are laid over the picture here: a colour layer that multiplies (warmth), and a veil (faded look + vignette)
+    u.picframe.style.isolation = 'isolate';
+    u.tint = mk('div'); u.tint.style.cssText = 'position:absolute;inset:0;pointer-events:none;mix-blend-mode:multiply;display:none';
+    u.veil = mk('div'); u.veil.style.cssText = 'position:absolute;inset:0;pointer-events:none;display:none';
+    u.picframe.appendChild(u.tint); u.picframe.appendChild(u.veil);
+    var NS = 'http://www.w3.org/2000/svg', sv = document.createElementNS(NS, 'svg'), fl = document.createElementNS(NS, 'filter'); u.sharpK = document.createElementNS(NS, 'feConvolveMatrix');
+    sv.setAttribute('width', '0'); sv.setAttribute('height', '0'); sv.style.position = 'absolute'; fl.setAttribute('id', 'nakiSharp');
+    u.sharpK.setAttribute('order', '3'); u.sharpK.setAttribute('preserveAlpha', 'true'); u.sharpK.setAttribute('kernelMatrix', '0 0 0 0 1 0 0 0 0');
+    fl.appendChild(u.sharpK); sv.appendChild(fl); u.stage.appendChild(sv);
     u.textlayer = mk('div', 'ed-textlayer'); u.stage.appendChild(u.textlayer);
 
     // desktop side panel: sound levels and the selected clip
@@ -269,13 +280,36 @@ var NakiEditor = (function () {
     var nf = out.id && P.findClip(q, out.id); if (nf) E.t = nf.clip.start;   // show the copy, so the tools that follow work on what you see
     E.sel = out.id || E.sel; commit(q); toast('Copied. The copy is right after it.');
   }
+  // Zoom, turn, flip and opacity work on the clip you are on, or on every picture clip when "All clips" is on.
+  function framingTarget(c){ return E.allClips ? null : c.id; }
   function rotateSel(){
     var c = targetVideo(); if (!c){ toast('Move the playhead onto the picture, or tap a picture clip first.'); return; }
-    commit(P.setTransform(E.hist.cur, c.id, { rot: ((c.transform && c.transform.rot) || 0) + 90 }));
+    commit(P.setTransform(E.hist.cur, framingTarget(c), { rot: ((c.transform && c.transform.rot) || 0) + 90 }));
   }
   function flipSel(){
     var c = targetVideo(); if (!c){ toast('Move the playhead onto the picture, or tap a picture clip first.'); return; }
-    commit(P.setTransform(E.hist.cur, c.id, { flipH: !(c.transform && c.transform.flipH) }));
+    commit(P.setTransform(E.hist.cur, framingTarget(c), { flipH: !(c.transform && c.transform.flipH) }));
+  }
+  // Swaps the movie file for another copy of the same movie (a better quality one, say) and keeps every edit.
+  // The page picks and loads the file; here we check it still fits what the edits use, then tell the project.
+  function replaceMovie(){
+    if (!E.hooks.replaceMovie){ toast('Replacing the movie is not available here.'); return; }
+    pause();
+    Promise.resolve(E.hooks.replaceMovie()).then(function (r){
+      if (!r) return;
+      var need = P.movieNeeded(E.hist.cur), warn = [];
+      if (r.durMs && r.oldDurMs && Math.abs(r.durMs - r.oldDurMs) > 1500)
+        warn.push('This movie is ' + fmtP(r.durMs) + ' long, but the one you edited is ' + fmtP(r.oldDurMs) + '. If it is not the same movie, the picture will not match your voice.');
+      if (r.durMs && need > r.durMs + 500)
+        warn.push('Your edits use the movie up to ' + fmtP(need) + ', but this file ends at ' + fmtP(r.durMs) + '. The parts after the end will show the last picture.');
+      if (warn.length && !confirm(warn.join('\n\n') + '\n\nUse this movie anyway?')){
+        Promise.resolve(r.revert && r.revert()).then(function (){ layoutTextLayer(); syncMedia(); });
+        return;
+      }
+      if (r.keep) r.keep();
+      E.hist.mapAll(function (p){ return P.setMovieAsset(p, { name: r.name, durMs: r.durMs }); });   // not an edit: the file itself changed
+      E.proj = E.hist.cur; layoutTextLayer(); afterEdit(); toast('Movie replaced. All your edits are kept.');
+    });
   }
   function scanQuiet(){
     var sil = P.findSilentRanges(E.proj.levels || [], { thresholdDb: E.quietDb, minMs: 700, padMs: 150 });
@@ -299,6 +333,9 @@ var NakiEditor = (function () {
   // ---------- saving your edits ----------
   // Every change (cut, trim, split, undo...) is saved on this device a moment later, so closing Naki or reloading
   // the page never loses work. Only the current result is saved, not the undo history.
+  // The voice timing is kept out of the signature on purpose: it is not an edit, it just moves the voice. The saved
+  // record says which timing it was made with, so a later change of the timing moves the voice instead of
+  // throwing the edits away.
   function saveSig(sess){ return [sess.durationMs, (sess.events || []).length, sess.voiceOffsetMs || 0].join('|'); }
   function showSaved(msg){ if (E.ui.saved) E.ui.saved.textContent = msg; }
   function queueSave(){
@@ -308,7 +345,7 @@ var NakiEditor = (function () {
   function flushSave(){
     clearTimeout(E.saveT); E.saveT = 0;
     if (!E.hooks || !E.hooks.saveProject || !E.sess || !E.hist) return Promise.resolve();
-    var rec = { sig: saveSig(E.sess), savedAt: Date.now(), project: E.hist.cur };
+    var rec = { sig: saveSig(E.sess), savedAt: Date.now(), nudge: E.sess.voiceNudgeMs || 0, project: E.hist.cur };
     return Promise.resolve(E.hooks.saveProject(E.sess.id, rec)).then(function (){ showSaved('Saved'); },
       function (){ showSaved('Not saved'); toast('Your edits could not be saved on this device.'); });
   }
@@ -368,23 +405,28 @@ var NakiEditor = (function () {
       tile('edRotate', 'Rotate', '<path d="M20 12a8 8 0 11-2.6-5.9"/><path d="M20 4v5h-5"/>', rotateSel);
       tile('edFlip', 'Flip', '<path d="M12 3v18"/><path d="M8 7L3 12l5 5zM16 7l5 5-5 5z"/>', flipSel);
       tile('edOpacity', 'Opacity', '<path d="M12 3s6 6.5 6 11a6 6 0 01-12 0c0-4.5 6-11 6-11z"/>', function (){ setSub('opacity'); }, E.editSub === 'opacity');
+      tile('edReplace', 'Replace', '<path d="M4 8h13l-3-3M20 16H7l3 3"/>', replaceMovie);
       tile('edQuiet', 'Quiet', '<path d="M5 9v6h3l5 4V5L8 9zM17 9.5a4 4 0 010 5"/>', scanQuiet);
       body.appendChild(tiles);
       var c = targetVideo();
+      // one switch for Zoom, Rotate, Flip and Opacity: this clip only, or every picture clip
+      var ball = btn('edAllClips', E.allClips ? 'Zoom, turn, flip, opacity: ALL clips' : 'Zoom, turn, flip, opacity: this clip only', 'ed-btn ed-small ed-wide' + (E.allClips ? ' on' : ''), 'Apply zoom, turn, flip and opacity to every picture clip');
+      ball.setAttribute('aria-pressed', String(!!E.allClips)); ball.onclick = function (){ E.allClips = !E.allClips; refreshSheet(); };
+      body.appendChild(ball);
       if (E.editSub === 'zoom' || E.editSub === 'opacity'){
         if (!c) body.appendChild(mk('div', 'ed-hint', 'Move the playhead onto the picture, or tap a picture clip first.'));
         else if (E.editSub === 'opacity'){
           body.appendChild(sliderRow('Opacity', 0, 100, 5, Math.round((c.opacity != null ? c.opacity : 1) * 100), function (v){ return v + '%'; },
-            function (v){ live(P.setOpacity(E.hist.cur, c.id, v / 100)); }, function (v){ commit(P.setOpacity(E.hist.cur, c.id, v / 100)); }));
+            function (v){ live(P.setOpacity(E.hist.cur, framingTarget(c), v / 100)); }, function (v){ commit(P.setOpacity(E.hist.cur, framingTarget(c), v / 100)); }));
         } else {
           var t = Object.assign({ zoom: 1, x: 0, y: 0 }, c.transform || {});
-          function tz(o){ return P.setTransform(E.hist.cur, c.id, o); }
+          function tz(o){ return P.setTransform(E.hist.cur, framingTarget(c), o); }
           body.appendChild(sliderRow('Zoom', 1, 4, 0.05, t.zoom, function (v){ return v.toFixed(2) + '×'; }, function (v){ live(tz({ zoom: v })); }, function (v){ commit(tz({ zoom: v })); }));
           if (t.zoom > 1){
             body.appendChild(sliderRow('Left / right', -1, 1, 0.05, t.x, function (v){ return Math.round(v * 100); }, function (v){ live(tz({ x: v })); }, function (v){ commit(tz({ x: v })); }));
             body.appendChild(sliderRow('Up / down', -1, 1, 0.05, t.y, function (v){ return Math.round(v * 100); }, function (v){ live(tz({ y: v })); }, function (v){ commit(tz({ y: v })); }));
           }
-          var rz = btn('edZoomReset', 'Reset zoom, turn and flip', 'ed-btn ed-wide', 'Back to the original framing'); rz.onclick = function (){ commit(P.setTransform(E.hist.cur, c.id, { zoom: 1, x: 0, y: 0, rot: 0, flipH: false })); };
+          var rz = btn('edZoomReset', 'Reset zoom, turn and flip', 'ed-btn ed-wide', 'Back to the original framing'); rz.onclick = function (){ commit(tz({ zoom: 1, x: 0, y: 0, rot: 0, flipH: false })); };
           body.appendChild(rz);
         }
       }
@@ -486,9 +528,15 @@ var NakiEditor = (function () {
         function one(v){ var p = {}; p[o[1]] = v; return p; }
         body.appendChild(sliderRow(o[0], o[2], o[3], 0.05, fl[o[1]], pct, function (v){ live(P.setFilter(E.hist.cur, c.id, one(v))); }, function (v){ commit(P.setFilter(E.hist.cur, c.id, one(v))); }));
       });
+      body.appendChild(mk('div', 'ed-hint', 'More adjust'));
+      [['Warmth', 'warmth', -1, 1], ['Sharpen', 'sharpen', 0, 1], ['Vignette', 'vignette', 0, 1], ['Faded look', 'matte', 0, 1]].forEach(function (o){
+        function one(v){ var p = {}; p[o[1]] = v / 100; return p; }
+        body.appendChild(sliderRow(o[0], o[2] * 100, o[3] * 100, 5, Math.round((fl[o[1]] || 0) * 100), function (v){ return v; },
+          function (v){ live(P.setFilter(E.hist.cur, c.id, one(v))); }, function (v){ commit(P.setFilter(E.hist.cur, c.id, one(v))); }));
+      });
       var row = mk('div', 'ed-actions');
       var ba = btn('edFilterAll', 'Use on all clips', 'ed-btn', 'Copy this look to every picture clip'); ba.onclick = function (){ commit(P.setFilter(E.hist.cur, null, fl)); toast('This look is on every clip now.'); };
-      var br = btn('edFilterReset', 'Reset', 'ed-btn', 'Back to the original look'); br.onclick = function (){ commit(P.setFilter(E.hist.cur, c.id, { brightness: 1, contrast: 1, saturate: 1 })); };
+      var br = btn('edFilterReset', 'Reset', 'ed-btn', 'Back to the original look'); br.onclick = function (){ commit(P.setFilter(E.hist.cur, c.id, { brightness: 1, contrast: 1, saturate: 1, warmth: 0, sharpen: 0, vignette: 0, matte: 0 })); };
       add(row, ba, br); body.appendChild(row);
     } }
   };
@@ -556,7 +604,7 @@ var NakiEditor = (function () {
     if (E[key]){ var ctx = h.getCtx(); E[key].gain.setTargetAtTime(v, ctx.currentTime, 0.02); el.volume = 1; }
     else el.volume = clamp(v, 0, 1);
   }
-  // picture fade through black: 0..1 opacity at timeline time t
+  // picture fade through black: 0..1 visibility at timeline time t
   function fadeOpacity(c, t){
     var rel = t - c.start, o = 1;
     if (c.vFadeIn && rel < c.vFadeIn) o = Math.min(o, rel / c.vFadeIn);
@@ -565,8 +613,14 @@ var NakiEditor = (function () {
   }
   function syncMedia(){
     var h = E.hooks, m = h.movie, v = h.voice, s = P.sourceAt(E.proj, E.t);
-    var look = s.video && s.video.clip.filter, css = look ? 'brightness(' + look.brightness + ') contrast(' + look.contrast + ') saturate(' + look.saturate + ')' : '';
-    var vc = s.video && s.video.clip, op = vc ? String(fadeOpacity(vc, E.t) * (vc.opacity != null ? vc.opacity : 1)) : '0';
+    var vc = s.video && s.video.clip, look = vc && vc.filter, fo = vc ? fadeOpacity(vc, E.t) : 1, ex = LK.extras(look);
+    // the fade goes through BLACK (like the export), so it darkens the picture; opacity is only the clip's own setting
+    var css = (ex.sharpen ? 'url(#nakiSharp) ' : '') + (look ? 'brightness(' + look.brightness + ') contrast(' + look.contrast + ') saturate(' + look.saturate + ')' : '') + (fo < 1 ? ' brightness(' + fo.toFixed(3) + ')' : '');
+    var tintBg = LK.tintCss(ex.warmth) || '', veilBg = [LK.vignetteCss(ex.vignette), LK.matteCss(ex.matte)].filter(Boolean).join(', ');
+    if (tintBg !== E.lastTint){ E.ui.tint.style.background = tintBg; E.ui.tint.style.display = tintBg ? 'block' : 'none'; E.lastTint = tintBg; }
+    if (veilBg !== E.lastVeil){ E.ui.veil.style.background = veilBg; E.ui.veil.style.display = veilBg ? 'block' : 'none'; E.lastVeil = veilBg; }
+    if (ex.sharpen !== E.lastSharp){ if (ex.sharpen) E.ui.sharpK.setAttribute('kernelMatrix', LK.sharpenKernel(ex.sharpen)); E.lastSharp = ex.sharpen; }
+    var op = vc ? String(vc.opacity != null ? vc.opacity : 1) : '0';
     var tcss = vc ? transformCss(vc.transform, (m.videoWidth && m.videoHeight) ? m.videoWidth / m.videoHeight : 16 / 9) : '';
     if (tcss !== E.lastTransform){ m.style.transform = tcss; E.lastTransform = tcss; }
     if (css !== E.lastFilter){ m.style.filter = css; E.lastFilter = css; }
@@ -712,7 +766,9 @@ var NakiEditor = (function () {
     if (tag === 'TEXTAREA' || (tag === 'INPUT' && tg.type !== 'range' && tg.type !== 'checkbox')) return;
     if (mod){
       if (k === 'z' || k === 'Z'){ if (ev.shiftKey) redo(); else undo(); }
-      else if (k === 'y' || k === 'Y') redo(); else ok = false;
+      else if (k === 'y' || k === 'Y') redo();
+      else if (k === 'd' || k === 'D') duplicateSel();
+      else ok = false;
     }
     else if (k === ' ' || k === 'Enter'){ if (tag === 'BUTTON') ok = false; else togglePlay(); }
     else if (k === 's' || k === 'S') split();
@@ -730,15 +786,32 @@ var NakiEditor = (function () {
   // ---------- opening and closing ----------
   function init(hooks){ E.hooks = hooks; }
   // The project for a session. Your saved edits are used when this device has them for this same recording.
+  // The voice timing is not part of the signature: when it has changed since the project was made (or saved),
+  // the voice is moved by the difference, in the project and in every undo step, and all other edits stay.
   function cacheFor(sess, opts){
-    var key = sess.id || 'session', sig = [sess.durationMs, (sess.events || []).length, sess.voiceNudgeMs || 0, sess.voiceOffsetMs || 0].join('|'), c = E.cache[key];
+    var key = sess.id || 'session', nudge = sess.voiceNudgeMs || 0, c = E.cache[key];
+    var sig = [sess.durationMs, (sess.events || []).length, sess.voiceOffsetMs || 0].join('|');
     if (!c || c.sig !== sig){
-      var saved = !c && opts && opts.saved, proj;
-      if (saved && saved.project && saved.sig === saveSig(sess) && P.validate(saved.project).length === 0) proj = saved.project;
-      else proj = P.compileFromSession(Object.assign({}, sess, { voiceDurMs: (opts && opts.voiceDurMs) || null }));
-      var hist = new P.EditHistory(); hist.reset(proj); c = E.cache[key] = { sig: sig, hist: hist, restored: !!(saved && saved.project && proj === saved.project) };
+      var saved = !c && opts && opts.saved, proj, madeWith = nudge;
+      if (saved && saved.project && saved.sig === saveSig(sess) && P.validate(saved.project).length === 0){
+        proj = saved.project; if (saved.nudge != null) madeWith = saved.nudge;
+      } else proj = P.compileFromSession(Object.assign({}, sess, { voiceDurMs: (opts && opts.voiceDurMs) || null }));
+      var hist = new P.EditHistory(); hist.reset(proj);
+      c = E.cache[key] = { sig: sig, hist: hist, restored: !!(saved && saved.project && proj === saved.project), nudge: madeWith };
+    }
+    if (c.nudge !== nudge){
+      var from = c.nudge;
+      c.hist.mapAll(function (p){ return P.shiftVoice(p, nudge - from); });
+      c.nudge = nudge;
     }
     return c;
+  }
+  // Does this session have edits that would be lost if the recording changes (Take back)?
+  function hasEdits(sess, opts){
+    var c = E.cache[sess.id || 'session'];
+    if (c) return c.hist.past.length > 0 || c.restored;
+    var sv = opts && opts.saved;
+    return !!(sv && sv.project && sv.sig === saveSig(sess));
   }
   // The edited timeline as an export plan. If the editor was never opened, your saved edits (or the untouched recording) are used.
   function planFor(sess, opts){ return NP.projectToPlan(cacheFor(sess, opts).hist.cur); }
@@ -754,7 +827,7 @@ var NakiEditor = (function () {
     E.ui.stageMsg.textContent = movieReady() ? '' : 'Choose the movie for this session in Preview first, then come back to edit.';
     E.ui.note.textContent = c.restored ? 'Your earlier edits were restored.' : '';
     showSaved(c.restored || c.hist.past.length ? 'Saved' : '');
-    E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.editSub = null;
+    E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.editSub = null; E.allClips = false; E.lastTint = E.lastVeil = ''; E.lastSharp = -1;
     E.root.classList.remove('sheet-open'); E.tool = null; E.ui.sheet.hidden = true; openTool(null);
     E.root.hidden = false; E.isOpen = true;
     document.addEventListener('keydown', onKey);
@@ -766,7 +839,7 @@ var NakiEditor = (function () {
     if (E.saveT) flushSave();
     document.removeEventListener('keydown', onKey);
     var h = E.hooks; try { h.voice.volume = 1; if (E.voiceGain) E.voiceGain.gain.value = 1; if (E.musicGain) E.musicGain.gain.value = 1; h.setMovieGain(1); } catch (e) {}
-    try { h.movie.style.filter = ''; h.movie.style.opacity = ''; h.movie.style.transform = ''; h.movie.playbackRate = 1; } catch (e) {}
+    try { h.movie.style.filter = ''; h.movie.style.opacity = ''; h.movie.style.transform = ''; h.movie.playbackRate = 1; E.ui.tint.style.display = E.ui.veil.style.display = 'none'; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; } catch (e) {}
     renderTexts([]);
     if (E.home && E.home.parent) E.home.parent.insertBefore(h.movie, E.home.next);
     E.root.hidden = true; E.isOpen = false;
@@ -776,6 +849,7 @@ var NakiEditor = (function () {
   return { init: init, open: open, close: close, isOpen: function (){ return E.isOpen; },
     project: function (){ return E.proj; }, split: split, cutOut: cutOut, deleteSel: deleteSel, undo: undo, redo: redo, select: select,
     seek: seek, planFor: planFor, scanQuiet: scanQuiet, play: play, pause: pause, setZoom: setZoom, fit: fit,
-    openTool: openTool, freezeHere: freezeHere, flushSave: flushSave, duplicateSel: duplicateSel, rotateSel: rotateSel, flipSel: flipSel };
+    openTool: openTool, freezeHere: freezeHere, flushSave: flushSave, duplicateSel: duplicateSel, rotateSel: rotateSel, flipSel: flipSel,
+    hasEdits: hasEdits, replaceMovie: replaceMovie };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NakiEditor;

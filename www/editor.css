@@ -35,6 +35,7 @@
 .ed-insp h3{margin:4px 0 8px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
 @media (min-width:900px){.ed-insp{display:block}}
 .ed-mixrow{display:grid;grid-template-columns:84px 1fr 44px auto;gap:8px;align-items:center;margin:8px 0}
+#editor #movie{max-height:none}
 .ed-mixrow.wide{grid-template-columns:84px 1fr auto auto}
 .ed-mixrow input[type=range]{width:100%;min-width:0;height:28px}
 .ed-mixname{font-size:14px}
