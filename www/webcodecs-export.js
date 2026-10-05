@@ -152,6 +152,7 @@ var WebCodecsExport = (function () {
   // The "More adjust" colour layers (look.js), laid over the picture in the same order as the ffmpeg engine:
   // warmth (multiplies the colours), faded look (a light grey veil), then the vignette (a dark ring).
   function applyExtras(g, f, W, H) {
+    if (!LK) return;   // look.js is not loaded: the looks cannot be drawn
     var x = LK.extras(f);
     if (x.warmth) { g.save(); g.globalCompositeOperation = 'multiply'; g.fillStyle = LK.tintCss(x.warmth); g.fillRect(0, 0, W, H); g.restore(); }
     if (x.matte) { g.fillStyle = LK.matteCss(x.matte); g.fillRect(0, 0, W, H); }

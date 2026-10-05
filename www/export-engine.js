@@ -19,7 +19,7 @@ var _RV = (typeof module !== 'undefined' && module.exports) ? require('./reverse
 var FPS = 30;
 var SR = 48000;
 var GAIN_HZ = 1000;
-var _LK = (typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook;
+var _LK = ((typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook) || { ffmpegExtras: function () { return []; } };
 
 /* ---------- pure: parse ffmpeg's own "-i" log text for basic movie info ---------- */
 function parseProbeInfo(logText) {
@@ -123,7 +123,7 @@ function planToJobs(plan, movieInfo, opts) {
       
       parts.push("lutyuv=y='val*" + o.toFixed(3) + '+' + (37 * k).toFixed(2) + "':u='val*" + o.toFixed(3) + '+' + (133 * k).toFixed(2) + "':v='val*" + o.toFixed(3) + '+' + (123 * k).toFixed(2) + "'");
     }
-    _LK.ffmpegExtras(f).forEach(function (x) { parts.push(x); });
+    (_LK.ffmpegExtras(f) || []).forEach(function (x) { parts.push(x); });
     if (sp.vFadeIn) parts.push('fade=t=in:st=0:d=' + (sp.vFadeIn / 1000).toFixed(3));
     if (sp.vFadeOut) parts.push('fade=t=out:st=' + Math.max(0, spanSec - sp.vFadeOut / 1000).toFixed(3) + ':d=' + (sp.vFadeOut / 1000).toFixed(3));
     return parts.join(',');

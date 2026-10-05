@@ -4,7 +4,7 @@
 const BUILD = '__BUILD__';
 const DEV = BUILD.indexOf('__') === 0;   // true when running from your own folder: no caching, so edits show at once
 const CACHE = 'naki-' + BUILD;
-const FILES = ['./', './index.html', './look.js', './reverse.js', './export-engine.js', './core.js', './project.js', './voice.js', './editor.js', './editor.css', './plan.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-192-maskable.png', './icon-512-maskable.png', './apple-touch-icon.png', './favicon.ico', './webcodecs-export.js', './vendor/mediabunny/mediabunny.min.mjs'];
+const FILES = ['./', './index.html', './export-engine.js', './core.js', './look.js', './reverse.js', './project.js', './voice.js', './editor.js', './editor.css', './plan.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png', './icon-192-maskable.png', './icon-512-maskable.png', './apple-touch-icon.png', './favicon.ico', './webcodecs-export.js', './vendor/mediabunny/mediabunny.min.mjs'];
 // export-engine.js and vendor/ffmpeg/* are NOT in the list above on purpose: they're
 // ~30MB, so they're only fetched (and cached, into VENDOR_CACHE below) the first time
 // someone actually taps Export, instead of every phone downloading them just to install Naki.
@@ -12,7 +12,11 @@ const VENDOR_CACHE = 'naki-ffmpeg-vendor-v1';
 
 self.addEventListener('install', (e) => {
   if (DEV) { e.waitUntil(self.skipWaiting()); return; }
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(FILES)).then(() => self.skipWaiting()));
+  // One file at a time: a file that is missing (say a new one that was not uploaded yet) must NOT stop the whole update,
+  // which is what cache.addAll() does. The phone keeps whatever it could get and still moves to the new version.
+  e.waitUntil(caches.open(CACHE)
+    .then((c) => Promise.all(FILES.map((f) => c.add(f).catch(() => console.warn('Naki: could not keep', f, 'for offline use')))))
+    .then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {
   e.waitUntil(

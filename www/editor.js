@@ -6,7 +6,6 @@
 var NakiEditor = (function () {
   var P = (typeof module !== 'undefined' && module.exports) ? require('./project.js') : window.NakiProject;
   var NP = (typeof module !== 'undefined' && module.exports) ? require('./plan.js') : window.NakiPlan;
-  var LK = (typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook;
   var PAD = 16, MIN_PPM = 0.004, MAX_PPM = 0.6, FRAME_MS = 33;
   var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text' };
   var E = { hooks: null, root: null, ui: {}, hist: null, proj: null, sess: null, sel: null, t: 0, playing: false, ppm: 0.06,
@@ -22,6 +21,17 @@ var NakiEditor = (function () {
   function fmtP(ms){ ms = Math.max(0, ms); var s = ms / 1000, m = Math.floor(s / 60), r = s - m * 60; return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1); }
   function tx(t){ return PAD + t * E.ppm; }
   function toast(m){ if (E.hooks && E.hooks.toast) E.hooks.toast(m); }
+  // look.js (the "More adjust" looks) is looked up when it is needed, not when this file loads, so the order of the <script> tags
+  // does not matter. If it is not there at all the editor still opens, without those looks, and says so once.
+  var NO_LOOK = { extras: function (){ return { warmth: 0, sharpen: 0, vignette: 0, matte: 0 }; }, tintCss: function (){ return null; }, matteCss: function (){ return null; },
+    vignetteCss: function (){ return null; }, sharpenKernel: function (){ return '0 0 0 0 1 0 0 0 0'; } };
+  var lookWarned = false;
+  function lookLib(){
+    var L = (typeof module !== 'undefined' && module.exports) ? require('./look.js') : (typeof window !== 'undefined' ? window.NakiLook : null);
+    if (L) return L;
+    if (!lookWarned){ lookWarned = true; toast('look.js is not loaded, so the More adjust looks are off. Add <script src="look.js"></script> to index.html.'); }
+    return NO_LOOK;
+  }
   function clipCount(p){ var n = 0; p.tracks.forEach(function (t){ n += t.clips.length; }); return n; }
   function rowH(tr){ return tr.kind === 'video' ? 56 : tr.kind === 'text' ? 30 : 44; }
   function svg(path, fill){ return '<svg viewBox="0 0 24 24" ' + (fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"') + '>' + path + '</svg>'; }
@@ -107,6 +117,8 @@ var NakiEditor = (function () {
     }, { passive: false });
     u.scroll.addEventListener('touchmove', function (ev){ if (E.drag && E.drag.mode === 'move') ev.preventDefault(); }, { passive: false });
     if (typeof window !== 'undefined') window.addEventListener('resize', function (){ if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); } });
+    // The preview area changes height whenever the dock turns from toolbar to tool row to panel, so the picture is re-fitted each time
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(function (){ if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); } }).observe(u.stage);
   }
 
   // ---------- drawing the timeline ----------
@@ -416,6 +428,7 @@ var NakiEditor = (function () {
       var sc = d.querySelector('.ed-tscroll'); if (sc && E.rowScroll && E.rowScroll.tool === E.tool) sc.scrollLeft = E.rowScroll.left;   // the row stays where you scrolled it
     } else d.appendChild(u.toolbar);
     updateButtons();
+    if (E.isOpen) layoutTextLayer();
   }
   function toolRow(items){
     var row = mk('div', 'ed-trow'), back = iconBtn('edBack', G.back, 'Back', 'ed-ibtn ed-back'), sc = mk('div', 'ed-tscroll');
@@ -700,6 +713,7 @@ var NakiEditor = (function () {
   }
   function syncMedia(){
     var h = E.hooks, m = h.movie, v = h.voice, s = P.sourceAt(E.proj, E.t);
+    var LK = lookLib();
     var vc = s.video && s.video.clip, look = vc && vc.filter, fo = vc ? fadeOpacity(vc, E.t) : 1, ex = LK.extras(look);
     // the fade goes through BLACK (like the export), so it darkens the picture; opacity is only the clip's own setting
     var css = (ex.sharpen ? 'url(#nakiSharp) ' : '') + (look ? 'brightness(' + look.brightness + ') contrast(' + look.contrast + ') saturate(' + look.saturate + ')' : '') + (fo < 1 ? ' brightness(' + fo.toFixed(3) + ')' : '');
