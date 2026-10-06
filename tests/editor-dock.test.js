@@ -106,4 +106,38 @@ ok('Freeze, Split and the other instant tools act right away without opening a p
   click('#edFreeze'); assert.strictEqual($('.ed-ptitle').textContent, 'Freeze frame'); click(chip('1 s')); click('#edFreeze'); assert.strictEqual(cur().durationMs, 61000); click('#edPanelDone');
   click('#edRotate'); assert.strictEqual(pics().find(c => c.transform && c.transform.rot === 90) !== undefined, true); click('#edFlip'); click('#edBack');
 });
+
+ok('Detach is one tap in the Edit row, and says so when there is nothing to detach', () => {
+  NakiEditor.seek(5000); click('#edTool_edit'); toasts.length = 0; click('#edDetach');
+  assert.strictEqual(playClip().link, undefined); assert.strictEqual(cur().tracks[1].clips.find(c => c.start === 4000).link, undefined); assert(toasts.some(t => /detached/.test(t)));
+  toasts.length = 0; click('#edDetach'); assert(toasts.some(t => /Nothing to detach/.test(t))); click('#edBack');
+});
+ok('Captions: add a line at the playhead, type it, see it in the list, and it is on its own track', () => {
+  NakiEditor.seek(8000); click('#edTool_text'); assert(ids().includes('edCaptions')); click('#edCaptions');
+  assert.strictEqual($('.ed-ptitle').textContent, 'Captions'); assert(/subtitle lines/.test($('.ed-hint').textContent));
+  click('#edCapAdd'); assert.strictEqual($('.ed-ptitle').textContent, 'Text');
+  const ti = $('.ed-textin'); ti.value = 'Hello world'; ti.dispatchEvent(new window.Event('change'));
+  const cap = P.captionList(cur()); assert.strictEqual(cap.length, 1); assert.strictEqual(cap[0].text, 'Hello world'); assert.strictEqual(cap[0].start, 8000);
+  assert(cur().tracks.some(t => t.role === 'captions')); click('#edPanelDone'); click('#edCaptions'); assert(chip('0:08.0  Hello world'), 'the line is in the list');
+});
+ok('Captions: an .srt file replaces them (after asking), and what is saved reads back', () => {
+  const srt = '1\n00:00:05,000 --> 00:00:07,000\nFirst\n\n2\n00:00:07,500 --> 00:00:09,000\nSecond\n\n3\n00:10:00,000 --> 00:10:05,000\nNot in the video\n';
+  assert.strictEqual(NakiEditor.importCaptions(srt), 2); assert.deepStrictEqual(P.captionList(cur()).map(c => c.text), ['First', 'Second']);
+  assert(toasts.some(t => /2 caption lines added \(1 did not fit/.test(t)));
+  assert.strictEqual(NakiEditor.exportSrt(), '1\n00:00:05,000 --> 00:00:07,000\nFirst\n\n2\n00:00:07,500 --> 00:00:09,000\nSecond\n');
+  assert.strictEqual(NakiEditor.importCaptions('nonsense'), 0); assert.strictEqual(P.captionList(cur()).length, 2, 'a bad file changes nothing');
+});
+ok('Text style: font, outline and shadow have their own settings, and captions can share one look', () => {
+  click('#edPanelDone'); NakiEditor.select(P.captionList(cur())[0].id); assert($('#edTextStyle') && !$('#edTextStyle').disabled); click('#edTextStyle');
+  click(chip('Font')); click(chip('Serif')); const first = () => P.findClip(cur(), P.captionList(cur())[0].id).clip; assert.strictEqual(first().font, 'serif');
+  click(chip('Outline')); slide($('.ed-panel input[type=range]'), 50); assert.strictEqual(first().outline, 0.5);
+  click(chip('Shadow')); slide($('.ed-panel input[type=range]'), 0); assert.strictEqual(first().shadow, 0);
+  click('#edCapStyleAll'); P.captionList(cur()).forEach(c => { const k = P.findClip(cur(), c.id).clip; assert.deepStrictEqual([k.font, k.outline, k.shadow], ['serif', 0.5, 0]); });
+  click('#edPanelDone'); click('#edCaptions'); click('#edCapClear'); assert.strictEqual(P.captionList(cur()).length, 0); click('#edPanelDone'); click('#edBack');
+});
+ok('a normal title has the same style settings but no "apply to all captions" button', () => {
+  NakiEditor.seek(30000); click('#edTool_text'); click('#edAddText'); click('#edPanelDone'); click('#edTextStyle'); click(chip('Outline'));
+  assert(!$('#edCapStyleAll')); slide($('.ed-panel input[type=range]'), 100); assert.strictEqual(cur().tracks.find(t => t.role === 'text').clips[0].outline, 1);
+  click('#edPanelDone'); click('#edTextDel'); click('#edBack');
+});
 console.log('\n' + n + ' checks passed');

@@ -186,6 +186,7 @@ var WebCodecsExport = (function () {
 
   // Titles: same drawing as export-engine.js (wrapped to 88% of the width, same heights as the editor preview).
   function drawTitle(g, t, W, H) {
+    if (LK && LK.drawTitle) return LK.drawTitle(g, t, W, H);   // one drawing for the preview and both engines (fonts, outline, shadow)
     var px = Math.max(10, Math.round((t.size || 7) / 100 * H));
     g.font = (t.weight || 700) + ' ' + px + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'top';

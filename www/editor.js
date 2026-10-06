@@ -7,7 +7,7 @@ var NakiEditor = (function () {
   var P = (typeof module !== 'undefined' && module.exports) ? require('./project.js') : window.NakiProject;
   var NP = (typeof module !== 'undefined' && module.exports) ? require('./plan.js') : window.NakiPlan;
   var PAD = 16, MIN_PPM = 0.004, MAX_PPM = 0.6, FRAME_MS = 33;
-  var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text' };
+  var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text', captions: 'Captions' };
   var E = { hooks: null, root: null, ui: {}, hist: null, proj: null, sess: null, sel: null, t: 0, playing: false, ppm: 0.06,
     cache: {}, drag: null, raf: 0, wall: 0, wallT: 0, isOpen: false, home: null, pointers: {}, pinch: null,
     voiceGain: null, musicGain: null, quiet: null, quietDb: -42, tool: null, textEls: {}, freezeMs: 2000, saveT: 0, voiceDurMs: null, lastFilter: '', lastOpacity: '', lastRate: 1,
@@ -24,7 +24,8 @@ var NakiEditor = (function () {
   // look.js (the "More adjust" looks) is looked up when it is needed, not when this file loads, so the order of the <script> tags
   // does not matter. If it is not there at all the editor still opens, without those looks, and says so once.
   var NO_LOOK = { extras: function (){ return { warmth: 0, sharpen: 0, vignette: 0, matte: 0 }; }, tintCss: function (){ return null; }, matteCss: function (){ return null; },
-    vignetteCss: function (){ return null; }, sharpenKernel: function (){ return '0 0 0 0 1 0 0 0 0'; } };
+    vignetteCss: function (){ return null; }, sharpenKernel: function (){ return '0 0 0 0 1 0 0 0 0'; },
+    fontList: function (){ return []; }, titleStyle: function (t, H){ return { px: Math.round((t.size || 7) / 100 * H), fontFamily: '', stroke: '', shadow: '0 1px 3px rgba(0,0,0,.7)' }; } };
   var lookWarned = false;
   function lookLib(){
     var L = (typeof module !== 'undefined' && module.exports) ? require('./look.js') : (typeof window !== 'undefined' ? window.NakiLook : null);
@@ -400,7 +401,10 @@ var NakiEditor = (function () {
     addText: svg('<path d="M4 6V4h12v2M10 4v12M7 16h6M18 14v6M15 17h6"/>'),
     pencil: svg('<path d="M4 20h4L19 9l-4-4L4 16v4zM13 7l4 4"/>'),
     style: svg('<circle cx="12" cy="12" r="9"/><circle cx="8" cy="10" r="1.2"/><circle cx="12" cy="7.5" r="1.2"/><circle cx="16" cy="10" r="1.2"/>'),
-    list: svg('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>')
+    list: svg('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>'),
+    detach: svg('<path d="M9 18.5a2.8 2.8 0 11-2.8-2.8c.5 0 1 .1 1.4.4V5l11-2.5v8"/><path d="M15 17l6 4M21 17l-6 4"/>'),
+    captions: svg('<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 11h4M13 11h4M7 15h2.5M12 15h5"/>'),
+    download: svg('<path d="M12 3v11.5m0 0l-4-4m4 4l4-4"/><path d="M5 16.5V19a2 2 0 002 2h10a2 2 0 002-2v-2.5"/>')
   };
 
   function openTool(name){ E.tool = name || null; E.panel = null; E.autoDock = false; renderDock(); }
@@ -480,6 +484,7 @@ var NakiEditor = (function () {
         { id: 'edCut', ref: 'bCut', label: 'Cut out', icon: G.cut, run: cutOut, disabled: !E.sel },
         { id: 'edDelete', ref: 'bDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !E.sel },
         { id: 'edDuplicate', label: 'Duplicate', icon: G.dup, run: duplicateSel },
+        { id: 'edDetach', label: 'Detach', icon: G.detach, run: detachSel },
         { id: 'edSpeed', label: 'Speed', icon: G.speed, run: P2('speed') },
         { id: 'edVolume', label: 'Volume', icon: G.volume, run: P2('volume') },
         { id: 'edZoom', label: 'Zoom', icon: G.zoom, run: P2('frame') },
@@ -504,9 +509,10 @@ var NakiEditor = (function () {
       return items;
     },
     text: function (){
-      var f = E.sel && P.findClip(E.proj, E.sel), isText = !!(f && f.track.kind === 'text'), tr = E.proj.tracks.filter(function (t){ return t.kind === 'text'; })[0], any = !!(tr && tr.clips.length);
+      var f = E.sel && P.findClip(E.proj, E.sel), isText = !!(f && f.track.kind === 'text'), any = allTexts().length > 0;
       return [
         { id: 'edAddText', label: 'Add text', icon: G.addText, run: addText },
+        { id: 'edCaptions', label: 'Captions', icon: G.captions, run: function (){ openPanel('captions'); } },
         { id: 'edTextEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel('textedit'); }, disabled: !isText },
         { id: 'edTextStyle', label: 'Style', icon: G.style, run: function (){ openPanel('textstyle'); }, disabled: !isText },
         { id: 'edTextList', label: 'Texts', icon: G.list, run: function (){ openPanel('texts'); }, disabled: !any },
@@ -515,6 +521,53 @@ var NakiEditor = (function () {
       ];
     }
   };
+  // every text on the timeline (titles and captions), in time order
+  function allTexts(){
+    var out = []; E.proj.tracks.forEach(function (t){ if (t.kind === 'text') t.clips.forEach(function (c){ out.push(c); }); });
+    return out.sort(function (a, b){ return a.start - b.start; });
+  }
+  // Lets the sound of a movie clip go its own way (move it, trim it or delete it without the picture).
+  function detachSel(){
+    var c = targetVideo(); if (!c){ toast('Move the playhead onto the picture, or tap a picture clip first.'); return; }
+    var q = P.detachAudio(E.hist.cur, c.id);
+    if (q === E.hist.cur){ toast('Nothing to detach: this part has no sound, or it is already detached.'); return; }
+    commit(q); toast('Sound detached. It now moves and deletes on its own. A speed change will no longer reach it.');
+  }
+  // ----- captions -----
+  function addCaptionHere(){
+    var out = {}, q = P.addCaptionLine(E.hist.cur, Math.round(E.t), 2500, out);
+    if (q === E.hist.cur){ toast('There is no room for a caption here. Move the playhead or shorten the next one.'); return; }
+    E.sel = out.id; commit(q); openPanel('textedit', 'text');
+  }
+  // text = the contents of an .srt file. Replaces the captions you have (after asking, when there are some).
+  function importCaptions(text){
+    var items = P.parseSrt(text);
+    if (!items.length){ toast('No subtitle lines were found in that file. It should be an .srt file.'); return 0; }
+    var had = P.captionList(E.hist.cur).length;
+    if (had && !confirm('Replace your ' + had + ' caption lines with the ' + items.length + ' lines in this file?')) return 0;
+    var out = {}, q = P.addCaptions(E.hist.cur, items, { replace: true }, out);
+    if (q === E.hist.cur && !out.added){ toast('None of the lines fit the video.'); return 0; }
+    commit(q);
+    toast(out.added + ' caption line' + (out.added === 1 ? '' : 's') + ' added' + (out.skipped ? ' (' + out.skipped + ' did not fit the video)' : '') + '. Times follow your edited video.');
+    return out.added;
+  }
+  function importSrtFile(){
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.srt,text/plain,application/x-subrip';
+    inp.onchange = function (){
+      var f = inp.files && inp.files[0]; if (!f) return;
+      (f.text ? f.text() : new Promise(function (res){ var r = new FileReader(); r.onload = function (){ res(r.result); }; r.readAsText(f); })).then(importCaptions);
+    };
+    inp.click();
+  }
+  function exportSrt(){ return P.toSrt(E.hist.cur); }
+  function exportSrtFile(){
+    var txt = exportSrt();
+    if (!txt){ toast('There are no captions or titles to save yet.'); return; }
+    var a = document.createElement('a'), name = String((E.sess && E.sess.name) || 'naki').replace(/[^\w\-]+/g, '_').slice(0, 40) || 'naki';
+    a.href = URL.createObjectURL(new Blob([txt], { type: 'application/x-subrip' })); a.download = name + '.srt';
+    document.body.appendChild(a); a.click(); setTimeout(function (){ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    toast('Saved ' + name + '.srt');
+  }
   function addMusic(){
     Promise.resolve(E.hooks.pickMusic()).then(function (m){
       if (!m || !m.file) return;
@@ -528,6 +581,7 @@ var NakiEditor = (function () {
     if (q === E.hist.cur){ toast('There is no room for text at the playhead. Move it or shorten the other text.'); return; }
     E.sel = out.id; commit(q); openPanel('textedit', 'text');
   }
+  function commit0(){ renderTimeline(); }
   function selText(){ var f = E.sel && P.findClip(E.proj, E.sel); return f && f.track.kind === 'text' ? f.clip : null; }
 
   /* ---------- the panels (a tool's settings) ---------- */
@@ -621,23 +675,38 @@ var NakiEditor = (function () {
     } },
     textstyle: { title: 'Text style', build: function (body){
       var c = selText(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a text on the timeline first.')); return; }
-      var keys = [{ key: 'size', label: 'Size' }, { key: 'pos', label: 'Position' }, { key: 'color', label: 'Colour' }, { key: 'bg', label: 'Dark box' }], cur = chipKey('textstyle', keys, 'size');
-      var pt = function (o){ return P.setTextProps(E.hist.cur, c.id, o); };
+      var keys = [{ key: 'size', label: 'Size' }, { key: 'pos', label: 'Position' }, { key: 'color', label: 'Colour' }, { key: 'bg', label: 'Dark box' },
+        { key: 'font', label: 'Font' }, { key: 'outline', label: 'Outline' }, { key: 'shadow', label: 'Shadow' }], cur = chipKey('textstyle', keys, 'size');
+      var pt = function (o){ return P.setTextProps(E.hist.cur, c.id, o); }, one = function (v){ var o = {}; o[cur] = v; return o; };
       body.appendChild(chips(keys, cur, pickChip('textstyle')));
       if (cur === 'size') body.appendChild(sliderRow('Size', 3, 16, 1, c.size || 7, function (v){ return v + '%'; }, function (v){ live(pt({ size: v })); }, function (v){ commit(pt({ size: v })); }));
       else if (cur === 'pos') body.appendChild(chips([{ key: 'top', label: 'Top' }, { key: 'center', label: 'Middle' }, { key: 'bottom', label: 'Bottom' }], c.pos, function (k){ commit(pt({ pos: k })); }));
+      else if (cur === 'font') body.appendChild(chips(lookLib().fontList(), c.font || 'sans', function (k){ commit(pt({ font: k })); }));
+      else if (cur === 'outline') body.appendChild(sliderRow('Outline', 0, 100, 5, Math.round((c.outline || 0) * 100), pct, function (v){ live(pt({ outline: v / 100 })); }, function (v){ commit(pt({ outline: v / 100 })); }));
+      else if (cur === 'shadow') body.appendChild(sliderRow('Shadow', 0, 100, 5, Math.round((c.shadow == null ? 1 : c.shadow) * 100), pct, function (v){ live(pt({ shadow: v / 100 })); }, function (v){ commit(pt({ shadow: v / 100 })); }));
       else if (cur === 'color'){
         var ci = mk('input'); ci.type = 'color'; ci.value = c.color || '#ffffff'; ci.setAttribute('aria-label', 'Text colour');
         ci.oninput = function (){ live(pt({ color: ci.value })); }; ci.onchange = function (){ commit(pt({ color: ci.value })); };
         var r = mk('div', 'ed-mixrow wide'); add(r, mk('span', 'ed-mixname', 'Colour'), ci); body.appendChild(r);
       } else body.appendChild(actions([{ id: 'edTextBox', label: c.bg ? 'Dark box: on' : 'Dark box: off', on: !!c.bg, run: function (){ commit(pt({ bg: !c.bg })); } }]));
+      if (c.caption) body.appendChild(actions([{ id: 'edCapStyleAll', label: 'Apply this look to all captions', run: function (){
+        commit(P.setCaptionStyle(E.hist.cur, { size: c.size, color: c.color, pos: c.pos, weight: c.weight, bg: c.bg, font: c.font || 'sans', outline: c.outline || 0, shadow: c.shadow == null ? 1 : c.shadow })); toast('Every caption has this look now.'); } }]));
     } },
     texts: { title: 'Your texts', build: function (body){
-      var tr = E.proj.tracks.filter(function (t){ return t.kind === 'text'; })[0];
-      if (!tr || !tr.clips.length){ body.appendChild(mk('div', 'ed-hint', 'No text yet. Tap Add text.')); return; }
-      body.appendChild(chips(tr.clips.map(function (c){ return { key: c.id, label: (c.text || 'Text') + ' · ' + fmtP(c.start) }; }), E.sel, function (id){
+      var list = allTexts();
+      if (!list.length){ body.appendChild(mk('div', 'ed-hint', 'No text yet. Tap Add text.')); return; }
+      body.appendChild(chips(list.map(function (c){ return { key: c.id, label: (c.text || 'Text') + ' · ' + fmtP(c.start) }; }), E.sel, function (id){
         var c = P.findClip(E.proj, id).clip; E.panel = null; seek(c.start); select(id);
       }));
+    } },
+    captions: { title: 'Captions', build: function (body){
+      var list = P.captionList(E.hist.cur);
+      body.appendChild(actions([{ id: 'edCapAdd', label: 'Add line here', run: addCaptionHere }, { id: 'edCapImport', label: 'Import .srt', run: importSrtFile }, { id: 'edCapExport', label: 'Save .srt', run: exportSrtFile }]));
+      if (!list.length){ body.appendChild(mk('div', 'ed-hint', 'Type subtitle lines at the playhead, or import an .srt file. Times follow your edited video, so cuts move the captions with it.')); return; }
+      body.appendChild(chips(list.map(function (c){ return { key: c.id, label: fmtP(c.start) + '  ' + (c.text.length > 22 ? c.text.slice(0, 21) + '…' : c.text) }; }), E.sel, function (id){
+        var c = P.findClip(E.proj, id).clip; seek(c.start); E.sel = id; commit0(); openPanel('textedit', 'text');
+      }));
+      body.appendChild(actions([{ id: 'edCapClear', label: 'Remove all captions', run: function (){ if (confirm('Remove all ' + list.length + ' caption lines?')) commit(P.removeCaptions(E.hist.cur)); } }]));
     } }
   };
 
@@ -664,12 +733,18 @@ var NakiEditor = (function () {
     list.forEach(function (c){
       want[c.id] = true;
       var d = E.textEls[c.id];
-      if (!d){ d = E.textEls[c.id] = mk('div', 'ed-textov'); layer.appendChild(d); layoutTextLayer(); }
-      if (d._txt !== c.text){ d.textContent = c.text || ''; d._txt = c.text; }
-      d.style.fontSize = Math.round((c.size || 7) / 100 * (layer.clientHeight || 240)) + 'px';
+      if (!d){
+        // the dark box is a box around the words only (like the export draws it): an inline box with the same padding the export uses (0.4 letters each side, 0.2 above and below)
+        d = E.textEls[c.id] = mk('div', 'ed-textov'); d._sp = mk('span'); d._sp.style.cssText = 'display:inline-block;padding:0.2em 0.4em;white-space:pre-wrap;word-break:break-word';
+        d.style.left = d.style.right = 'calc(6% - 0.4em)'; d.appendChild(d._sp); layer.appendChild(d); layoutTextLayer();
+      }
+      if (d._txt !== c.text){ d._sp.textContent = c.text || ''; d._txt = c.text; }
+      var st = lookLib().titleStyle(c, layer.clientHeight || 240);
+      d.style.fontSize = st.px + 'px'; d.style.fontFamily = st.fontFamily; d.style.textShadow = st.shadow;
+      d.style.webkitTextStroke = st.stroke; d.style.paintOrder = 'stroke fill';
       d.style.color = c.color || '#fff'; d.style.fontWeight = c.weight || 700;
       d.style.top = ((NP.TEXT_POS[c.pos] != null ? NP.TEXT_POS[c.pos] : NP.TEXT_POS.bottom) * 100) + '%';
-      d.style.background = c.bg ? 'rgba(0,0,0,.55)' : 'transparent';
+      d._sp.style.background = c.bg ? 'rgba(0,0,0,.55)' : 'transparent';
     });
     Object.keys(E.textEls).forEach(function (id){ if (!want[id]){ E.textEls[id].remove(); delete E.textEls[id]; } });
   }
@@ -953,6 +1028,6 @@ var NakiEditor = (function () {
     project: function (){ return E.proj; }, split: split, cutOut: cutOut, deleteSel: deleteSel, undo: undo, redo: redo, select: select,
     seek: seek, planFor: planFor, scanQuiet: scanQuiet, play: play, pause: pause, setZoom: setZoom, fit: fit,
     openTool: openTool, openPanel: openPanel, closeTool: closeTool, freezeHere: freezeHere, reverseSel: reverseSel, flushSave: flushSave, duplicateSel: duplicateSel, rotateSel: rotateSel, flipSel: flipSel,
-    hasEdits: hasEdits, replaceMovie: replaceMovie };
+    hasEdits: hasEdits, replaceMovie: replaceMovie, importCaptions: importCaptions, exportSrt: exportSrt, detachSel: detachSel };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = NakiEditor;

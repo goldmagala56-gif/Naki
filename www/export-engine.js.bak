@@ -15,10 +15,11 @@
   - The runner (NakiExport.run) that drives ffmpeg.wasm. It only works in a real browser.
 */
 
+var _RV = (typeof module !== 'undefined' && module.exports) ? require('./reverse.js') : window.NakiReverse;
 var FPS = 30;
 var SR = 48000;
 var GAIN_HZ = 1000;
-var _LK = (typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook;
+var _LK = ((typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook) || { ffmpegExtras: function () { return []; } };
 
 /* ---------- pure: parse ffmpeg's own "-i" log text for basic movie info ---------- */
 function parseProbeInfo(logText) {
@@ -122,7 +123,7 @@ function planToJobs(plan, movieInfo, opts) {
       
       parts.push("lutyuv=y='val*" + o.toFixed(3) + '+' + (37 * k).toFixed(2) + "':u='val*" + o.toFixed(3) + '+' + (133 * k).toFixed(2) + "':v='val*" + o.toFixed(3) + '+' + (123 * k).toFixed(2) + "'");
     }
-    _LK.ffmpegExtras(f).forEach(function (x) { parts.push(x); });
+    (_LK.ffmpegExtras(f) || []).forEach(function (x) { parts.push(x); });
     if (sp.vFadeIn) parts.push('fade=t=in:st=0:d=' + (sp.vFadeIn / 1000).toFixed(3));
     if (sp.vFadeOut) parts.push('fade=t=out:st=' + Math.max(0, spanSec - sp.vFadeOut / 1000).toFixed(3) + ':d=' + (sp.vFadeOut / 1000).toFixed(3));
     return parts.join(',');
@@ -188,7 +189,12 @@ function planToJobs(plan, movieInfo, opts) {
     var spanSec = (sp.sessionEnd - sp.sessionStart) / 1000;
     if (sp.type === 'play') {
       var speed = sp.speed && sp.speed !== 1 ? sp.speed : 1;
-      jobs.push({ label: 'picture ' + (i + 1), produces: vfile,
+      if (sp.reverse) {
+        var rv = _RV.reversePicture(sp, { id: id, nFrames: nFrames, width: width, height: height, speed: speed, fitChain: transformFit(sp), enc: enc, ts: ts, clampSec: clampSec, chunkFrames: opts.reverseChunkFrames });
+        rv.jobs.forEach(function (j) { jobs.push(j); });
+        jobs.push({ label: 'picture ' + (i + 1), produces: vfile, files: rv.files,
+          args: pictureArgs(rv.sourceArgs, 'null', nFrames, vfile, sp, spanSec, 1, 1) });
+      } else jobs.push({ label: 'picture ' + (i + 1), produces: vfile,
         args: pictureArgs(['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in'], transformFit(sp), nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
     } else if (sp.type === 'freeze') {
       var png = 'f' + id + '.png';
@@ -235,14 +241,16 @@ function planToJobs(plan, movieInfo, opts) {
     var afile = 'a' + src[0] + id + '.wav', gfile = 'g' + id + '.f32';
     var lostMs = (startS - Sm(c.startMs)) * 1000 / SR;   // only non-zero if clips overlapped
     var spd = c.speed && c.speed !== 1 ? c.speed : 1;
-    var fc = '[0:a]' + sourceChain(src, movieInfo) + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
+    var rev = !!c.reverse && src === 'movie';
+    var fc = '[0:a]' + sourceChain(src, movieInfo) + (rev ? ',areverse' : '') + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
       '[1:a]aresample=' + SR + ',aformat=sample_fmts=fltp:channel_layouts=stereo[g];' +
       '[a][g]amultiply,aformat=sample_fmts=s16:channel_layouts=stereo[o]';
     var files = {}; files[gfile] = buildGainRaw(c.points, c.durMs + lostMs);
     jobs.push({ label: 'sound ' + src + ' ' + (i + 1), produces: afile, files: files,
-      args: ['-ss', clampSec(c.inMs + lostMs * spd).toFixed(3), '-i', SRC_FILE[src],
+      args: (rev ? ['-ss', clampSec(c.inMs).toFixed(3), '-t', (c.durMs * spd / 1000).toFixed(3), '-i', SRC_FILE[src]]
+        : ['-ss', clampSec(c.inMs + lostMs * spd).toFixed(3), '-i', SRC_FILE[src]]).concat([
         '-f', 'f32le', '-ar', String(GAIN_HZ), '-ac', '2', '-i', gfile,
-        '-filter_complex', fc, '-map', '[o]', '-t', (n / SR + 0.05).toFixed(3), '-c:a', 'pcm_s16le', '-f', 'wav', afile] });
+        '-filter_complex', fc, '-map', '[o]', '-t', (n / SR + 0.05).toFixed(3), '-c:a', 'pcm_s16le', '-f', 'wav', afile]) });
     lanes[src].push(afile);
     cursor[src] = startS + n;
   });

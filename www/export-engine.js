@@ -293,6 +293,7 @@ function finalMixArgs(laneNames, totalMs) {
 /* ---------- titles: drawn by the page onto a transparent picture of the output size ---------- */
 var TITLE_POS = { top: 0.07, center: 0.40, bottom: 0.76 };   // same numbers as plan.js / the editor preview
 function drawTitle(g, t, W, H) {
+  if (typeof _LK !== 'undefined' && _LK && _LK.drawTitle) return _LK.drawTitle(g, t, W, H);   // fonts, outline, shadow: one drawing for everything
   var px = Math.max(10, Math.round((t.size || 7) / 100 * H));
   g.font = (t.weight || 700) + ' ' + px + 'px system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
   g.textAlign = 'center'; g.textBaseline = 'top';

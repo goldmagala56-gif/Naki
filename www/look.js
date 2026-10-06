@@ -59,9 +59,66 @@ var NakiLook = (function () {
     return out;
   }
 
+  /* ---------- titles and captions: one drawing shared by the editor preview, the fast engine and the ffmpeg engine ---------- */
+  var TITLE_POS = { top: 0.07, center: 0.40, bottom: 0.76 };   // as a fraction of the picture height (same numbers as plan.js)
+  var FONTS = {
+    sans: { label: 'Sans', css: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+    serif: { label: 'Serif', css: 'Georgia, "Times New Roman", "Noto Serif", serif' },
+    mono: { label: 'Mono', css: 'ui-monospace, Menlo, Consolas, "Courier New", monospace' },
+    bold: { label: 'Bold', css: 'Impact, "Arial Black", "Roboto Condensed", system-ui, sans-serif' },
+    script: { label: 'Script', css: '"Segoe Script", "Brush Script MT", "Comic Sans MS", cursive' }
+  };
+  function fontCss(k){ return (FONTS[k] || FONTS.sans).css; }
+  function fontList(){ return Object.keys(FONTS).map(function (k){ return { key: k, label: FONTS[k].label }; }); }
+  // Size in pixels, the visible width of the outline (up to 6% of the letter size), and the strength of the shadow (1 = the look titles always had).
+  function titleLook(t, H){
+    var px = Math.max(10, Math.round((t.size || 7) / 100 * H)), o = clamp(num(t.outline), 0, 1), sh = t.shadow == null ? 1 : clamp(num(t.shadow), 0, 1);
+    return { px: px, outlinePx: o > 0 ? r4(px * 0.06 * o) : 0, shadow: sh, blur: Math.max(2, px * 0.08) * sh, offY: Math.max(1, px * 0.04) * sh };
+  }
+  // The same look as CSS, for the preview.
+  function titleStyle(t, H){
+    var L = titleLook(t, H);
+    return { px: L.px, fontFamily: fontCss(t.font), stroke: L.outlinePx ? (L.outlinePx * 2) + 'px #000' : '',
+      shadow: L.shadow > 0 ? '0 ' + r4(L.offY) + 'px ' + r4(L.blur) + 'px rgba(0,0,0,0.7)' : 'none' };
+  }
+  // Draws a title onto a canvas context of W x H pixels: wrapped to 88% of the width, at the same heights as the preview.
+  function drawTitle(g, t, W, H){
+    var L = titleLook(t, H), px = L.px;
+    g.font = (t.weight || 700) + ' ' + px + 'px ' + fontCss(t.font);
+    g.textAlign = 'center'; g.textBaseline = 'top';
+    var maxW = W * 0.88, lines = [];
+    String(t.text || '').split('\n').forEach(function (par){
+      var line = '';
+      par.split(' ').forEach(function (w){
+        var test = line ? line + ' ' + w : w;
+        if (line && g.measureText(test).width > maxW){ lines.push(line); line = w; } else line = test;
+      });
+      lines.push(line);
+    });
+    var lh = Math.round(px * 1.2), y0 = Math.round((TITLE_POS[t.pos] != null ? TITLE_POS[t.pos] : TITLE_POS.bottom) * H);
+    if (t.bg){
+      var widest = 0; lines.forEach(function (l){ widest = Math.max(widest, g.measureText(l).width); });
+      var bw = Math.min(W, widest + px * 0.8);
+      g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(Math.round(W / 2 - bw / 2), Math.round(y0 - px * 0.2), Math.round(bw), Math.round(lines.length * lh + px * 0.4));
+    }
+    function shadow(){
+      if (L.shadow > 0){ g.shadowColor = 'rgba(0,0,0,0.7)'; g.shadowBlur = L.blur; g.shadowOffsetY = L.offY; }
+      else { g.shadowColor = 'rgba(0,0,0,0)'; g.shadowBlur = 0; g.shadowOffsetY = 0; }
+    }
+    if (L.outlinePx > 0 && g.strokeText){
+      // outline first (the shadow follows the outline), then the letters on top of it
+      shadow(); g.lineJoin = 'round'; g.lineWidth = L.outlinePx * 2; g.strokeStyle = '#000';
+      lines.forEach(function (l, i){ g.strokeText(l, W / 2, y0 + i * lh); });
+      g.fillStyle = t.color || '#ffffff'; g.shadowColor = 'rgba(0,0,0,0)'; g.shadowBlur = 0; g.shadowOffsetY = 0;
+    } else { g.fillStyle = t.color || '#ffffff'; shadow(); }
+    lines.forEach(function (l, i){ g.fillText(l, W / 2, y0 + i * lh); });
+    return lines;
+  }
+
   var api = { KEYS: KEYS, extras: extras, hasExtras: hasExtras, tint: tint, tintCss: tintCss, matteAlpha: matteAlpha, matteCss: matteCss,
     vignetteAngle: vignetteAngle, vignetteLevel: vignetteLevel, vignetteStops: vignetteStops, vignetteCss: vignetteCss,
-    sharpenKernel: sharpenKernel, ffmpegExtras: ffmpegExtras, MATTE_GRAY: MATTE_GRAY };
+    sharpenKernel: sharpenKernel, ffmpegExtras: ffmpegExtras, MATTE_GRAY: MATTE_GRAY,
+    fontCss: fontCss, fontList: fontList, titleLook: titleLook, titleStyle: titleStyle, drawTitle: drawTitle, TITLE_POS: TITLE_POS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.NakiLook = api;
   return api;

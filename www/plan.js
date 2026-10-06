@@ -61,7 +61,11 @@ var NakiPlan = (function () {
       tr.clips.forEach(function (c) {
         if (!(c.dur > 0) || !String(c.text || '').trim()) return;
         var s = Math.max(0, Math.round(c.start)), e = Math.min(total, Math.round(c.start + c.dur));
-        if (e > s) texts.push({ startMs: s, durMs: e - s, text: String(c.text), size: c.size, color: c.color, pos: c.pos, weight: c.weight, bg: !!c.bg });
+        if (e > s){
+          var tx = { startMs: s, durMs: e - s, text: String(c.text), size: c.size, color: c.color, pos: c.pos, weight: c.weight, bg: !!c.bg };
+          if (c.font) tx.font = c.font; if (c.outline) tx.outline = c.outline; if (c.shadow != null) tx.shadow = c.shadow;
+          texts.push(tx);
+        }
       });
     });
     texts.sort(function (a, b) { return a.startMs - b.startMs; });

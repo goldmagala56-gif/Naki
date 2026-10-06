@@ -304,7 +304,7 @@ function intersectRanges(A, B){
 // ---------- text, speed, fades, filters, freeze frames, music ----------
 // Text lives on its own track (kind 'text'). Text clips split, trim, move and cut like any other clip.
 var TEXT_DEFAULTS = { text: 'Your text', size: 7, color: '#ffffff', pos: 'bottom', weight: 700, bg: false };
-function textTrackOf(p){ return p.tracks.filter(function (t){ return t.kind === 'text'; })[0] || null; }
+function textTrackOf(p){ return p.tracks.filter(function (t){ return t.kind === 'text' && t.role === 'text'; })[0] || null; }
 function addTextClip(p, t, dur, out){
   t = Math.round(t); dur = Math.round(dur || 3000);
   var total = p.durationMs; if (!(total > 0)) return p;
@@ -320,11 +320,20 @@ function addTextClip(p, t, dur, out){
   tr.clips.push(clip); if (out) out.id = clip.id;
   return finish(q);
 }
+var TEXT_FONTS = ['sans', 'serif', 'mono', 'bold', 'script'];
+// Changes the look of one text clip (in place). size 3 to 16 (% of the picture height), font, outline 0 to 1 and shadow 0 to 1
+// (shadow 1 is the look titles always had, so it is not stored; outline 0 is not stored either).
+function applyTextPatch(clip, patch){
+  ['text', 'size', 'color', 'pos', 'weight', 'bg'].forEach(function (k){ if (patch[k] !== undefined) clip[k] = patch[k]; });
+  clip.size = Math.max(3, Math.min(16, +clip.size || 7));
+  if (patch.font !== undefined){ if (patch.font && patch.font !== 'sans' && TEXT_FONTS.indexOf(patch.font) >= 0) clip.font = patch.font; else delete clip.font; }
+  if (patch.outline !== undefined){ var o = r3(Math.max(0, Math.min(1, +patch.outline || 0))); if (o > 0) clip.outline = o; else delete clip.outline; }
+  if (patch.shadow !== undefined){ var sh = r3(Math.max(0, Math.min(1, isNaN(+patch.shadow) ? 1 : +patch.shadow))); if (sh < 1) clip.shadow = sh; else delete clip.shadow; }
+}
 function setTextProps(p, id, patch){
-  var ok = ['text', 'size', 'color', 'pos', 'weight', 'bg'], q = cloneProject(p), f = findClip(q, id);
+  var q = cloneProject(p), f = findClip(q, id);
   if (!f || f.clip.type !== 'text') return p;
-  ok.forEach(function (k){ if (patch[k] !== undefined) f.clip[k] = patch[k]; });
-  f.clip.size = Math.max(3, Math.min(16, +f.clip.size || 7));
+  applyTextPatch(f.clip, patch || {});
   return finish(q);
 }
 function textsAt(p, t){
@@ -508,6 +517,107 @@ function setMovieAsset(p, info){
   return q;
 }
 
+// ---------- captions (subtitles) ----------
+// Captions are text clips on a track of their own, so they cut, move and trim like any clip and your titles stay separate.
+// Their times are on the timeline of the edited video.
+var CAPTION_STYLE = { size: 5, color: '#ffffff', pos: 'bottom', weight: 700, bg: true };
+function captionTrackOf(p){ return p.tracks.filter(function (t){ return t.kind === 'text' && t.role === 'captions'; })[0] || null; }
+function ensureCaptionTrack(q){
+  var tr = captionTrackOf(q);
+  if (!tr){ tr = { id: 't-captions', kind: 'text', role: 'captions', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr); }
+  return tr;
+}
+// items = [{ startMs, endMs, text }]. Lines that run into the next one are shortened to end where it starts; lines that
+// start after the end of the video, are shorter than 0.2 s, or land on an existing caption are skipped (counted in out.skipped).
+// opts.replace = true removes the captions you already have first.
+function addCaptions(p, items, opts, out){
+  opts = opts || {};
+  var total = p.durationMs; if (!(total > 0)) return p;
+  var q = cloneProject(p), tr = ensureCaptionTrack(q), added = 0, skipped = 0;
+  if (opts.replace) tr.clips = [];
+  var list = (items || []).map(function (it){ return { s: Math.round(+it.startMs), e: Math.round(+it.endMs), t: String(it.text == null ? '' : it.text).trim() }; })
+    .filter(function (it){ return it.t && isFinite(it.s) && isFinite(it.e); }).sort(function (a, b){ return a.s - b.s; });
+  list.forEach(function (it, i){
+    var s0 = Math.max(0, it.s), e0 = Math.min(total, it.e), next = list[i + 1];
+    if (next && next.s < e0) e0 = Math.max(s0, next.s);
+    var clash = tr.clips.some(function (c){ return s0 < clipEnd(c) && e0 > c.start; });
+    if (e0 - s0 < 200 || clash){ skipped++; return; }
+    tr.clips.push(Object.assign({ id: newId('c'), type: 'text', asset: null, start: s0, dur: e0 - s0, in: 0, speed: 1, text: it.t, caption: true }, CAPTION_STYLE));
+    added++;
+  });
+  if (out){ out.added = added; out.skipped = skipped; }
+  if (!added && !opts.replace) return p;
+  return finish(q);
+}
+// One caption line at time t (it moves past a caption that is already there, and stops where the next one starts).
+function addCaptionLine(p, t, dur, out){
+  t = Math.round(t); dur = Math.round(dur || 2500);
+  var total = p.durationMs; if (!(total > 0)) return p;
+  var q = cloneProject(p), tr = ensureCaptionTrack(q), start = Math.max(0, Math.min(t, total)), moved = true;
+  while (moved){ moved = false; tr.clips.forEach(function (c){ if (start >= c.start && start < clipEnd(c)){ start = clipEnd(c); moved = true; } }); }
+  var d = Math.min(dur, total - start), nextStart = null;
+  tr.clips.forEach(function (c){ if (c.start >= start && (nextStart === null || c.start < nextStart)) nextStart = c.start; });
+  if (nextStart !== null) d = Math.min(d, nextStart - start);
+  if (d < 300) return p;
+  var clip = Object.assign({ id: newId('c'), type: 'text', asset: null, start: start, dur: d, in: 0, speed: 1, text: 'Caption', caption: true }, CAPTION_STYLE);
+  tr.clips.push(clip); if (out) out.id = clip.id;
+  return finish(q);
+}
+function captionList(p){
+  var tr = captionTrackOf(p);
+  return tr ? tr.clips.slice().sort(function (a, b){ return a.start - b.start; }).map(function (c){ return { id: c.id, start: c.start, end: clipEnd(c), text: c.text || '' }; }) : [];
+}
+// Gives every caption the same look (size, colour, position, weight, box, font, outline, shadow).
+function setCaptionStyle(p, patch){
+  var tr = captionTrackOf(p); if (!tr || !tr.clips.length) return p;
+  var q = cloneProject(p), style = {};
+  ['size', 'color', 'pos', 'weight', 'bg', 'font', 'outline', 'shadow'].forEach(function (k){ if (patch[k] !== undefined) style[k] = patch[k]; });
+  captionTrackOf(q).clips.forEach(function (c){ applyTextPatch(c, style); });
+  return finish(q);
+}
+function removeCaptions(p){
+  if (!captionTrackOf(p)) return p;
+  var q = cloneProject(p); q.tracks = q.tracks.filter(function (t){ return !(t.kind === 'text' && t.role === 'captions'); });
+  return finish(q);
+}
+// ----- .srt files -----
+function parseSrt(text){
+  var out = [], s = String(text == null ? '' : text).replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').trim();
+  if (!s) return out;
+  var T = '(?:(\\d{1,2}):)?(\\d{1,2}):(\\d{2})[,.](\\d{1,3})', re = new RegExp('^\\s*' + T + '\\s*-->\\s*' + T);
+  function ms(h, m, sec, fr){ return (((+h || 0) * 60 + (+m)) * 60 + (+sec)) * 1000 + (+((fr + '00').slice(0, 3))); }
+  s.split(/\n{2,}/).forEach(function (block){
+    var lines = block.split('\n'), i = 0;
+    if (lines.length > 1 && /^\d+$/.test(lines[0].trim()) && lines[1].indexOf('-->') >= 0) i = 1;
+    var m = re.exec(lines[i] || ''); if (!m) return;
+    var txt = lines.slice(i + 1).join('\n').replace(/<[^>]*>/g, '').replace(/\{[^}]*\}/g, '').trim();
+    if (txt) out.push({ startMs: ms(m[1], m[2], m[3], m[4]), endMs: ms(m[5], m[6], m[7], m[8]), text: txt });
+  });
+  return out;
+}
+function srtTime(ms){
+  ms = Math.max(0, Math.round(ms)); var h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60, r = ms % 1000;
+  function z(n, w){ return String(n).padStart(w, '0'); }
+  return z(h, 2) + ':' + z(m, 2) + ':' + z(s, 2) + ',' + z(r, 3);
+}
+// The captions as an .srt file. With no captions, the titles are written instead, so something is always saved.
+function toSrt(p){
+  var items = captionList(p);
+  if (!items.length) p.tracks.forEach(function (tr){ if (tr.kind === 'text') tr.clips.forEach(function (c){ items.push({ start: c.start, end: clipEnd(c), text: c.text || '' }); }); });
+  items.sort(function (a, b){ return a.start - b.start; });
+  return items.map(function (it, i){ return (i + 1) + '\n' + srtTime(it.start) + ' --> ' + srtTime(it.end) + '\n' + it.text + '\n'; }).join('\n');
+}
+
+// ---------- detach audio ----------
+// Lets a movie clip and its sound go their own ways: afterwards the sound can be moved, trimmed or deleted without the picture
+// (and the picture without the sound). They still cut together; a speed change no longer reaches the detached sound.
+function detachAudio(p, id){
+  var ids = linkedIds(p, id); if (ids.length < 2) return p;
+  var q = cloneProject(p);
+  ids.forEach(function (cid){ delete findClip(q, cid).clip.link; });
+  return finish(q);
+}
+
 // ---------- voice timing ----------
 // Moves the voice track by deltaMs (positive = later) without touching anything else, so the "Voice timing"
 // slider can change after edits were made. The same result as building the project again with the new timing:
@@ -591,6 +701,8 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips };
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips,
+  addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
+  parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
