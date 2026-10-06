@@ -706,3 +706,6 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
+
+// Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'captions-detach'; }

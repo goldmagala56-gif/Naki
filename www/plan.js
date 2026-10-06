@@ -82,3 +82,6 @@ var NakiPlan = (function () {
   if (typeof window !== 'undefined') window.NakiPlan = api;
   return api;
 })();
+
+// Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'text-styles'; }

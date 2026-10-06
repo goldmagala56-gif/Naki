@@ -1554,6 +1554,13 @@ $('btnInstall').onclick = function(){
   deferredInstall.userChoice.then(function(){}, function(){}).then(function(){ deferredInstall = null; $('btnInstall').hidden = true; });
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
+(function(){
+  var want = { 'editor.js': 'dock-captions', 'project.js': 'captions-detach', 'plan.js': 'text-styles', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
+  var have = window.NakiVersions || {}, bad = [];
+  Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
+  var line = $('verLine'); line.style.whiteSpace = 'pre-line';
+  line.textContent += bad.length ? '\nOut of date: ' + bad.join(', ') : '\nAll app files are the latest.';
+})();
 
 if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   var hadController = !!navigator.serviceWorker.controller;
