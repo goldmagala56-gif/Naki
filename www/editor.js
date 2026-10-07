@@ -9,7 +9,7 @@ var NakiEditor = (function () {
   var PAD = 16, MIN_PPM = 0.004, MAX_PPM = 0.6, FRAME_MS = 33;
   var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text', captions: 'Captions' };
   var E = { hooks: null, root: null, ui: {}, hist: null, proj: null, sess: null, sel: null, t: 0, playing: false, ppm: 0.06,
-    cache: {}, drag: null, raf: 0, wall: 0, wallT: 0, isOpen: false, home: null, pointers: {}, pinch: null,
+    cache: {}, magnet: false, drag: null, raf: 0, wall: 0, wallT: 0, isOpen: false, home: null, pointers: {}, pinch: null,
     voiceGain: null, musicGain: null, quiet: null, quietDb: -42, tool: null, textEls: {}, freezeMs: 2000, saveT: 0, voiceDurMs: null, lastFilter: '', lastOpacity: '', lastRate: 1,
     panel: null, chip: {}, autoDock: false, rowScroll: null, revTold: false, lastTint: '', lastVeil: '', lastSharp: -1 };
 
@@ -274,7 +274,8 @@ var NakiEditor = (function () {
   }
   function deleteSel(){
     if (!E.sel){ toast('Tap a clip first.'); return; }
-    var id = E.sel; E.sel = null; commit(P.deleteClip(E.hist.cur, id));
+    var id = E.sel, f0 = P.findClip(E.proj, id), pic = !!(f0 && (f0.track.role === 'movie' || f0.track.role === 'movieSound')); E.sel = null;
+    var q0 = P.deleteClip(E.hist.cur, id); commit(pic ? tidy(q0) : q0);
   }
   function freezeHere(ms){
     var q = P.insertFreeze(E.hist.cur, Math.round(E.t), ms || E.freezeMs);
@@ -288,6 +289,68 @@ var NakiEditor = (function () {
     if (q === E.hist.cur){ toast('There is no room to copy that clip.'); return; }
     var nf = out.id && P.findClip(q, out.id); if (nf) E.t = nf.clip.start;   // show the copy, so the tools that follow work on what you see
     E.sel = out.id || E.sel; commit(q); toast('Copied. The copy is right after it.');
+  }
+  // ----- joining, closing gaps, magnet, and dragging clips -----
+  // With Magnet on, gaps in the picture close by themselves after a delete, trim or move. Voice, music and text stay where they are.
+  function tidy(q){ return E.magnet ? P.closeGaps(q) : q; }
+  function joinSel(){
+    var id = E.sel, f = id && P.findClip(E.proj, id);
+    if (!f){ var t = targetVideo(); id = t && t.id; }
+    if (!id){ toast('Tap a clip first, or move the playhead onto the picture.'); return; }
+    var out = {}, q = P.joinWithNext(E.hist.cur, id, out);
+    if (out.msg) toast(out.msg);
+    if (q !== E.hist.cur) commit(q);
+  }
+  // Closes the gap under the playhead; if the playhead is not in a gap, closes every gap in the picture.
+  function closeGapHere(){
+    var q = P.closeGaps(E.hist.cur, Math.round(E.t));
+    if (q === E.hist.cur) q = P.closeGaps(E.hist.cur);
+    if (q === E.hist.cur){ toast('There are no gaps in the picture.'); return; }
+    commit(q);
+  }
+  function toggleMagnet(){
+    E.magnet = !E.magnet;
+    toast(E.magnet ? 'Magnet on: gaps in the picture close by themselves.' : 'Magnet off: gaps stay until you fill or close them.');
+    renderDock();
+  }
+  // Snaps a dragged clip by its start OR its end to other clips' edges and the playhead (never to its own edges or its sound's).
+  function snapMove(start, dur, id){
+    var skip = P.linkedClips(E.hist.cur, id).map(function (x){ return x.clip.id; }), th = 8 / E.ppm;
+    var a = P.snapTime(E.proj, start, th, [E.t], skip), b = P.snapTime(E.proj, start + dur, th, [E.t], skip) - dur, best = start;
+    if (a !== start && b !== start) best = Math.abs(a - start) <= Math.abs(b - start) ? a : b;
+    else if (a !== start) best = a; else if (b !== start) best = b;
+    return Math.max(0, Math.round(best));
+  }
+  function moveTo(d){
+    var dt = ((d.lastX - d.x0) + (E.ui.scroll.scrollLeft - d.sl0)) / E.ppm;
+    d.newStart = snapMove(Math.max(0, d.s0 + dt), d.e0 - d.s0, d.id);
+    d.el.classList.add('dragging'); d.el.style.left = tx(d.newStart) + 'px'; showDrop(d);
+  }
+  // A dashed outline shows where the clip will really land when you let go (solid when it pushes other clips later).
+  function showDrop(d){
+    var pl = P.planPlace(E.hist.cur, d.id, d.newStart), row = d.el.parentNode;
+    if (!d.drop){ d.drop = mk('div', 'ed-drop'); row.appendChild(d.drop); }
+    if (!pl){ d.drop.style.display = 'none'; return; }
+    d.drop.style.display = 'block'; d.drop.style.left = tx(pl.start) + 'px'; d.drop.style.width = Math.max(3, (d.e0 - d.s0) * E.ppm) + 'px';
+    d.drop.classList.toggle('push', pl.pushed);
+  }
+  // The timeline scrolls by itself while you hold a clip near its left or right edge.
+  function autoScrollTick(){
+    var d = E.drag; if (!d || d.mode !== 'move') return;
+    var sc = E.ui.scroll, r = sc.getBoundingClientRect(), x = d.lastX, edge = 48, v = 0;
+    if (x > r.right - edge) v = Math.min(24, (x - (r.right - edge)) / 3);
+    else if (x < r.left + edge) v = -Math.min(24, ((r.left + edge) - x) / 3);
+    if (!v) return;
+    var before = sc.scrollLeft; sc.scrollLeft = Math.max(0, before + v);
+    if (sc.scrollLeft !== before) moveTo(d);
+  }
+  function finishTrim(d){
+    // Trimming a picture clip now only trims it (a gap is left, or closed when Magnet is on). Use Cut out to remove time from everything.
+    var cur = E.hist.cur, q = cur;
+    if (d.mode === 'trimR' && d.newEnd != null) q = P.trimClipEnd(cur, d.id, Math.round(d.newEnd));
+    else if (d.mode === 'trimL' && d.newStart != null) q = P.trimClipStart(cur, d.id, Math.round(d.newStart));
+    if (q === cur){ renderTimeline(); return; }
+    commit((d.tr.role === 'movie' || d.tr.role === 'movieSound') ? tidy(q) : q);
   }
   // Turn and flip work on the clip you are on (the Zoom panel has "Apply to all").
   function rotateSel(){
@@ -404,7 +467,10 @@ var NakiEditor = (function () {
     list: svg('<path d="M8 6h12M8 12h12M8 18h12M4 6h.01M4 12h.01M4 18h.01"/>'),
     detach: svg('<path d="M9 18.5a2.8 2.8 0 11-2.8-2.8c.5 0 1 .1 1.4.4V5l11-2.5v8"/><path d="M15 17l6 4M21 17l-6 4"/>'),
     captions: svg('<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 11h4M13 11h4M7 15h2.5M12 15h5"/>'),
-    download: svg('<path d="M12 3v11.5m0 0l-4-4m4 4l4-4"/><path d="M5 16.5V19a2 2 0 002 2h10a2 2 0 002-2v-2.5"/>')
+    download: svg('<path d="M12 3v11.5m0 0l-4-4m4 4l4-4"/><path d="M5 16.5V19a2 2 0 002 2h10a2 2 0 002-2v-2.5"/>'),
+    join: svg('<path d="M4 7v10M20 7v10M4 12h5M20 12h-5M7 9l2.5 3L7 15M17 9l-2.5 3 2.5 3"/>'),
+    gap: svg('<path d="M3 6v12M21 6v12M8 12h8M11 9l-3 3 3 3M13 9l3 3-3 3"/>'),
+    magnet: svg('<path d="M6 3v9a6 6 0 0012 0V3h-4v9a2 2 0 01-4 0V3zM6 7h4M14 7h4"/>')
   };
 
   function openTool(name){ E.tool = name || null; E.panel = null; E.autoDock = false; renderDock(); }
@@ -484,6 +550,9 @@ var NakiEditor = (function () {
         { id: 'edCut', ref: 'bCut', label: 'Cut out', icon: G.cut, run: cutOut, disabled: !E.sel },
         { id: 'edDelete', ref: 'bDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !E.sel },
         { id: 'edDuplicate', label: 'Duplicate', icon: G.dup, run: duplicateSel },
+        { id: 'edJoin', label: 'Join', icon: G.join, run: joinSel },
+        { id: 'edCloseGap', label: 'Close gap', icon: G.gap, run: closeGapHere },
+        { id: 'edMagnet', label: 'Magnet', icon: G.magnet, run: toggleMagnet, on: E.magnet },
         { id: 'edDetach', label: 'Detach', icon: G.detach, run: detachSel },
         { id: 'edSpeed', label: 'Speed', icon: G.speed, run: P2('speed') },
         { id: 'edVolume', label: 'Volume', icon: G.volume, run: P2('volume') },
@@ -812,7 +881,7 @@ var NakiEditor = (function () {
         } else {
           if (E.lastRate !== 1){ try { m.playbackRate = 1; } catch (e) {} E.lastRate = 1; }
           if (!m.paused) m.pause();
-          if (Math.abs(m.currentTime - target) > (E.playing && rev ? 0.1 : 0.06)) m.currentTime = target;
+          if (Math.abs(m.currentTime - target) > (E.playing && rev ? 0.1 : 0.06) && !(E.playing && rev && m.seeking)) m.currentTime = target;
         }
       } else if (!m.paused) m.pause();
     }
@@ -871,11 +940,11 @@ var NakiEditor = (function () {
       var id = clipE.dataset.id, f = P.findClip(E.proj, id); if (!f) return;
       var wasSel = E.sel === id; E.sel = id; var tr = f.track, c = f.clip;
       E.drag = { mode: handle ? (handle.classList.contains('ed-hl') ? 'trimL' : 'trimR') : 'pending', id: id, x0: ev.clientX, el: clipE, tr: tr,
-        s0: c.start, e0: c.start + c.dur, touch: ev.pointerType === 'touch', moved: false, press: 0, wasSel: wasSel };
+        s0: c.start, e0: c.start + c.dur, touch: ev.pointerType === 'touch', moved: false, press: 0, timer: 0, wasSel: wasSel, sl0: E.ui.scroll.scrollLeft, lastX: ev.clientX };
       if (E.drag.mode === 'pending' && E.drag.touch) E.drag.press = setTimeout(function (){
         if (E.drag && E.drag.mode === 'pending'){ E.drag.mode = 'move'; try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }
       }, 380);
-      if (E.drag.mode === 'pending' && (tr.role === 'movie' || tr.role === 'movieSound')) E.drag.noMove = true;
+      
       renderSelectionOnly();
     } else {
       E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX));
@@ -901,7 +970,7 @@ var NakiEditor = (function () {
     d.moved = true; var dt = dx / E.ppm;
     if (d.mode === 'trimL'){ d.newStart = clamp(snapped(d.s0 + dt), 0, d.e0 - 100); d.el.style.left = tx(d.newStart) + 'px'; d.el.style.width = Math.max(3, (d.e0 - d.newStart) * E.ppm) + 'px'; }
     else if (d.mode === 'trimR'){ d.newEnd = Math.max(d.s0 + 100, snapped(d.e0 + dt)); d.el.style.width = Math.max(3, (d.newEnd - d.s0) * E.ppm) + 'px'; }
-    else if (d.mode === 'move'){ d.newStart = Math.max(0, snapped(d.s0 + dt)); d.el.style.left = tx(d.newStart) + 'px'; }
+    else if (d.mode === 'move'){ d.lastX = ev.clientX; if (!d.timer) d.timer = setInterval(autoScrollTick, 30); moveTo(d); }
   }
   function onUp(){ endDrag(false); }
   function onCancel(){ endDrag(true); }
@@ -909,25 +978,14 @@ var NakiEditor = (function () {
     var d = E.drag; E.drag = null;
     window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', onCancel);
     E.pointers = {}; E.pinch = null;
-    if (!d) return; clearTimeout(d.press);
+    if (!d) return; clearTimeout(d.press); clearInterval(d.timer);
     if (cancel){ renderTimeline(); return; }
     if (d.mode === 'trimL' || d.mode === 'trimR') finishTrim(d);
     else if (d.mode === 'move' && d.moved){
-      var q = P.moveClip(E.hist.cur, d.id, d.newStart);
-      if (q === E.hist.cur){ toast('There is no room for it there.'); renderTimeline(); } else commit(q);
+      var cur0 = E.hist.cur, q = P.placeClip(cur0, d.id, d.newStart), pic0 = d.tr.role === 'movie' || d.tr.role === 'movieSound';
+      if (q === cur0){ renderTimeline(); var pl0 = P.planPlace(cur0, d.id, d.newStart); if (pl0 && (pl0.start !== d.s0 || pl0.pushed)) toast('There is no room for it there.'); } else commit(pic0 ? tidy(q) : q);
     }
     else if (!d.moved && d.wasSel && (d.mode === 'pending' || d.mode === 'move')){ E.sel = null; renderSelectionOnly(); }   // a tap on the clip that is already selected lets go of it
-  }
-  function finishTrim(d){
-    var cur = E.hist.cur, q = cur, ripple = d.tr.role === 'movie' || d.tr.role === 'movieSound';
-    if (d.mode === 'trimR' && d.newEnd != null){
-      if (ripple){ if (d.newEnd < d.e0) q = P.rippleDelete(cur, Math.round(d.newEnd), d.e0); } else q = P.trimClipEnd(cur, d.id, d.newEnd);
-    } else if (d.mode === 'trimL' && d.newStart != null){
-      if (ripple){ if (d.newStart > d.s0) q = P.rippleDelete(cur, d.s0, Math.round(d.newStart)); } else q = P.trimClipStart(cur, d.id, d.newStart);
-    }
-    if (q === cur){ renderTimeline(); return; }
-    if (ripple){ var a = d.mode === 'trimR' ? d.newEnd : d.s0, b = d.mode === 'trimR' ? d.e0 : d.newStart; if (E.t > a) E.t = E.t >= b ? E.t - (b - a) : a; }
-    commit(q);
   }
   function pinchDist(){ var k = Object.keys(E.pointers); if (k.length < 2) return 0; var a = E.pointers[k[0]], b = E.pointers[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); }
   function startPinch(){ E.pinch = { d0: pinchDist() || 1, ppm0: E.ppm }; }
@@ -1033,4 +1091,4 @@ var NakiEditor = (function () {
 if (typeof module !== 'undefined' && module.exports) module.exports = NakiEditor;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'dock-captions'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'drag-join'; }

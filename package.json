@@ -4,7 +4,7 @@
   "private": true,
   "description": "Narrate a movie live, pause to explain, export one finished video. Works offline.",
   "scripts": {
-    "test": "node tests/core.test.js && node tests/export-engine.test.js && node tests/app.test.js && node tests/project.test.js && node tests/plan.test.js && node tests/export-extras.test.js && node tests/webcodecs-export.test.js && node tests/voice.test.js && node tests/engine-choice.test.js && node tests/editor-hooks.test.js && node tests/sw-cache.test.js && node tests/export-wiring.test.js",
+    "test": "node tests/core.test.js && node tests/export-engine.test.js && node tests/app.test.js && node tests/project.test.js && node tests/plan.test.js && node tests/export-extras.test.js && node tests/webcodecs-export.test.js && node tests/voice.test.js && node tests/engine-choice.test.js && node tests/editor-hooks.test.js && node tests/sw-cache.test.js && node tests/export-wiring.test.js && node tests/timeline-edit.test.js",
     "serve": "node tools/serve.js"
   },
   "devDependencies": {

@@ -265,10 +265,10 @@ function validate(p){
   });
   return errs;
 }
-function snapTime(p, t, thresholdMs, extra){   // nearest clip edge (or extra point such as the playhead) within the threshold
+function snapTime(p, t, thresholdMs, extra, skipIds){   // nearest clip edge (or extra point such as the playhead) within the threshold; skipIds = clips to ignore (the one being dragged)
   var best = t, bd = thresholdMs + 1;
   var pts = (extra || []).concat([0]);
-  p.tracks.forEach(function (tr){ tr.clips.forEach(function (c){ pts.push(c.start, clipEnd(c)); }); });
+  p.tracks.forEach(function (tr){ tr.clips.forEach(function (c){ if (skipIds && skipIds.indexOf(c.id) >= 0) return; pts.push(c.start, clipEnd(c)); }); });
   pts.forEach(function (x){ var d = Math.abs(x - t); if (d < bd){ bd = d; best = x; } });
   return bd <= thresholdMs ? best : t;
 }
@@ -676,6 +676,102 @@ function removeMusic(p){
   return finish(q);
 }
 
+// ---------- moving, joining and closing gaps (CapCut style) ----------
+function byStart(a, b){ return a.start - b.start; }
+// Where a dropped clip lands. Like CapCut's main track: the clip goes where you drop it when there is room. If it would land on other
+// clips it is placed before or after them (whichever side its middle is nearer) and the clips behind it are pushed later, just far
+// enough. A drop never cuts another clip in two. A clip's linked partner (a movie clip and its sound) always moves with it.
+function planPlace(p, id, newStart){
+  var f = findClip(p, id); if (!f) return null;
+  var ids = linkedIds(p, id), L = f.clip.dur, S = Math.max(0, Math.round(newStart));
+  var rest = f.track.clips.filter(function (c){ return ids.indexOf(c.id) < 0; }).sort(byStart), idx = 0;
+  while (idx < rest.length && rest[idx].start + rest[idx].dur / 2 < S + L / 2) idx++;
+  var start = Math.max(S, idx ? clipEnd(rest[idx - 1]) : 0), cursor = start + L, shifts = {}, pushed = false;
+  for (var j = idx; j < rest.length; j++){
+    if (rest[j].start >= cursor) break;
+    shifts[rest[j].id] = cursor - rest[j].start; cursor += rest[j].dur; pushed = true;
+  }
+  return { start: start, shifts: shifts, pushed: pushed };
+}
+function placeClip(p, id, newStart){
+  var f = findClip(p, id), pl = f && planPlace(p, id, newStart); if (!pl) return p;
+  var delta = pl.start - f.clip.start; if (!delta && !pl.pushed) return p;
+  var q = cloneProject(p), ids = linkedIds(q, id);
+  ids.forEach(function (cid){ findClip(q, cid).clip.start += delta; });
+  Object.keys(pl.shifts).forEach(function (rid){
+    linkedIds(q, rid).forEach(function (cid){ if (ids.indexOf(cid) < 0) findClip(q, cid).clip.start += pl.shifts[rid]; });
+  });
+  return validate(q).length ? p : finish(q);
+}
+
+// Closes the empty space between picture clips (and their sound) so they touch, starting at 0. Voice, music and text stay where they are.
+// atMs given: only the gap that contains that moment is closed. Nothing to close: the same project comes back.
+function closeGaps(p, atMs){
+  var lane = p.tracks.filter(function (t){ return t.role === 'movie'; })[0]; if (!lane) return p;
+  var sorted = lane.clips.slice().sort(byStart), cursor = 0, acc = 0, moves = [];
+  sorted.forEach(function (c){
+    var gap = c.start - cursor;
+    if (gap > 0 && (atMs == null || (atMs >= cursor && atMs < c.start))) acc += gap;
+    if (acc) moves.push([c.id, acc]);
+    cursor = clipEnd(c);
+  });
+  if (!moves.length) return p;
+  var q = cloneProject(p);
+  moves.forEach(function (m){ linkedIds(q, m[0]).forEach(function (cid){ findClip(q, cid).clip.start -= m[1]; }); });
+  return validate(q).length ? p : finish(q);
+}
+
+// Can b (the clip right after a) become part of a? True when it is the same movie, the same speed and look, and it carries on exactly
+// where a stopped (so it is the same as before a split).
+function canMerge(a, b){
+  if (a.type !== b.type || a.asset !== b.asset || a.type === 'text' || a.reverse || b.reverse || clipEnd(a) !== b.start) return false;
+  var sp = a.speed || 1;
+  if (sp !== (b.speed || 1) || (a.volume != null ? a.volume : 1) !== (b.volume != null ? b.volume : 1)) return false;
+  if (a.type === 'freeze'){ if (a.in !== b.in) return false; }
+  else if (Math.abs(a.in + a.dur * sp - b.in) > 2) return false;
+  if (JSON.stringify([a.filter || null, a.opacity, a.transform || null]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null])) return false;
+  if (a.vFadeOut || b.vFadeIn) return false;
+  if (a.fadeOut > 0 && !(a.fadeOutOff > 0)) return false;
+  if (b.fadeIn > 0 && !(b.fadeInOff > 0)) return false;
+  return true;
+}
+function mergeInto(a, b){
+  var ga = a.gain && a.gain.length ? a.gain : null, gb = b.gain && b.gain.length ? b.gain : null;
+  if (ga || gb){
+    ga = ga || [[0, 1], [a.dur, 1]]; gb = gb || [[0, 1], [b.dur, 1]];
+    a.gain = ga.concat(gb.map(function (pt){ return [pt[0] + a.dur, pt[1]]; }));
+  }
+  a.fadeOut = b.fadeOut || 0; a.fadeOutOff = b.fadeOutOff || 0;
+  if (b.vFadeOut) a.vFadeOut = b.vFadeOut; else delete a.vFadeOut;
+  a.dur += b.dur;
+}
+// Join: pulls the next clip up against this one when there is a gap, and when the two carry on from each other (a split that was
+// never changed) makes them one clip again. out.msg says what happened; out.merged is true when they became one clip.
+function joinWithNext(p, id, out){
+  out = out || {};
+  var f = findClip(p, id); if (!f) return p;
+  var q = cloneProject(p), qf = findClip(q, id), a = qf.clip, sorted = qf.track.clips.slice().sort(byStart), i = sorted.indexOf(a), nx = sorted[i + 1];
+  if (!nx){ out.msg = 'There is nothing after this clip to join with.'; return p; }
+  var gap = nx.start - clipEnd(a), closed = false;
+  if (gap > 0){
+    var mv = {}; sorted.slice(i + 1).forEach(function (c){ linkedIds(q, c.id).forEach(function (cid){ mv[cid] = true; }); });
+    Object.keys(mv).forEach(function (cid){ findClip(q, cid).clip.start -= gap; });
+    closed = true;
+  }
+  var aIds = linkedIds(q, a.id), bIds = linkedIds(q, nx.id), pairs = [], ok = aIds.length === bIds.length;
+  if (ok) aIds.forEach(function (x){
+    var fx = findClip(q, x), mate = bIds.map(function (y){ return findClip(q, y); }).filter(function (g){ return g.track === fx.track; })[0];
+    if (mate && canMerge(fx.clip, mate.clip)) pairs.push([fx.clip, mate.clip]); else ok = false;
+  });
+  if (ok && pairs.length){
+    pairs.forEach(function (pr){ mergeInto(pr[0], pr[1]); });
+    q.tracks.forEach(function (tr){ tr.clips = tr.clips.filter(function (c){ return !pairs.some(function (pr){ return pr[1] === c; }); }); });
+    out.merged = true; out.msg = 'Joined into one clip.';
+  } else if (closed) out.msg = 'Gap closed. These two parts come from different places in the movie, so they stay as two clips side by side.';
+  else { out.msg = 'These two are already side by side, but they come from different places, so they cannot become one clip.'; return p; }
+  return validate(q).length ? p : finish(q);
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -703,9 +799,10 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
   setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
-  parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf };
+  parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
+  placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'captions-detach'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'drag-join'; }
