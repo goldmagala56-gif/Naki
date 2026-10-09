@@ -74,6 +74,7 @@ var NakiPlan = (function () {
     var plan = { naki: 'export-plan', version: 2, durationMs: total,
       movie: { name: mv && mv.name, durationMs: mv && mv.durMs }, video: video, audio: audio };
     if (texts.length) plan.texts = texts;
+    if (p.format && p.format.ratio) plan.format = { ratio: p.format.ratio, bg: p.format.bg ? { type: p.format.bg.type, color: p.format.bg.color } : { type: 'navy' } };
     return plan;
   }
   var TEXT_POS = { top: 0.07, center: 0.40, bottom: 0.76 };
@@ -84,4 +85,4 @@ var NakiPlan = (function () {
 })();
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'text-styles'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'format-bg'; }

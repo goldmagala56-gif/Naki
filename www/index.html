@@ -359,6 +359,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="core.js"></script>
 <script src="reverse.js"></script>
 <script src="look.js"></script>
+<script src="format.js"></script>
 <script src="project.js"></script>
 <script src="voice.js"></script>
 <script src="plan.js"></script>
@@ -1485,6 +1486,9 @@ $('bExport').onclick = function(){
   var targetH = Math.max(480, Math.min(cap, sourceH));
   var ffmpegOpts = { height: targetH, crf: sharper ? 20 : 23, preset: sharper ? 'veryfast' : 'superfast', vertical: S.exportVertical };
   var webcodecsOpts = { height: targetH, quality: S.exportQuality, vertical: S.exportVertical };
+  // The shape chosen in the editor (Format) wins; otherwise the Landscape / Vertical buttons decide.
+  var fmt0 = plan.format, ratio0 = (fmt0 && fmt0.ratio && fmt0.ratio !== 'original') ? fmt0.ratio : (S.exportVertical ? '9:16' : 'original');
+  ffmpegOpts.ratio = webcodecsOpts.ratio = ratio0; ffmpegOpts.bg = webcodecsOpts.bg = (fmt0 && fmt0.bg) || null;
   if (S.logoFile) { ffmpegOpts.logoFile = S.logoFile; webcodecsOpts.logoFile = S.logoFile; }
     if (S.sess.musicFile) { ffmpegOpts.musicFile = S.sess.musicFile; webcodecsOpts.musicFile = S.sess.musicFile; }
   runExport(plan, ffmpegOpts, webcodecsOpts, S.movieFile, S.sess.voiceBlob, {
@@ -1555,7 +1559,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'editor.js': 'dock-captions', 'project.js': 'captions-detach', 'plan.js': 'text-styles', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
+  var want = { 'editor.js': 'format-bg', 'project.js': 'format-bg', 'plan.js': 'format-bg', 'format.js': 'format-bg', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';

@@ -16,6 +16,7 @@
 */
 
 var _RV = (typeof module !== 'undefined' && module.exports) ? require('./reverse.js') : window.NakiReverse;
+var _FMT = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
 var FPS = 30;
 var SR = 48000;
 var GAIN_HZ = 1000;
@@ -60,9 +61,9 @@ function buildGainRaw(points, totalMs) {
 }
 
 /* ---------- pure: turn the export plan into a list of ffmpeg.wasm jobs ---------- */
-function fitFilter(outW, outH, vertical) {
+function fitFilter(outW, outH, vertical, padHex) {
   return vertical
-    ? 'scale=' + outW + ':' + outH + ':force_original_aspect_ratio=decrease:flags=bicubic,pad=' + outW + ':' + outH + ':(ow-iw)/2:(oh-ih)/2:color=0x111b24'
+    ? 'scale=' + outW + ':' + outH + ':force_original_aspect_ratio=decrease:flags=bicubic,pad=' + outW + ':' + outH + ':(ow-iw)/2:(oh-ih)/2:color=' + (padHex || '0x111b24')
     : 'scale=' + outW + ':' + outH + ':flags=bicubic';
 }
 
@@ -90,15 +91,21 @@ function planToJobs(plan, movieInfo, opts) {
   var tier = opts.height || 480;
   var preset = opts.preset || 'veryfast';
   var crf = opts.crf != null ? opts.crf : 26;
-  var vertical = !!opts.vertical;
+  var ratio = opts.ratio || (opts.vertical ? '9:16' : 'original');
+  var bg = _FMT ? _FMT.normalizeBg(opts.bg) : { type: 'navy', color: '#000000' };
+  var vertical = ratio !== 'original';   // from here on, "vertical" means: fit the whole picture inside the frame, with space around it
   var width, height;
-  if (vertical) {
+  if (vertical && _FMT && ratio !== '9:16') {
+    var fsz = _FMT.frameSize(tier, ratio, movieInfo.width, movieInfo.height, movieInfo.sar); width = fsz.width; height = fsz.height;
+  } else if (vertical) {
     width = tier;
     height = Math.max(2, Math.round(tier * 16 / 9 / 2) * 2);
   } else {
     height = tier;
     width = Math.max(2, Math.round((tier * (movieInfo.width * movieInfo.sar / movieInfo.height)) / 2) * 2);
   }
+  var padHex = _FMT && bg.type === 'color' ? _FMT.ffmpegHex(bg.color) : '0x111b24', bgYUV = _FMT && bg.type === 'color' ? _FMT.yuv(bg.color) : [37, 133, 123];
+  var blur = vertical && bg.type === 'blur' && !!_FMT;
   var wm = opts.hasLogo ? watermarkFilter(width, opts.logoCorner) : null;
   var R = function (ms) { return Math.round(ms * FPS / 1000); };
   var Sm = function (ms) { return Math.round(ms * SR / 1000); };
@@ -121,7 +128,7 @@ function planToJobs(plan, movieInfo, opts) {
     if (sp.opacity != null && sp.opacity < 1) {   // mix the picture with the navy background, plane by plane (navy = Y 37, U 133, V 123)
       var o = sp.opacity, k = 1 - o;
       
-      parts.push("lutyuv=y='val*" + o.toFixed(3) + '+' + (37 * k).toFixed(2) + "':u='val*" + o.toFixed(3) + '+' + (133 * k).toFixed(2) + "':v='val*" + o.toFixed(3) + '+' + (123 * k).toFixed(2) + "'");
+      parts.push("lutyuv=y='val*" + o.toFixed(3) + '+' + (bgYUV[0] * k).toFixed(2) + "':u='val*" + o.toFixed(3) + '+' + (bgYUV[1] * k).toFixed(2) + "':v='val*" + o.toFixed(3) + '+' + (bgYUV[2] * k).toFixed(2) + "'");
     }
     (_LK.ffmpegExtras(f) || []).forEach(function (x) { parts.push(x); });
     if (sp.vFadeIn) parts.push('fade=t=in:st=0:d=' + (sp.vFadeIn / 1000).toFixed(3));
@@ -136,14 +143,15 @@ function planToJobs(plan, movieInfo, opts) {
     var look = lookChain(sp, spanSec);
     var over = textFiles.filter(function (t) { return t.clip.startMs < sp.sessionEnd && t.clip.startMs + t.clip.durMs > sp.sessionStart; });
     var tpad = tpadSec ? 'tpad=stop_mode=clone:stop_duration=' + tpadSec : '';
-    if (!wm && !over.length && !look && !(speed && speed !== 1)) {
+    var isGraph = !!fitChain && typeof fitChain === 'object';   // a blurred background is a whole filter graph, not a chain
+    if (!isGraph && !wm && !over.length && !look && !(speed && speed !== 1)) {
       // a plain clip: exactly the chain the earlier versions used
       return sourceArgs.concat(['-an', '-vf', fitChain + (tpad ? ',' + tpad : '') + ',setsar=1,fps=' + FPS + ',format=yuv420p', '-frames:v', String(nFrames)], tailEnc);
     }
     var inputs = sourceArgs.slice(), next = 1, fc = [], n = 0;
-    var head = (fitChain === 'null' ? '' : fitChain + ',') + 'setsar=1' + (speed && speed !== 1 ? ',setpts=PTS/' + speed : '') + ',fps=' + FPS +
+    var head = (isGraph || fitChain === 'null' ? '' : fitChain + ',') + 'setsar=1' + (speed && speed !== 1 ? ',setpts=PTS/' + speed : '') + ',fps=' + FPS +
       (tpad ? ',' + tpad : '') + ',format=yuv420p' + (look ? ',' + look : '');
-    fc.push('[0:v]' + head + '[v0]');
+    fc.push(isGraph ? fitChain.graph('[0:v]', '[f0]') + ';[f0]' + head + '[v0]' : '[0:v]' + head + '[v0]');
     var cur = 'v0';
     if (wm) {
       inputs.push('-i', 'logo.png');
@@ -160,8 +168,8 @@ function planToJobs(plan, movieInfo, opts) {
   }
 
   var jobs = [], videoList = [];
-  var fit = fitFilter(width, height, vertical);
-  var containFit = fitFilter(width, height, true);   // fit inside the frame with navy bars (used when a picture is turned on its side)
+  var fit = fitFilter(width, height, vertical, padHex);
+  var containFit = fitFilter(width, height, true, padHex);   // fit inside the frame with navy bars (used when a picture is turned on its side)
   // Flip and turn first, then zoom into what is on screen, then fit to the output size. Same order as the editor preview.
   function transformFit(sp) {
     var t = sp.transform;
@@ -180,6 +188,24 @@ function planToJobs(plan, movieInfo, opts) {
     return parts.join(',');
   }
 
+  // The same flip, turn and zoom as transformFit, without the fitting (the blurred-background picture does its own fitting).
+  function transformPre(sp) {
+    var t = sp.transform; if (!t) return '';
+    var rot = t.rot || 0, parts = [], z = t.zoom || 1;
+    if (t.flipH) parts.push('hflip');
+    if (rot === 90) parts.push('transpose=1'); else if (rot === 180) parts.push('hflip,vflip'); else if (rot === 270) parts.push('transpose=2');
+    if (z > 1) parts.push('crop=w=trunc(iw/' + z + '/2)*2:h=trunc(ih/' + z + '/2)*2:x=(iw-ow)/2*(1+(' + (t.x || 0) + ')):y=(ih-oh)/2*(1+(' + (t.y || 0) + '))');
+    return parts.join(',');
+  }
+  // How a picture is fitted to the frame: a filter chain (text), or for a blurred background a graph (an object with .graph(in, out)).
+  function pictureFit(sp) {
+    return blur ? { graph: function (a, b) { return _FMT.blurGraph(a, b, width, height, transformPre(sp)); } } : transformFit(sp);
+  }
+  function freezeFilterArgs(sp) {
+    var g = pictureFit(sp);
+    return typeof g === 'object' ? ['-filter_complex', g.graph('[0:v]', '[o]') + ';[o]setsar=1[o2]', '-map', '[o2]'] : ['-vf', g + ',setsar=1'];
+  }
+
   /* --- picture --- */
   plan.video.forEach(function (sp, i) {
     var id = String(i).padStart(4, '0');
@@ -195,16 +221,16 @@ function planToJobs(plan, movieInfo, opts) {
         jobs.push({ label: 'picture ' + (i + 1), produces: vfile, files: rv.files,
           args: pictureArgs(rv.sourceArgs, 'null', nFrames, vfile, sp, spanSec, 1, 1) });
       } else jobs.push({ label: 'picture ' + (i + 1), produces: vfile,
-        args: pictureArgs(['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in'], transformFit(sp), nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
+        args: pictureArgs(['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in'], pictureFit(sp), nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
     } else if (sp.type === 'freeze') {
       var png = 'f' + id + '.png';
       jobs.push({ label: 'frozen frame ' + (i + 1), produces: png, args: ['-ss', clampSec(sp.movieAt).toFixed(3), '-i', 'movie.in', '-an', '-frames:v', '1',
-        '-vf', transformFit(sp) + ',setsar=1', png] });
+        ].concat(freezeFilterArgs(sp), [png]) });
       jobs.push({ label: 'frozen picture ' + (i + 1), produces: vfile,
         args: pictureArgs(['-loop', '1', '-framerate', String(FPS), '-i', png], 'null', nFrames, vfile, sp, spanSec, 1, 0) });
     } else {
       jobs.push({ label: 'blank picture ' + (i + 1), produces: vfile,
-        args: pictureArgs(['-f', 'lavfi', '-i', 'color=c=0x111b24:s=' + width + 'x' + height + ':r=' + FPS], 'null', nFrames, vfile, sp, spanSec, 1, 0) });
+        args: pictureArgs(['-f', 'lavfi', '-i', 'color=c=' + padHex + ':s=' + width + 'x' + height + ':r=' + FPS], 'null', nFrames, vfile, sp, spanSec, 1, 0) });
     }
     videoList.push(vfile);
   });

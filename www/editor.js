@@ -6,6 +6,7 @@
 var NakiEditor = (function () {
   var P = (typeof module !== 'undefined' && module.exports) ? require('./project.js') : window.NakiProject;
   var NP = (typeof module !== 'undefined' && module.exports) ? require('./plan.js') : window.NakiPlan;
+  var NF = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
   var PAD = 16, MIN_PPM = 0.004, MAX_PPM = 0.6, FRAME_MS = 33;
   var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text', captions: 'Captions' };
   var E = { hooks: null, root: null, ui: {}, hist: null, proj: null, sess: null, sel: null, t: 0, playing: false, ppm: 0.06,
@@ -47,7 +48,8 @@ var NakiEditor = (function () {
     { name: 'audio', label: 'Audio', icon: svg('<path d="M9 18.5a2.8 2.8 0 11-2.8-2.8c.5 0 1 .1 1.4.4V5l11-2.5v13.6a2.8 2.8 0 11-2.8-2.8c.5 0 1 .1 1.4.4V6.1L9 8.3z"/>', true), go: function (){ openTool('audio'); } },
     { name: 'text', label: 'Text', icon: svg('<path d="M5 6.5V5h14v1.5M12 5v14M9.5 19h5"/>'), go: function (){ openTool('text'); } },
     { name: 'speed', label: 'Speed', icon: svg('<path d="M4 15a8 8 0 1116 0"/><path d="M12 15l4-5"/><circle cx="12" cy="15" r="1.6" fill="currentColor"/>'), go: function (){ openPanel('speed', 'edit'); } },
-    { name: 'filter', label: 'Adjust', icon: svg('<path d="M4 7h10M18 7h2M4 12h2M10 12h10M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="17" r="2"/>'), go: function (){ openPanel('adjust', 'edit'); } }
+    { name: 'filter', label: 'Adjust', icon: svg('<path d="M4 7h10M18 7h2M4 12h2M10 12h10M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="17" r="2"/>'), go: function (){ openPanel('adjust', 'edit'); } },
+    { name: 'format', label: 'Format', icon: svg('<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10v4M17 10v4"/>'), go: function (){ openPanel('format'); } }
   ];
 
   // ---------- building the screen ----------
@@ -66,6 +68,8 @@ var NakiEditor = (function () {
     // preview: the movie goes in here when the editor opens; titles are drawn over it
     u.stage = mk('div', 'ed-stage'); u.stageMsg = mk('div', 'ed-stage-msg'); u.stage.appendChild(u.stageMsg);
     u.picframe = mk('div', 'ed-picframe'); u.stage.appendChild(u.picframe);
+    u.bgvid = mk('video', 'ed-bgvid'); u.bgvid.muted = true; u.bgvid.setAttribute('playsinline', ''); u.bgvid.setAttribute('aria-hidden', 'true'); u.bgvid.preload = 'auto';
+    u.picbox = mk('div', 'ed-picbox'); u.picframe.appendChild(u.bgvid); u.picframe.appendChild(u.picbox);
     // "More adjust" looks are laid over the picture here: a colour layer that multiplies (warmth), and a veil (faded look + vignette)
     u.picframe.style.isolation = 'isolate';
     u.tint = mk('div'); u.tint.style.cssText = 'position:absolute;inset:0;pointer-events:none;mix-blend-mode:multiply;display:none';
@@ -761,6 +765,23 @@ var NakiEditor = (function () {
       if (c.caption) body.appendChild(actions([{ id: 'edCapStyleAll', label: 'Apply this look to all captions', run: function (){
         commit(P.setCaptionStyle(E.hist.cur, { size: c.size, color: c.color, pos: c.pos, weight: c.weight, bg: c.bg, font: c.font || 'sans', outline: c.outline || 0, shadow: c.shadow == null ? 1 : c.shadow })); toast('Every caption has this look now.'); } }]));
     } },
+    format: { title: 'Format', build: function (body){
+      var cur = E.proj.format || {}, ratio = cur.ratio || 'original', bg = NF.normalizeBg(cur.bg);
+      var set = function (patch){ commit(P.setFormat(E.hist.cur, patch)); };
+      body.appendChild(chips(NF.RATIOS, ratio, function (k){ set({ ratio: k }); }));
+      if (ratio === 'original'){ body.appendChild(mk('div', 'ed-hint', 'Original keeps the shape of your movie. Pick a shape for TikTok, Instagram or YouTube, then choose what fills the space around the picture.')); return; }
+      body.appendChild(chips([{ key: 'navy', label: 'Dark' }, { key: 'color', label: 'Colour' }, { key: 'blur', label: 'Blur' }], bg.type, function (k){ set({ bg: { type: k } }); }));
+      if (bg.type === 'color'){
+        body.appendChild(chips(NF.SWATCHES, bg.color, function (k){ set({ bg: { type: 'color', color: k } }); }));
+        var ci = mk('input'); ci.type = 'color'; ci.value = bg.color; ci.setAttribute('aria-label', 'Background colour');
+        ci.oninput = function (){ live(P.setFormat(E.hist.cur, { bg: { type: 'color', color: ci.value } })); layoutPicture(); };
+        ci.onchange = function (){ set({ bg: { type: 'color', color: ci.value } }); };
+        var cr = mk('div', 'ed-mixrow wide'); add(cr, mk('span', 'ed-mixname', 'Pick colour'), ci); body.appendChild(cr);
+      }
+      body.appendChild(mk('div', 'ed-hint', bg.type === 'blur'
+        ? 'A soft, blurred copy of the picture fills the space around it. The preview plays the movie twice, so it can be slower on a small phone. The export is not affected.'
+        : 'The whole picture stays visible, with this filling the space around it. Zoom still works inside the picture.'));
+    } },
     texts: { title: 'Your texts', build: function (body){
       var list = allTexts();
       if (!list.length){ body.appendChild(mk('div', 'ed-hint', 'No text yet. Tap Add text.')); return; }
@@ -780,9 +801,60 @@ var NakiEditor = (function () {
   };
 
   /* ---------- titles drawn over the preview ---------- */
-  function layoutTextLayer(){
+  // ----- format and background (the shape of the video, and what fills the space around the picture) -----
+  function frameAspect(){
+    var f = E.proj && E.proj.format;
+    return (NF && f) ? (NF.ratioValue(f.ratio) || 0) : 0;
+  }
+  function resetBox(m){
+    var u = E.ui;
+    u.picbox.style.left = u.picbox.style.top = '0'; u.picbox.style.width = u.picbox.style.height = '100%';
+    m.style.position = ''; m.style.left = m.style.top = ''; m.style.width = m.style.height = '';
+  }
+  // The picture's CSS transform. With the original shape it is exactly what it was. With any other shape the picture is fitted inside the
+  // frame (space around it) and zoom / turn / flip happen inside that picture, the way the export does it.
+  function framePicture(t, m){
+    var u = E.ui, fr = frameAspect(), W = u.picframe.clientWidth, H = u.picframe.clientHeight;
+    if (!fr || !W || !H || !m.videoWidth || !NF){
+      if (E.boxMode !== 'plain'){ resetBox(m); E.boxMode = 'plain'; E.boxKey = null; }
+      return transformCss(t, (m.videoWidth && m.videoHeight) ? m.videoWidth / m.videoHeight : 16 / 9);
+    }
+    var L = NF.containLayout(t, W, H, m.videoWidth, m.videoHeight), key = [W, H, m.videoWidth, m.videoHeight, L.rot].join('|');
+    if (E.boxKey !== key){
+      var b = L.box;
+      u.picbox.style.left = b.x + 'px'; u.picbox.style.top = b.y + 'px'; u.picbox.style.width = b.w + 'px'; u.picbox.style.height = b.h + 'px';
+      m.style.position = 'absolute'; m.style.left = ((b.w - L.dw) / 2) + 'px'; m.style.top = ((b.h - L.dh) / 2) + 'px'; m.style.width = L.dw + 'px'; m.style.height = L.dh + 'px';
+      E.boxKey = key; E.boxMode = 'contain';
+    }
+    return 'translate(' + L.panX + 'px,' + L.panY + 'px) scale(' + L.zoom + ') rotate(' + L.rot + 'deg)' + (L.flip ? ' scaleX(-1)' : '');
+  }
+  // Frame colour, the blurred copy behind the picture, and the picture's place: after the shape or the window size changed.
+  function layoutPicture(){
+    var u = E.ui, m = E.hooks && E.hooks.movie, f = E.proj && E.proj.format; if (!u.picbox || !m) return;
+    var bg = (frameAspect() && NF) ? NF.normalizeBg(f.bg) : null;
+    u.picframe.style.background = bg ? NF.fillColor(bg) : '#111b24';
+    E.bgOn = !!(bg && bg.type === 'blur');
+    u.bgvid.style.display = E.bgOn ? 'block' : 'none';
+    if (!E.bgOn){ try { u.bgvid.pause(); } catch (e) {} }
+    E.boxKey = null;
+    var s = P.sourceAt(E.proj, E.t), vc = s.video && s.video.clip, css = framePicture(vc ? vc.transform : null, m);
+    E.lastTransform = vc ? css : ''; m.style.transform = vc ? css : '';
+    syncBackdrop(m);
+  }
+  // The blurred background is a second, muted copy of the movie kept in step with the first.
+  function syncBackdrop(m){
+    var b = E.ui.bgvid; if (!b || !E.bgOn) return;
+    var src = m.currentSrc || m.src;
+    if (src && b.getAttribute('data-src') !== src){ b.setAttribute('data-src', src); b.src = src; b.muted = true; }
+    if (Math.abs(b.currentTime - m.currentTime) > 0.25){ try { b.currentTime = m.currentTime; } catch (e) {} }
+    if (!m.paused && b.paused){ var pr = b.play(); if (pr && pr.catch) pr.catch(function (){}); }
+    else if (m.paused && !b.paused) b.pause();
+  }
+  function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); }
+  function layoutTextLayerBase(){
     var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe]; if (!boxes[0]) return;
     var sw = st.clientWidth, sh = st.clientHeight, vw = m && m.videoWidth, vh = m && m.videoHeight;
+    var fr0 = frameAspect(); if (fr0){ vw = Math.round(fr0 * 1000); vh = 1000; }   // the frame has the chosen shape, not the movie's
     boxes.forEach(function (l){
       if (sw && sh && vw && vh){
         var sc = Math.min(sw / vw, sh / vh), w = vw * sc, h = vh * sc;
@@ -866,7 +938,7 @@ var NakiEditor = (function () {
     if (veilBg !== E.lastVeil){ E.ui.veil.style.background = veilBg; E.ui.veil.style.display = veilBg ? 'block' : 'none'; E.lastVeil = veilBg; }
     if (ex.sharpen !== E.lastSharp){ if (ex.sharpen) E.ui.sharpK.setAttribute('kernelMatrix', LK.sharpenKernel(ex.sharpen)); E.lastSharp = ex.sharpen; }
     var op = vc ? String(vc.opacity != null ? vc.opacity : 1) : '0';
-    var tcss = vc ? transformCss(vc.transform, (m.videoWidth && m.videoHeight) ? m.videoWidth / m.videoHeight : 16 / 9) : '';
+    var tcss = vc ? framePicture(vc.transform, m) : '';
     if (tcss !== E.lastTransform){ m.style.transform = tcss; E.lastTransform = tcss; }
     if (css !== E.lastFilter){ m.style.filter = css; E.lastFilter = css; }
     if (op !== E.lastOpacity){ m.style.opacity = op; E.lastOpacity = op; }
@@ -886,6 +958,7 @@ var NakiEditor = (function () {
       } else if (!m.paused) m.pause();
     }
     renderTexts(P.textsAt(E.proj, E.t));
+    syncBackdrop(m);
     var ms = null, vo = null, mu = null;
     s.audio.forEach(function (a){ if (a.role === 'movieSound') ms = a; else if (a.role === 'voice') vo = a; else if (a.role === 'music') mu = a; });
     h.setMovieGain(ms && !ms.clip.reverse ? ms.gain : 0);
@@ -915,7 +988,7 @@ var NakiEditor = (function () {
   }
   function pause(){
     E.playing = false; if (E.raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(E.raf); E.raf = 0;
-    try { E.hooks.movie.pause(); E.hooks.voice.pause(); if (E.hooks.music) E.hooks.music.pause(); } catch (e) {}
+    try { E.hooks.movie.pause(); E.hooks.voice.pause(); if (E.hooks.music) E.hooks.music.pause(); E.ui.bgvid.pause(); } catch (e) {}
     updateButtons();
   }
   function loop(){
@@ -1059,11 +1132,11 @@ var NakiEditor = (function () {
     E.hist = c.hist; E.proj = c.hist.cur; E.sess = sess; E.sel = null; E.t = 0; E.playing = false; E.quiet = null; E.voiceDurMs = opts.voiceDurMs || null;
     E.quietDb = -42; (sess.events || []).forEach(function (e){ if (e.type === 'duck' && typeof e.thresholdDb === 'number') E.quietDb = e.thresholdDb; });
     var m = E.hooks.movie; E.home = m.parentNode ? { parent: m.parentNode, next: m.nextSibling } : null;
-    E.ui.picframe.insertBefore(m, E.ui.picframe.firstChild);
+    E.ui.picbox.appendChild(m);
     E.ui.stageMsg.textContent = movieReady() ? '' : 'Choose the movie for this session in Preview first, then come back to edit.';
     E.ui.note.textContent = c.restored ? 'Your earlier edits were restored.' : '';
     showSaved(c.restored || c.hist.past.length ? 'Saved' : '');
-    E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.lastTint = E.lastVeil = ''; E.lastSharp = -1;
+    E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; E.boxKey = null; E.boxMode = '';
     E.tool = null; E.panel = null; E.autoDock = false; E.rowScroll = null; E.chip = {}; renderDock();
     E.root.hidden = false; E.isOpen = true;
     document.addEventListener('keydown', onKey);
@@ -1071,7 +1144,7 @@ var NakiEditor = (function () {
   }
   function close(){
     if (!E.isOpen) return;
-    pause(); endDrag(true);
+    pause(); endDrag(true); try { E.ui.bgvid.pause(); } catch (e) {}
     if (E.saveT) flushSave();
     document.removeEventListener('keydown', onKey);
     var h = E.hooks; try { h.voice.volume = 1; if (E.voiceGain) E.voiceGain.gain.value = 1; if (E.musicGain) E.musicGain.gain.value = 1; h.setMovieGain(1); } catch (e) {}
@@ -1091,4 +1164,4 @@ var NakiEditor = (function () {
 if (typeof module !== 'undefined' && module.exports) module.exports = NakiEditor;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'drag-join'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'format-bg'; }

@@ -130,3 +130,7 @@
 .ed-drop{position:absolute;top:2px;bottom:2px;border:2px dashed var(--mango);border-radius:7px;background:rgba(255,200,60,.12);pointer-events:none;z-index:1}
 .ed-drop.push{border-style:solid}
 .ed-clip.dragging{opacity:.85;z-index:4;box-shadow:0 4px 14px rgba(0,0,0,.5)}
+
+/* format and background: the frame has the chosen shape; the picture sits in its own box inside it, over an optional blurred copy */
+.ed-picbox{position:absolute;inset:0;overflow:hidden}
+.ed-picframe video.ed-bgvid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(16px);transform:scale(1.2);display:none;pointer-events:none}

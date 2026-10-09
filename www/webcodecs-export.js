@@ -24,6 +24,7 @@
 
 var WebCodecsExport = (function () {
   var LK = (typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook;
+  var FM = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
   var FPS = 30;
   var AUDIO_SR = 48000;
   var WINDOW_S = 20;   // seconds of sound rendered at a time
@@ -317,8 +318,10 @@ var WebCodecsExport = (function () {
     var sink = new M.VideoSampleSink(videoTrack);
 
     var tier = opts.height || 720;
-    var size = targetSize(tier, !!opts.vertical, videoTrack.codedWidth || 1280, videoTrack.codedHeight || 720);
-    var W = size.width, H = size.height, vertical = !!opts.vertical;
+    var ratio = opts.ratio || (opts.vertical ? '9:16' : 'original');
+    var size = (ratio !== 'original' && FM && ratio !== '9:16') ? FM.frameSize(tier, ratio, videoTrack.codedWidth || 1280, videoTrack.codedHeight || 720, 1)
+      : targetSize(tier, ratio !== 'original', videoTrack.codedWidth || 1280, videoTrack.codedHeight || 720);
+    var W = size.width, H = size.height, vertical = ratio !== 'original';
 
     var canvas = makeCanvas(W, H), ctx = canvas.getContext('2d');       // what the encoder sees
     var layer = makeCanvas(W, H), lctx = layer.getContext('2d');        // the picture part of the current frame
@@ -334,9 +337,11 @@ var WebCodecsExport = (function () {
       return { c: c, a: t.startMs, b: t.startMs + t.durMs };
     });
 
-    // paints the picture part: navy, then the picture with its flip / turn / zoom / opacity / look
+    // the background of each frame: navy for the original shape; for other shapes the chosen colour or a blurred copy of the picture
+    var paintBg = FM ? FM.makeBackgroundPainter(makeCanvas, W, H, vertical ? opts.bg || { type: 'navy' } : null) : function (g) { g.fillStyle = NAVY; g.fillRect(0, 0, W, H); };
+    // paints the picture part: the background, then the picture with its flip / turn / zoom / opacity / look
     function paintLayer(img, iw, ih, sp) {
-      lctx.fillStyle = NAVY; lctx.fillRect(0, 0, W, H);
+      paintBg(lctx, img, iw, ih);
       if (img) { drawPicture(lctx, img, iw, ih, W, H, vertical, sp); applyExtras(lctx, sp.filter, W, H); }
     }
     function paintSample(sample, sp) {

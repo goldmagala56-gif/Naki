@@ -12,6 +12,7 @@ var _C = (typeof module !== 'undefined' && module.exports) ? require('./core.js'
   buildVideoSpans: buildVideoSpans, buildGainSeries: buildGainSeries, simplifyGain: simplifyGain,
   LEVEL_STEP_MS: LEVEL_STEP_MS, byteToDb: byteToDb, DB_MIN: DB_MIN };
 
+var _FM = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
 var _idn = 0;
 function newId(p){ _idn++; return p + _idn.toString(36) + Math.random().toString(36).slice(2, 6); }
 function r3(x){ return Math.round(x * 1000) / 1000; }
@@ -40,7 +41,8 @@ function gainSlice(points, from, to){   // curve for [from,to), re-based so "fro
 // ---------- project basics ----------
 function cloneProject(p){   // tracks/assets are copied; the big levels array is shared (never edited in place)
   return { naki: p.naki, version: p.version, fps: p.fps, durationMs: p.durationMs, levels: p.levels,
-    assets: JSON.parse(JSON.stringify(p.assets)), tracks: JSON.parse(JSON.stringify(p.tracks)) };
+    assets: JSON.parse(JSON.stringify(p.assets)), tracks: JSON.parse(JSON.stringify(p.tracks)),
+    format: p.format ? JSON.parse(JSON.stringify(p.format)) : undefined };
 }
 function finish(p){
   var d = 0;
@@ -772,6 +774,19 @@ function joinWithNext(p, id, out){
   return validate(q).length ? p : finish(q);
 }
 
+// ---------- format (the shape of the video) and background ----------
+// patch = { ratio: 'original' | '9:16' | '16:9' | '1:1' | '4:5' | '4:3' | '3:4', bg: { type: 'navy' | 'color' | 'blur', color: '#rrggbb' } }; either part may be left out.
+// The default (original shape, dark background) is not stored, so projects that never use this look exactly as before.
+function setFormat(p, patch){
+  patch = patch || {};
+  var cur = p.format || {}, ratio = patch.ratio !== undefined ? patch.ratio : (cur.ratio || 'original');
+  if (!_FM || !_FM.isRatio(ratio)) return p;
+  var bg = _FM.normalizeBg(Object.assign({}, cur.bg || {}, patch.bg || {}));
+  var q = cloneProject(p);
+  if (ratio === 'original' && bg.type === 'navy') delete q.format; else q.format = { ratio: ratio, bg: bg };
+  return JSON.stringify(q.format) === JSON.stringify(p.format) ? p : q;
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -800,9 +815,9 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
-  placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext };
+  placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'drag-join'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'format-bg'; }
