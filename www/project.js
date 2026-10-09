@@ -51,6 +51,7 @@ function finish(p){
     tr.clips.forEach(function (c){ d = Math.max(d, clipEnd(c)); });
   });
   p.durationMs = d;
+  p.tracks = p.tracks.filter(function (t){ return t.kind !== 'sticker' || t.clips.length; });   // an empty sticker row goes away
   return p;
 }
 function findClip(p, id){
@@ -67,7 +68,7 @@ function sliceClip(c, from, to){   // the part of clip c covering timeline [from
     n.in = c.reverse ? c.in + Math.round((clipEnd(c) - to) * (c.speed || 1)) : c.in + Math.round((from - c.start) * (c.speed || 1));
   if (c.gain && c.gain.length) n.gain = gainSlice(c.gain, from - c.start, to - c.start);
   // fades belong to the original clip's ends: remember how much of each fade a piece has already used up
-  if (from > c.start){ n.fadeInOff = (c.fadeInOff || 0) + (from - c.start); if (n.fadeInOff >= (c.fadeIn || 0)){ n.fadeIn = 0; n.fadeInOff = 0; } delete n.vFadeIn; }
+  if (from > c.start){ n.fadeInOff = (c.fadeInOff || 0) + (from - c.start); if (n.fadeInOff >= (c.fadeIn || 0)){ n.fadeIn = 0; n.fadeInOff = 0; } delete n.vFadeIn; delete n.transition; }
   if (to < clipEnd(c)){ n.fadeOutOff = (c.fadeOutOff || 0) + (clipEnd(c) - to); if (n.fadeOutOff >= (c.fadeOut || 0)){ n.fadeOut = 0; n.fadeOutOff = 0; } delete n.vFadeOut; }
   return n;
 }
@@ -410,7 +411,7 @@ function insertFreeze(p, t, dur){
     var out = [];
     tr.clips.forEach(function (c){
       var e = clipEnd(c);
-      if (tr.kind === 'text'){ if (c.start >= t) c.start += dur; else if (e > t) c.dur += dur; out.push(c); return; }
+      if (tr.kind === 'text' || tr.kind === 'sticker'){ if (c.start >= t) c.start += dur; else if (e > t) c.dur += dur; out.push(c); return; }
       if (inFreeze && tr.role === 'movie' && c.start <= t && t < e){ c.dur += dur; out.push(c); return; }
       if (c.start >= t){ c.start += dur; out.push(c); return; }
       if (e <= t){ out.push(c); return; }
@@ -787,6 +788,91 @@ function setFormat(p, patch){
   return JSON.stringify(q.format) === JSON.stringify(p.format) ? p : q;
 }
 
+// ---------- transitions (between two picture clips that touch) ----------
+// A transition is stored on the clip that comes AFTER the cut: clip.transition = { type, durMs }. It takes half of its length from the end of the
+// clip before and half from the start of this one (using the movie that carries on past each cut), so the video does not get longer or shorter.
+var TRANSITION_TYPES = ['fade', 'fadeblack', 'wipeleft', 'slideleft', 'zoomin', 'circleopen'];
+function pictureLane(p){ return p.tracks.filter(function (t){ return t.role === 'movie'; })[0] || null; }
+function transitionOk(a, b){
+  return !!(a && b && (a.type === 'video' || a.type === 'freeze') && (b.type === 'video' || b.type === 'freeze') && !a.reverse && !b.reverse && clipEnd(a) === b.start);
+}
+// Every transition that can really happen: { at, durMs, type, aId, bId }. Lengths are cut down so a clip never gives away more than it has.
+function transitionList(p){
+  var lane = pictureLane(p); if (!lane) return [];
+  var cs = lane.clips.slice().sort(byStart), out = [];
+  for (var i = 1; i < cs.length; i++){
+    var a = cs[i - 1], b = cs[i], tr = b.transition;
+    if (!tr || !transitionOk(a, b)) continue;
+    out.push({ at: b.start, durMs: Math.min(Math.round(tr.durMs || 0), a.dur - 100, b.dur - 100), type: tr.type, aId: a.id, bId: b.id });
+  }
+  out.forEach(function (x, k){   // a clip with a transition at both ends: the two halves together must still leave 100 ms of the clip
+    var nx = out[k + 1];
+    if (nx && nx.aId === x.bId){
+      var c = lane.clips.filter(function (y){ return y.id === x.bId; })[0], total = (x.durMs + nx.durMs) / 2, room = c.dur - 100;
+      if (total > room && total > 0){ var f = room / total; x.durMs = Math.floor(x.durMs * f); nx.durMs = Math.floor(nx.durMs * f); }
+    }
+  });
+  return out.filter(function (x){ return x.durMs >= 100; });
+}
+function srcAtTime(c, t){ return c.type === 'freeze' ? c.in : Math.max(0, Math.round(c.in + (t - c.start) * (c.speed || 1))); }
+// If time t is inside a transition: how far through it we are (0 to 1), which side of the cut, and where each picture is in the movie.
+function transitionAt(p, t){
+  var list = transitionList(p);
+  for (var i = 0; i < list.length; i++){
+    var x = list[i], h1 = Math.floor(x.durMs / 2), s0 = x.at - h1;
+    if (t >= s0 && t < s0 + x.durMs){
+      var a = findClip(p, x.aId).clip, b = findClip(p, x.bId).clip;
+      return { type: x.type, p: (t - s0) / x.durMs, before: t < x.at, a: a, b: b, aMs: srcAtTime(a, t), bMs: srcAtTime(b, t) };
+    }
+  }
+  return null;
+}
+// patch = { type: 'none' | one of TRANSITION_TYPES, durMs: 200 to 2000 }. Set on the clip that follows the cut.
+function setTransition(p, id, patch){
+  patch = patch || {};
+  var f = findClip(p, id); if (!f || f.track.role !== 'movie' || (f.clip.type !== 'video' && f.clip.type !== 'freeze')) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip, cur = c.transition || {};
+  var type = patch.type !== undefined ? patch.type : cur.type;
+  if (!type || type === 'none'){ if (!c.transition) return p; delete c.transition; return finish(q); }
+  if (TRANSITION_TYPES.indexOf(type) < 0) return p;
+  var d = Math.round(Math.max(200, Math.min(2000, patch.durMs !== undefined ? +patch.durMs : (cur.durMs || 600))));
+  if (isNaN(d) || (cur.type === type && cur.durMs === d)) return p;
+  c.transition = { type: type, durMs: d };
+  return finish(q);
+}
+
+// ---------- stickers ----------
+// A sticker is a clip on a "sticker" row: it can sit anywhere in the picture (x, y as a fraction of the frame), has a size (a fraction of the
+// frame height) and a turn in degrees. Stickers that overlap in time go on separate rows.
+var STICKER_DEFAULTS = { glyph: '⭐', color: '#ffffff', x: 0.5, y: 0.5, size: 0.2, rot: 0 };
+function addSticker(p, t, dur, glyph, out){
+  var total = p.durationMs; if (!(total > 0)) return p;
+  var start = Math.max(0, Math.min(Math.round(t), total - 300)), d = Math.min(Math.round(dur || 3000), total - start); if (d < 300) return p;
+  var q = cloneProject(p), rows = q.tracks.filter(function (x){ return x.kind === 'sticker'; }), tr = null;
+  for (var i = 0; i < rows.length && !tr; i++) if (!rows[i].clips.some(function (c){ return start < clipEnd(c) && start + d > c.start; })) tr = rows[i];
+  if (!tr){ tr = { id: 't-stk' + (rows.length + 1), kind: 'sticker', role: 'stickers', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr); }
+  var clip = Object.assign({ id: newId('c'), type: 'text', sticker: true, asset: null, start: start, dur: d, in: 0, speed: 1 }, STICKER_DEFAULTS);
+  if (glyph) clip.glyph = String(glyph);
+  tr.clips.push(clip); if (out) out.id = clip.id;
+  return finish(q);
+}
+function setStickerProps(p, id, patch){
+  patch = patch || {};
+  var q = cloneProject(p), f = findClip(q, id); if (!f || !f.clip.sticker) return p;
+  var c = f.clip;
+  if (patch.glyph) c.glyph = String(patch.glyph);
+  if (patch.color !== undefined){ var m = /^#?([0-9a-f]{6})$/i.exec(String(patch.color)); if (m) c.color = '#' + m[1].toLowerCase(); }
+  ['x', 'y'].forEach(function (k){ if (patch[k] !== undefined) c[k] = r3(Math.max(0, Math.min(1, +patch[k] || 0))); });
+  if (patch.size !== undefined) c.size = r3(Math.max(0.04, Math.min(0.9, +patch.size || 0.2)));
+  if (patch.rot !== undefined) c.rot = ((Math.round(+patch.rot || 0) % 360) + 540) % 360 - 180;
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+function stickersAt(p, t){
+  var out = [];
+  p.tracks.forEach(function (tr){ if (tr.kind !== 'sticker' || tr.hidden) return; tr.clips.forEach(function (c){ if (c.start <= t && t < clipEnd(c)) out.push(c); }); });
+  return out;
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -815,9 +901,11 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
-  placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat };
+  placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,
+  transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
+  addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'format-bg'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'effects'; }

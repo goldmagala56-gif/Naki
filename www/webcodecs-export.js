@@ -28,6 +28,7 @@ var WebCodecsExport = (function () {
   var FPS = 30;
   var AUDIO_SR = 48000;
   var WINDOW_S = 20;   // seconds of sound rendered at a time
+  var NSTK = (typeof module !== 'undefined' && module.exports) ? require('./stickers.js') : (typeof window !== 'undefined' ? window.NakiStickers : null);
   var NAVY = '#111b24';
   var TITLE_POS = { top: 0.07, center: 0.40, bottom: 0.76 };   // same numbers as plan.js / the editor preview
 
@@ -93,6 +94,7 @@ var WebCodecsExport = (function () {
     if ((plan.video || []).some(function (s) { return s.reverse; }) || (plan.audio || []).some(function (a) { return a.reverse; })) return false;   // reversed clips are made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return s.filter && s.filter.sharpen > 0; })) return false;   // sharpen only exists in the ffmpeg engine
     if ((plan.audio || []).some(function (a) { return a.speed && a.speed !== 1; })) return false;
+    if ((plan.video || []).some(function (s) { return s.transitionIn; })) return false;   // transitions are made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return !neutralFilter(s.filter); }) && !filterSupported()) return false;
     return true;
   }
@@ -331,6 +333,8 @@ var WebCodecsExport = (function () {
       say('Loading your logo...');
       logoImg = await createImageBitmap(opts.logoFile);
     }
+    // each sticker is drawn once onto its own transparent picture too
+    var stickers = (plan.stickers || []).map(function (s) { var c = makeCanvas(W, H); if (NSTK) NSTK.drawSticker(c.getContext('2d'), s, W, H); return { c: c, a: s.startMs, b: s.startMs + s.durMs }; });
     // each title is drawn once onto its own transparent picture, then laid over the frames it shows in
     var titles = (plan.texts || []).filter(function (t) { return t && String(t.text || '').trim(); }).map(function (t) {
       var c = makeCanvas(W, H); drawTitle(c.getContext('2d'), t, W, H);
@@ -355,6 +359,7 @@ var WebCodecsExport = (function () {
       var lv = fadeLevel(sp, tMs - sp.sessionStart);
       if (lv < 1) { ctx.globalAlpha = 1 - lv; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
       if (logoImg) drawWatermark(ctx, logoImg, W, H, opts.logoCorner);
+      for (var ks = 0; ks < stickers.length; ks++) if (tMs >= stickers[ks].a && tMs < stickers[ks].b) ctx.drawImage(stickers[ks].c, 0, 0);
       for (var k = 0; k < titles.length; k++) if (tMs >= titles[k].a && tMs < titles[k].b) ctx.drawImage(titles[k].c, 0, 0);
     }
 

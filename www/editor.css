@@ -134,3 +134,14 @@
 /* format and background: the frame has the chosen shape; the picture sits in its own box inside it, over an optional blurred copy */
 .ed-picbox{position:absolute;inset:0;overflow:hidden}
 .ed-picframe video.ed-bgvid{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;filter:blur(16px);transform:scale(1.2);display:none;pointer-events:none}
+
+/* stickers, transitions */
+.ed-stickerlayer{position:absolute;pointer-events:none;overflow:hidden}
+.ed-stk{position:absolute;pointer-events:auto;touch-action:none;line-height:1;white-space:nowrap;cursor:grab;user-select:none;-webkit-user-select:none;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Segoe UI Symbol",system-ui,sans-serif}
+.ed-stk.sel{outline:2px dashed var(--mango);outline-offset:4px}
+.ed-picframe video.ed-xvid{position:absolute;inset:0;width:100%;height:100%;object-fit:fill;display:none;z-index:1;pointer-events:none}
+.ed-clip.k-stickers{background:#8a5a1f;border-color:#d99a3b}
+.ed-grid{display:flex;flex-wrap:wrap;gap:6px}
+.ed-gbtn{width:44px;height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);font-size:24px;line-height:1;cursor:pointer;touch-action:manipulation;padding:0;
+  font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Segoe UI Symbol",system-ui,sans-serif}

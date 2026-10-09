@@ -32,6 +32,9 @@ var NakiPlan = (function () {
       cursor = e;
     });
     if (cursor < total) video.push({ type: 'black', sessionStart: cursor, sessionEnd: total });
+    (P.transitionList ? P.transitionList(p) : []).forEach(function (x) {   // a transition goes on the picture that comes after the cut
+      for (var i = 1; i < video.length; i++) if (video[i].sessionStart === Math.round(x.at) && video[i - 1].sessionEnd === Math.round(x.at) && video[i].type !== 'black' && video[i - 1].type !== 'black') { video[i].transitionIn = { type: x.type, durMs: x.durMs }; break; }
+    });
 
     var audio = [];
     p.tracks.forEach(function (tr) {
@@ -69,11 +72,21 @@ var NakiPlan = (function () {
       });
     });
     texts.sort(function (a, b) { return a.startMs - b.startMs; });
+    var stickers = [];
+    p.tracks.forEach(function (tr) {
+      if (tr.kind !== 'sticker' || tr.hidden) return;
+      tr.clips.forEach(function (c) {
+        var s = Math.max(0, Math.round(c.start)), e = Math.min(total, Math.round(c.start + c.dur));
+        if (c.glyph && e > s) stickers.push({ startMs: s, durMs: e - s, glyph: c.glyph, color: c.color, x: c.x, y: c.y, size: c.size, rot: c.rot || 0 });
+      });
+    });
+    stickers.sort(function (a, b) { return a.startMs - b.startMs; });
 
     var mv = p.assets && p.assets.movie;
     var plan = { naki: 'export-plan', version: 2, durationMs: total,
       movie: { name: mv && mv.name, durationMs: mv && mv.durMs }, video: video, audio: audio };
     if (texts.length) plan.texts = texts;
+    if (stickers.length) plan.stickers = stickers;
     if (p.format && p.format.ratio) plan.format = { ratio: p.format.ratio, bg: p.format.bg ? { type: p.format.bg.type, color: p.format.bg.color } : { type: 'navy' } };
     return plan;
   }
@@ -85,4 +98,4 @@ var NakiPlan = (function () {
 })();
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'format-bg'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'effects'; }

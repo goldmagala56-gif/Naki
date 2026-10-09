@@ -360,6 +360,8 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="reverse.js"></script>
 <script src="look.js"></script>
 <script src="format.js"></script>
+<script src="stickers.js"></script>
+<script src="presets.js"></script>
 <script src="project.js"></script>
 <script src="voice.js"></script>
 <script src="plan.js"></script>
@@ -1425,7 +1427,14 @@ function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callba
     console.warn('using the compatible export engine:', why);
     S.lastExport.engine = 'compatible'; S.lastExport.why = why;
     toast('Using the compatible export engine so all your edits are included. This can take longer.', 6000);
-    return loadExportEngine().then(function(){ return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks); });
+    return loadExportEngine().then(function(){ return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks); }).catch(function(err){
+      // If transitions are what this device's video engine cannot do, make the video without them rather than not at all.
+      if (!plan.video.some(function(s){ return s.transitionIn; })) throw err;
+      console.warn('transitions failed, trying again without them:', err);
+      plan.video.forEach(function(s){ delete s.transitionIn; });
+      toast('Transitions could not be made on this device, so they were left out.', 8000);
+      return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks);
+    });
   }
   return loadWebCodecsEngine().then(function(){
     if (!WebCodecsExport.canRender(plan)) throw new Error('your edits need the compatible engine');
@@ -1559,7 +1568,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'editor.js': 'format-bg', 'project.js': 'format-bg', 'plan.js': 'format-bg', 'format.js': 'format-bg', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
+  var want = { 'editor.js': 'effects', 'project.js': 'effects', 'plan.js': 'effects', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';

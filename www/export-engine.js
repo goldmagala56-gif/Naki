@@ -119,6 +119,8 @@ function planToJobs(plan, movieInfo, opts) {
   // with ffmpeg's overlay, so ffmpeg never needs a font file.
   var texts = plan.texts || [], textFiles = texts.map(function (t, i) { return { name: 'txt' + String(i).padStart(3, '0') + '.png', clip: t, width: width, height: height }; });
 
+  textFiles = (plan.stickers || []).map(function (s, i) { return { name: 'stk' + String(i).padStart(3, '0') + '.png', clip: s, sticker: true, width: width, height: height }; }).concat(textFiles);   // stickers go under the titles
+
   // The colour / speed / fade part of a picture chain. Empty for a plain clip.
   function lookChain(sp, spanSec) {
     var parts = [];
@@ -138,11 +140,11 @@ function planToJobs(plan, movieInfo, opts) {
 
   // sourceArgs: the input(s) for this part; fitChain: how to fit it to the output size; sp: the plan span;
   // speed: playback speed of a movie part; tpadSec: how long to keep repeating the last frame if the movie ends early.
-  function pictureArgs(sourceArgs, fitChain, nFrames, vfile, sp, spanSec, speed, tpadSec) {
+  function pictureArgs(sourceArgs, fitChain, nFrames, vfile, sp, spanSec, speed, tpadSec, padStart) {
     var tailEnc = enc.concat(ts, [vfile]);
     var look = lookChain(sp, spanSec);
     var over = textFiles.filter(function (t) { return t.clip.startMs < sp.sessionEnd && t.clip.startMs + t.clip.durMs > sp.sessionStart; });
-    var tpad = tpadSec ? 'tpad=stop_mode=clone:stop_duration=' + tpadSec : '';
+    var tpad = (padStart || tpadSec) ? 'tpad=' + (padStart ? 'start_mode=clone:start_duration=' + padStart.toFixed(3) + (tpadSec ? ':' : '') : '') + (tpadSec ? 'stop_mode=clone:stop_duration=' + tpadSec : '') : '';
     var isGraph = !!fitChain && typeof fitChain === 'object';   // a blurred background is a whole filter graph, not a chain
     if (!isGraph && !wm && !over.length && !look && !(speed && speed !== 1)) {
       // a plain clip: exactly the chain the earlier versions used
@@ -206,8 +208,43 @@ function planToJobs(plan, movieInfo, opts) {
     return typeof g === 'object' ? ['-filter_complex', g.graph('[0:v]', '[o]') + ';[o]setsar=1[o2]', '-map', '[o2]'] : ['-vf', g + ',setsar=1'];
   }
 
-  /* --- picture --- */
-  plan.video.forEach(function (sp, i) {
+  // ---- transitions: where two touching pictures meet, each gives up half of the transition and a short piece made from both goes between ----
+  var XFADE = { fade: 'fade', fadeblack: 'fadeblack', wipeleft: 'wipeleft', slideleft: 'slideleft', zoomin: 'zoomin', circleopen: 'circleopen' };
+  function transOk(a, b) {
+    return !!(a && b && b.transitionIn && XFADE[b.transitionIn.type] && a.sessionEnd === b.sessionStart && a.type !== 'black' && b.type !== 'black' && !a.reverse && !b.reverse && b.transitionIn.durMs >= 100);
+  }
+  var transIn = {};   // span number -> true when a transition piece goes in front of that span
+  var vspans = plan.video.map(function (sp, i) {
+    var c = JSON.parse(JSON.stringify(sp)), prev = plan.video[i - 1], next = plan.video[i + 1];
+    var hIn = transOk(prev, sp) ? Math.ceil(sp.transitionIn.durMs / 2) : 0, hOut = transOk(sp, next) ? Math.floor(next.transitionIn.durMs / 2) : 0;
+    if (hIn) transIn[i] = true;
+    if (hIn || hOut) {
+      c.sessionStart += hIn; c.sessionEnd -= hOut;
+      if (c.type === 'play') c.movieStart += Math.round(hIn * (c.speed && c.speed !== 1 ? c.speed : 1));
+    }
+    return c;
+  });
+  function makeTransition(i) {
+    var A = plan.video[i - 1], B = plan.video[i], d = B.transitionIn.durMs, ws = B.sessionStart - Math.floor(d / 2), we = ws + d;
+    var nT = R(we) - R(ws), dSec = nT / FPS, id = String(i).padStart(4, '0');
+    function side(sp, idx) {   // the picture of span sp as it looks from timeline time ws for the length of the transition
+      var piece = Object.assign({}, sp, { sessionStart: ws, sessionEnd: we }); delete piece.vFadeIn; delete piece.vFadeOut; delete piece.transitionIn;
+      if (sp.type === 'freeze') return { piece: piece, src: ['-loop', '1', '-framerate', String(FPS), '-i', 'f' + String(idx).padStart(4, '0') + '.png'], fit: 'null', speed: 1, tpad: 0, pad: 0 };
+      var speed = sp.speed && sp.speed !== 1 ? sp.speed : 1, ms = sp.movieStart + (ws - sp.sessionStart) * speed;
+      return { piece: piece, src: ['-ss', clampSec(Math.max(0, ms)).toFixed(3), '-i', 'movie.in'], fit: pictureFit(piece), speed: speed, tpad: Math.ceil(dSec + 1), pad: ms < 0 ? -ms / speed / 1000 : 0 };
+    }
+    var a = side(A, i - 1), b = side(B, i);
+    [['transition A ', 'ta', a], ['transition B ', 'tb', b]].forEach(function (x) {
+      jobs.push({ label: x[0] + i, produces: x[1] + id + '.ts', args: pictureArgs(x[2].src, x[2].fit, nT, x[1] + id + '.ts', x[2].piece, dSec, x[2].speed, x[2].tpad, x[2].pad) });
+    });
+    jobs.push({ label: 'transition ' + i, produces: 't' + id + '.ts', args: ['-i', 'ta' + id + '.ts', '-i', 'tb' + id + '.ts', '-an',
+      '-filter_complex', '[0:v][1:v]xfade=transition=' + XFADE[B.transitionIn.type] + ':duration=' + dSec.toFixed(3) + ':offset=0[x]', '-map', '[x]', '-frames:v', String(nT)].concat(enc, ts, ['t' + id + '.ts']) });
+    return 't' + id + '.ts';
+  }
+
+  
+/* --- picture --- */
+  vspans.forEach(function (sp, i) {
     var id = String(i).padStart(4, '0');
     var nFrames = R(sp.sessionEnd) - R(sp.sessionStart);
     if (nFrames <= 0) return;
@@ -232,6 +269,7 @@ function planToJobs(plan, movieInfo, opts) {
       jobs.push({ label: 'blank picture ' + (i + 1), produces: vfile,
         args: pictureArgs(['-f', 'lavfi', '-i', 'color=c=' + padHex + ':s=' + width + 'x' + height + ':r=' + FPS], 'null', nFrames, vfile, sp, spanSec, 1, 0) });
     }
+    if (transIn[i]) videoList.push(makeTransition(i));
     videoList.push(vfile);
   });
 
@@ -347,7 +385,7 @@ async function renderTitlePng(tf) {
   var W = tf.width, H = tf.height, cv;
   if (typeof OffscreenCanvas !== 'undefined') cv = new OffscreenCanvas(W, H);
   else { cv = document.createElement('canvas'); cv.width = W; cv.height = H; }
-  drawTitle(cv.getContext('2d'), tf.clip, W, H);
+  (tf.sticker && typeof NakiStickers !== 'undefined' ? NakiStickers.drawSticker : drawTitle)(cv.getContext('2d'), tf.clip, W, H);
   var blob = cv.convertToBlob ? await cv.convertToBlob({ type: 'image/png' }) : await new Promise(function (r) { cv.toBlob(r, 'image/png'); });
   return new Uint8Array(await blob.arrayBuffer());
 }
