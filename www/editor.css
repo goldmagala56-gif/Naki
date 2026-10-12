@@ -145,3 +145,10 @@
 .ed-grid{display:flex;flex-wrap:wrap;gap:6px}
 .ed-gbtn{width:44px;height:44px;border-radius:10px;border:1px solid var(--line);background:var(--panel-2);font-size:24px;line-height:1;cursor:pointer;touch-action:manipulation;padding:0;
   font-family:"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji","Segoe UI Symbol",system-ui,sans-serif}
+
+/* overlays and keyframes */
+.ed-overlaylayer{position:absolute;pointer-events:none;overflow:hidden}
+.ed-stage .ed-ovl{position:absolute;pointer-events:auto;touch-action:none;cursor:grab;height:auto;max-width:none;max-height:none;object-fit:fill;background:transparent;user-select:none;-webkit-user-select:none}
+.ed-stage .ed-ovl.sel{outline:2px dashed var(--mango);outline-offset:3px}
+.ed-clip.k-overlay{background:#0f7c8a;border-color:#3cc4d4}
+.ed-kf{position:absolute;bottom:3px;width:8px;height:8px;margin-left:-4px;background:var(--mango);transform:rotate(45deg);pointer-events:none;z-index:2}

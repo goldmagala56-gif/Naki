@@ -336,6 +336,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <input type="file" id="logoPick" accept="image/*" hidden>
 <input type="file" id="replacePick" accept="video/*,.mkv,.avi,.mov,.mp4,.webm" hidden>
 <input type="file" id="musicPick" accept="audio/*,.mp3,.m4a,.wav,.ogg,.aac" hidden>
+<input type="file" id="overlayPick" accept="image/*,video/*,.mp4,.mov,.webm" hidden>
 <div id="prepareModal" class="modalWrap" hidden>
   <div class="modalCard">
     <h3 style="margin-top:0">This file needs converting</h3>
@@ -362,6 +363,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="format.js"></script>
 <script src="stickers.js"></script>
 <script src="presets.js"></script>
+<script src="anim.js"></script>
 <script src="project.js"></script>
 <script src="voice.js"></script>
 <script src="plan.js"></script>
@@ -430,7 +432,7 @@ var DB = {
     var self = this;
     return new Promise(function(res, rej){
       if (!window.indexedDB) return rej(new Error('no indexedDB'));
-      var r = indexedDB.open('naki', 4);
+      var r = indexedDB.open('naki', 5);
       r.onupgradeneeded = function(){
         var d = r.result;
         if (!d.objectStoreNames.contains('sessions')) d.createObjectStore('sessions', { keyPath: 'id' });
@@ -438,6 +440,7 @@ var DB = {
         if (!d.objectStoreNames.contains('levels')) d.createObjectStore('levels', { keyPath: ['sid', 'i'] });
         if (!d.objectStoreNames.contains('movies')) d.createObjectStore('movies', { keyPath: 'sid' });
         if (!d.objectStoreNames.contains('music')) d.createObjectStore('music', { keyPath: 'sid' });
+        if (!d.objectStoreNames.contains('overlays')) d.createObjectStore('overlays', { keyPath: ['sid', 'n'] });
                 if (!d.objectStoreNames.contains('projects')) d.createObjectStore('projects', { keyPath: 'sid' });
       };
       r.onsuccess = function(){ self.db = r.result; self.ok = true; res(); };
@@ -467,6 +470,7 @@ var DB = {
       self.delRange('levels', sid),
       self.tx('movies', 'readwrite', function(s){ return s.delete(sid); }),
       self.tx('music', 'readwrite', function(s){ return s.delete(sid); }),
+      self.delRange('overlays', sid),
       self.tx('projects', 'readwrite', function(s){ return s.delete(sid); })
     ]);
   },
@@ -1498,6 +1502,15 @@ $('bExport').onclick = function(){
   // The shape chosen in the editor (Format) wins; otherwise the Landscape / Vertical buttons decide.
   var fmt0 = plan.format, ratio0 = (fmt0 && fmt0.ratio && fmt0.ratio !== 'original') ? fmt0.ratio : (S.exportVertical ? '9:16' : 'original');
   ffmpegOpts.ratio = webcodecsOpts.ratio = ratio0; ffmpegOpts.bg = webcodecsOpts.bg = (fmt0 && fmt0.bg) || null;
+  // The files behind the overlays. An overlay whose file is missing is left out, and you are told.
+  var ovFiles = {};
+  (plan.overlays || []).forEach(function(o){ var f = S.overlays[o.asset]; if (f && f.file) ovFiles[o.asset] = f.file; });
+  if (plan.overlays && plan.overlays.some(function(o){ return !ovFiles[o.asset]; })){
+    plan.overlays = plan.overlays.filter(function(o){ return ovFiles[o.asset]; }); if (!plan.overlays.length) delete plan.overlays;
+    toast('An overlay file is missing, so it was left out. Open Edit, Overlay and add it again.', 9000);
+  }
+  ffmpegOpts.overlayFiles = webcodecsOpts.overlayFiles = ovFiles;
+
   if (S.logoFile) { ffmpegOpts.logoFile = S.logoFile; webcodecsOpts.logoFile = S.logoFile; }
     if (S.sess.musicFile) { ffmpegOpts.musicFile = S.sess.musicFile; webcodecsOpts.musicFile = S.sess.musicFile; }
   runExport(plan, ffmpegOpts, webcodecsOpts, S.movieFile, S.sess.voiceBlob, {
@@ -1568,7 +1581,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'editor.js': 'effects', 'project.js': 'effects', 'plan.js': 'effects', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
+  var want = { 'editor.js': 'overlay-kf', 'project.js': 'overlay-kf', 'plan.js': 'overlay-kf', 'anim.js': 'overlay-kf', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';
@@ -1602,10 +1615,61 @@ function setMusicFile(f, noStore){
     if (!noStore && DB.ok && S.sess) DB.tx('music', 'readwrite', function(s){ return s.delete(S.sess.id); }).catch(function(){});
   }
 }
+// ---------- overlays: the files behind the overlay clips (kept on this device with the session) ----------
+S.overlays = {};
+function overlayUrl(id){ var o = S.overlays[id]; return o ? o.url : ''; }
+function setOverlayFile(id, file){
+  var old = S.overlays[id]; if (old && old.url) URL.revokeObjectURL(old.url);
+  S.overlays[id] = { file: file, url: URL.createObjectURL(file) };
+  if (DB.ok && S.sess) DB.put('overlays', { sid: S.sess.id, n: +String(id).replace('ov', ''), id: id, name: file.name, blob: file }).catch(function(){
+    toast('This overlay is too large to remember on this device. You will need to add it again next time.', 8000);
+  });
+}
+function loadOverlays(s){
+  Object.keys(S.overlays).forEach(function(k){ try { if (S.overlays[k].url) URL.revokeObjectURL(S.overlays[k].url); } catch (e) {} });
+  S.overlays = {};
+  if (!DB.ok) return;
+  DB.range('overlays', s.id).then(function(list){
+    list.forEach(function(r){
+      if (!r || !r.blob) return;
+      var f = new File([r.blob], r.name || r.id, { type: r.blob.type });
+      S.overlays[r.id] = { file: f, url: URL.createObjectURL(f) };
+    });
+  }, function(){});
+}
+// Reads a photo or a video chosen for an overlay: its kind, length and shape.
+function readOverlayInfo(f){
+  return new Promise(function(resolve){
+    var u = URL.createObjectURL(f);
+    if (/^image\//.test(f.type)){
+      var im = new Image();
+      im.onload = function(){ URL.revokeObjectURL(u); resolve({ file: f, name: f.name, kind: 'image', durMs: null, w: im.naturalWidth, h: im.naturalHeight }); };
+      im.onerror = function(){ URL.revokeObjectURL(u); toast('This picture could not be read.'); resolve(null); };
+      im.src = u;
+    } else {
+      var v = document.createElement('video'); v.preload = 'metadata'; v.muted = true;
+      v.onloadedmetadata = function(){
+        var info = { file: f, name: f.name, kind: 'video', durMs: isFinite(v.duration) ? Math.round(v.duration * 1000) : null, w: v.videoWidth, h: v.videoHeight };
+        URL.revokeObjectURL(u); resolve(info);
+      };
+      v.onerror = function(){ URL.revokeObjectURL(u); toast('Naki cannot play this video directly. Use an MP4, or a photo.', 8000); resolve(null); };
+      v.src = u;
+    }
+  });
+}
+function pickOverlay(){
+  return new Promise(function(resolve){
+    var inp = $('overlayPick'); inp.value = '';
+    inp.onchange = function(){ var f = inp.files && inp.files[0]; if (!f) return resolve(null); readOverlayInfo(f).then(resolve); };
+    inp.click();
+  });
+}
+
 function loadEdits(s){
   s.savedProject = null;
   if (!DB.ok) return;
   DB.loadProject(s.id).then(function(r){ s.savedProject = r; });
+  loadOverlays(s);
   if (s.musicFile) return;
   DB.get('music', s.id).then(function(rec){
     if (rec && rec.blob) setMusicFile(new File([rec.blob], rec.name || 'music', { type: rec.blob.type }), true);
@@ -1650,6 +1714,7 @@ NakiEditor.init({
     var box = $('exportBox'); if (box && box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
   },
   music: $('music'),
+  overlayUrl: overlayUrl, pickOverlay: pickOverlay, setOverlayFile: setOverlayFile,
   saveProject: function(sid, rec){ return DB.saveProject(sid, rec); },
   setMusicFile: function(f){ setMusicFile(f); },
   pickMusic: function(){ return new Promise(function(resolve){

@@ -9,9 +9,10 @@ var NakiEditor = (function () {
   var NF = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
   var NSTK = (typeof module !== 'undefined' && module.exports) ? require('./stickers.js') : (typeof window !== 'undefined' ? window.NakiStickers : null);
   var NPR = (typeof module !== 'undefined' && module.exports) ? require('./presets.js') : (typeof window !== 'undefined' ? window.NakiPresets : null);
+  var NANIM = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
   var TRANSITIONS = [{ key: 'none', label: 'None' }, { key: 'fade', label: 'Fade' }, { key: 'fadeblack', label: 'Dip to black' }, { key: 'wipeleft', label: 'Wipe' }, { key: 'slideleft', label: 'Slide' }, { key: 'zoomin', label: 'Zoom' }, { key: 'circleopen', label: 'Circle' }];
   var PAD = 16, MIN_PPM = 0.004, MAX_PPM = 0.6, FRAME_MS = 33;
-  var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text', captions: 'Captions', stickers: 'Stickers' };
+  var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text', captions: 'Captions', stickers: 'Stickers', overlay: 'Overlay' };
   var E = { hooks: null, root: null, ui: {}, hist: null, proj: null, sess: null, sel: null, t: 0, playing: false, ppm: 0.06,
     cache: {}, magnet: false, drag: null, raf: 0, wall: 0, wallT: 0, isOpen: false, home: null, pointers: {}, pinch: null,
     voiceGain: null, musicGain: null, quiet: null, quietDb: -42, tool: null, textEls: {}, freezeMs: 2000, saveT: 0, voiceDurMs: null, lastFilter: '', lastOpacity: '', lastRate: 1,
@@ -54,7 +55,8 @@ var NakiEditor = (function () {
     { name: 'filter', label: 'Adjust', icon: svg('<path d="M4 7h10M18 7h2M4 12h2M10 12h10M4 17h12M20 17h0"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="18" cy="17" r="2"/>'), go: function (){ openPanel('adjust', 'edit'); } },
     { name: 'format', label: 'Format', icon: svg('<rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10v4M17 10v4"/>'), go: function (){ openPanel('format'); } },
     { name: 'filters', label: 'Filters', icon: svg('<circle cx="9" cy="10" r="5"/><circle cx="15" cy="10" r="5"/><circle cx="12" cy="15" r="5"/>'), go: function (){ openPanel('filters'); } },
-    { name: 'sticker', label: 'Stickers', icon: svg('<path d="M20 12a8 8 0 11-8-8h5a3 3 0 013 3z"/><path d="M9 10h.01M15 10h.01M8.5 14.5a4.5 4.5 0 007 0"/>'), go: function (){ openTool('sticker'); } }
+    { name: 'sticker', label: 'Stickers', icon: svg('<path d="M20 12a8 8 0 11-8-8h5a3 3 0 013 3z"/><path d="M9 10h.01M15 10h.01M8.5 14.5a4.5 4.5 0 007 0"/>'), go: function (){ openTool('sticker'); } },
+    { name: 'overlay', label: 'Overlay', icon: svg('<rect x="3" y="5" width="14" height="11" rx="1.5"/><rect x="9" y="9" width="12" height="10" rx="1.5"/>'), go: function (){ openTool('overlay'); } }
   ];
 
   // ---------- building the screen ----------
@@ -76,6 +78,7 @@ var NakiEditor = (function () {
     u.bgvid = mk('video', 'ed-bgvid'); u.bgvid.muted = true; u.bgvid.setAttribute('playsinline', ''); u.bgvid.setAttribute('aria-hidden', 'true'); u.bgvid.preload = 'auto';
     u.picbox = mk('div', 'ed-picbox'); u.picframe.appendChild(u.bgvid); u.picframe.appendChild(u.picbox);
     u.xvid = mk('video', 'ed-xvid'); u.xvid.muted = true; u.xvid.setAttribute('playsinline', ''); u.xvid.setAttribute('aria-hidden', 'true'); u.xvid.preload = 'auto'; u.picbox.appendChild(u.xvid);
+    u.overlaylayer = mk('div', 'ed-overlaylayer'); u.stage.appendChild(u.overlaylayer);
     u.stickerlayer = mk('div', 'ed-stickerlayer'); u.stage.appendChild(u.stickerlayer);
     // "More adjust" looks are laid over the picture here: a colour layer that multiplies (warmth), and a veil (faded look + vignette)
     u.picframe.style.isolation = 'isolate';
@@ -160,6 +163,7 @@ var NakiEditor = (function () {
     e.dataset.id = c.id; e.style.left = tx(c.start) + 'px'; e.style.width = Math.max(3, c.dur * E.ppm) + 'px';
     if (c.dur * E.ppm > 46) e.appendChild(mk('span', 'ed-cl', clipTitle(tr, c)));
     if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); }
+    if (c.kf){ var kts = {}; Object.keys(c.kf).forEach(function (k){ c.kf[k].forEach(function (pt){ kts[pt[0]] = 1; }); }); Object.keys(kts).forEach(function (t0){ var kd = mk('i', 'ed-kf'); kd.style.left = (t0 * E.ppm) + 'px'; e.appendChild(kd); }); }
     add(e, mk('i', 'ed-h ed-hl'), mk('i', 'ed-h ed-hr'));
     return e;
   }
@@ -169,7 +173,7 @@ var NakiEditor = (function () {
       var extra = (c.speed && c.speed !== 1 ? ' ' + c.speed + '×' : '') + (c.filter ? ' · filter' : '') + (c.vFadeIn || c.vFadeOut ? ' · fade' : '') + (c.opacity != null ? ' · ' + Math.round(c.opacity * 100) + '%' : '') + (c.reverse ? ' · reversed' : '') + (c.transform ? ' · ' + (c.transform.zoom > 1 ? 'zoom ' : '') + (c.transform.rot ? c.transform.rot + '° ' : '') + (c.transform.flipH ? 'flip' : '') : '');
       return (c.type === 'freeze' ? 'Paused picture' : 'Movie playing') + extra;
     }
-    return tr.kind === 'sticker' ? (c.glyph || '') + ' Sticker' : (ROLE_NAME[tr.role] || 'Audio');
+    return tr.kind === 'sticker' ? (c.glyph || '') + ' Sticker' : tr.kind === 'overlay' ? 'Overlay \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : (ROLE_NAME[tr.role] || 'Audio');
   }
   function drawWave(cv, c){
     var g = cv.getContext && cv.getContext('2d'); if (!g) return;
@@ -495,7 +499,7 @@ var NakiEditor = (function () {
   function syncDock(){
     var f = E.sel && P.findClip(E.proj, E.sel);
     if (f){
-      var want = f.track.kind === 'video' ? 'edit' : f.track.kind === 'text' ? 'text' : f.track.kind === 'sticker' ? 'sticker' : 'audio';
+      var want = f.track.kind === 'video' ? 'edit' : f.track.kind === 'text' ? 'text' : f.track.kind === 'sticker' ? 'sticker' : f.track.kind === 'overlay' ? 'overlay' : 'audio';
       if (!E.tool){ E.autoDock = true; E.tool = want; }
       else if (!E.panel && E.tool !== want) E.tool = want;
     } else if (E.autoDock && !E.panel){ E.tool = null; E.autoDock = false; }
@@ -583,6 +587,15 @@ var NakiEditor = (function () {
         { id: 'edReplace', label: 'Replace', icon: G.replace, run: replaceMovie },
         { id: 'edQuiet', label: 'Quiet', icon: G.quiet, run: scanQuiet },
         { id: 'edReset', label: 'Start over', icon: G.reset, run: startOver }
+      ];
+    },
+    overlay: function (){
+      var f = E.sel && P.findClip(E.proj, E.sel), isO = !!(f && f.track.kind === 'overlay');
+      return [
+        { id: 'edAddOverlay', label: 'Add', icon: G.sticker, run: addOverlayFromFile },
+        { id: 'edOverlayEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel('overlayedit'); }, disabled: !isO },
+        { id: 'edOverlayDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isO },
+        { id: 'edOverlayDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isO }
       ];
     },
     sticker: function (){
@@ -697,18 +710,20 @@ var NakiEditor = (function () {
     } },
     frame: { title: 'Zoom', build: function (body){
       var c = needPicture(body); if (!c) return;
-      var t = Object.assign({ zoom: 1, x: 0, y: 0, rot: 0, flipH: false }, c.transform || {}), keys = [{ key: 'zoom', label: 'Zoom' }];
-      if (t.zoom > 1) keys.push({ key: 'x', label: 'Left / right' }, { key: 'y', label: 'Up / down' });
-      var cur = chipKey('frame', keys, 'zoom'), tz = function (o){ return P.setTransform(E.hist.cur, c.id, o); }, one = function (v){ var o = {}; o[cur] = v; return o; };
+      var rel = relNow(c), t = NANIM ? NANIM.pictureTransform(c.transform, c.kf, rel) : Object.assign({ zoom: 1, x: 0, y: 0 }, c.transform || {}), keys = [{ key: 'zoom', label: 'Zoom' }];
+      if (t.zoom > 1 || (c.kf && c.kf.zoom)) keys.push({ key: 'x', label: 'Left / right' }, { key: 'y', label: 'Up / down' });
+      var cur = chipKey('frame', keys, 'zoom'), one = function (v){ return P.setAnimated(E.hist.cur, c.id, cur, v, relNow(c)); };
       body.appendChild(chips(keys, cur, pickChip('frame')));
       body.appendChild(cur === 'zoom'
-        ? sliderRow('Zoom', 1, 4, 0.05, t.zoom, function (v){ return v.toFixed(2) + '×'; }, function (v){ live(tz(one(v))); }, function (v){ commit(tz(one(v))); })
-        : sliderRow(cur === 'x' ? 'Left / right' : 'Up / down', -1, 1, 0.05, t[cur], function (v){ return Math.round(v * 100); }, function (v){ live(tz(one(v))); }, function (v){ commit(tz(one(v))); }));
+        ? sliderRow('Zoom', 1, 4, 0.05, t.zoom, function (v){ return v.toFixed(2) + '\u00d7'; }, function (v){ live(one(v)); }, function (v){ commit(one(v)); })
+        : sliderRow(cur === 'x' ? 'Left / right' : 'Up / down', -1, 1, 0.05, t[cur], function (v){ return Math.round(v * 100); }, function (v){ live(one(v)); }, function (v){ commit(one(v)); }));
+      body.appendChild(keyframeActions(c, cur));
       body.appendChild(actions([
-        { id: 'edZoomReset', label: 'Reset', run: function (){ commit(tz({ zoom: 1, x: 0, y: 0, rot: 0, flipH: false })); } },
+        { id: 'edZoomReset', label: 'Reset', run: function (){ commit(P.setTransform(P.clearKeyframes(E.hist.cur, c.id, null, 0), c.id, { zoom: 1, x: 0, y: 0, rot: 0, flipH: false })); } },
         { id: 'edZoomAll', label: 'Apply to all', run: function (){ commit(P.setTransform(E.hist.cur, null, { zoom: t.zoom, x: t.x, y: t.y, rot: t.rot, flipH: t.flipH })); toast('This framing is on every clip now.'); } }]));
     } },
-    opacity: { title: 'Opacity', build: function (body){
+    
+opacity: { title: 'Opacity', build: function (body){
       var c = needPicture(body); if (!c) return;
       var v0 = Math.round((c.opacity != null ? c.opacity : 1) * 100);
       body.appendChild(sliderRow('Opacity', 0, 100, 5, v0, pct, function (v){ live(P.setOpacity(E.hist.cur, c.id, v / 100)); }, function (v){ commit(P.setOpacity(E.hist.cur, c.id, v / 100)); }));
@@ -845,6 +860,17 @@ var NakiEditor = (function () {
         function (v){ var o = {}; o[cur] = v / 100; live(ps(o)); }, function (v){ var o = {}; o[cur] = v / 100; commit(ps(o)); }));
       body.appendChild(mk('div', 'ed-hint', 'You can also drag the sticker on the picture, and drag its ends on the timeline to change how long it shows.'));
     } },
+    overlayedit: { title: 'Overlay', build: function (body){
+      var c = selOverlay(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap an overlay on the timeline or the picture first.')); return; }
+      var keys = ['size', 'rot', 'opacity', 'x', 'y'].map(function (k){ return { key: k, label: KF_LABEL[k] }; }), cur = chipKey('overlayedit', keys, 'size');
+      var val = NANIM.valueOf(c, 'overlay', cur, relNow(c)), set = function (v){ return P.setAnimated(E.hist.cur, c.id, cur, v, relNow(c)); };
+      body.appendChild(chips(keys, cur, pickChip('overlayedit')));
+      if (cur === 'size') body.appendChild(sliderRow('Size', 5, 150, 1, Math.round(val * 100), pct, function (v){ live(set(v / 100)); }, function (v){ commit(set(v / 100)); }));
+      else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(val), function (v){ return v + '\u00b0'; }, function (v){ live(set(v)); }, function (v){ commit(set(v)); }));
+      else body.appendChild(sliderRow(KF_LABEL[cur], 0, 100, 1, Math.round(val * 100), pct, function (v){ live(set(v / 100)); }, function (v){ commit(set(v / 100)); }));
+      body.appendChild(keyframeActions(c, cur));
+      body.appendChild(mk('div', 'ed-hint', 'Drag the overlay on the picture to move it. For movement, put a keyframe here, move the playhead, change the value, and it glides between them. An overlay has no sound.'));
+    } },
     texts: { title: 'Your texts', build: function (body){
       var list = allTexts();
       if (!list.length){ body.appendChild(mk('div', 'ed-hint', 'No text yet. Tap Add text.')); return; }
@@ -975,9 +1001,84 @@ var NakiEditor = (function () {
     else xOp = tr.before ? p : 1 - p;
     m.style.opacity = String(base * mainOp); E.lastOpacity = '#transition'; x.style.opacity = String(xOp);
   }
-  function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); }
+  // ----- overlays and keyframes -----
+  var KF_LABEL = { x: 'Left / right', y: 'Up / down', size: 'Size', rot: 'Turn', opacity: 'Opacity', zoom: 'Zoom' };
+  function selOverlay(){ var f = E.sel && P.findClip(E.proj, E.sel); return f && f.track.kind === 'overlay' ? f.clip : null; }
+  function relNow(c){ return Math.max(0, Math.min(Math.round(c.dur), Math.round(E.t - c.start))); }
+  function addOverlayFromFile(){
+    if (!E.hooks.pickOverlay || !E.hooks.setOverlayFile){ toast('Overlays are not available here.'); return; }
+    pause();
+    Promise.resolve(E.hooks.pickOverlay()).then(function (info){
+      if (!info) return;
+      var out = {}, q = P.addOverlay(E.hist.cur, Math.round(E.t), info, out);
+      if (q === E.hist.cur){ toast('There is no room for an overlay at the playhead.'); return; }
+      E.hooks.setOverlayFile(out.asset, info.file);
+      E.sel = out.id; commit(q); openPanel('overlayedit', 'overlay');
+    });
+  }
+  // The overlays that show at the playhead: a picture or a video over the main picture. Drag one to move it.
+  function syncOverlays(){
+    var layer = E.ui.overlaylayer; if (!layer || !E.proj || !E.proj.tracks || !NANIM) return;
+    if (!E.overlayEls) E.overlayEls = {};
+    var list = P.overlaysAt(E.proj, E.t), want = {};
+    list.forEach(function (c){
+      var url = E.hooks.overlayUrl ? E.hooks.overlayUrl(c.asset) : '', isImg = c.type === 'freeze';
+      want[c.id] = true;
+      var d = E.overlayEls[c.id];
+      if (!d){
+        d = E.overlayEls[c.id] = mk(isImg ? 'img' : 'video', 'ed-ovl'); d.dataset.id = c.id; d.draggable = false;
+        if (!isImg){ d.muted = true; d.setAttribute('playsinline', ''); d.preload = 'auto'; }
+        d.addEventListener('pointerdown', overlayDown); layer.appendChild(d);
+      }
+      if (url && d._src !== url){ d._src = url; d.src = url; }
+      var s = NANIM.overlayState(c, E.t - c.start);
+      d.style.left = (s.x * 100) + '%'; d.style.top = (s.y * 100) + '%'; d.style.width = (s.size * 100) + '%';
+      d.style.transform = 'translate(-50%,-50%) rotate(' + s.rot + 'deg)'; d.style.opacity = String(s.opacity);
+      d.classList.toggle('sel', c.id === E.sel);
+      if (!isImg && url){
+        var at = ((c.in || 0) + (E.t - c.start) * (c.speed || 1)) / 1000;
+        if (E.playing){
+          if (d.paused){ d.currentTime = at; var pr = d.play(); if (pr && pr.catch) pr.catch(function (){}); }
+          else if (Math.abs(d.currentTime - at) > 0.3) d.currentTime = at;
+        } else {
+          if (!d.paused) d.pause();
+          if (Math.abs(d.currentTime - at) > 0.04) d.currentTime = at;
+        }
+      }
+    });
+    Object.keys(E.overlayEls).forEach(function (id){
+      if (!want[id]){ var d = E.overlayEls[id]; try { if (d.pause) d.pause(); } catch (e) {} d.remove(); delete E.overlayEls[id]; }
+    });
+  }
+  function pauseOverlays(){ Object.keys(E.overlayEls || {}).forEach(function (id){ try { if (E.overlayEls[id].pause) E.overlayEls[id].pause(); } catch (e) {} }); }
+  function removeOverlays(){ Object.keys(E.overlayEls || {}).forEach(function (id){ try { if (E.overlayEls[id].pause) E.overlayEls[id].pause(); } catch (e) {} E.overlayEls[id].remove(); }); E.overlayEls = {}; }
+  function overlayDown(ev){
+    var id = ev.currentTarget.dataset.id, f = P.findClip(E.proj, id); if (!f) return;
+    ev.preventDefault(); ev.stopPropagation();
+    if (E.sel !== id){ E.sel = id; renderTimeline(); syncDock(); }
+    var r = E.ui.overlaylayer.getBoundingClientRect(), c = f.clip, s0 = NANIM.overlayState(c, E.t - c.start), st = { x0: ev.clientX, y0: ev.clientY, w: r.width || 1, h: r.height || 1, moved: false };
+    function at(e){
+      var q = P.setAnimated(E.hist.cur, id, 'x', s0.x + (e.clientX - st.x0) / st.w, relNow(c));
+      return P.setAnimated(q, id, 'y', s0.y + (e.clientY - st.y0) / st.h, relNow(c));
+    }
+    function mv(e){ st.moved = true; live(at(e)); }
+    function up(e){
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+      if (st.moved) commit(at(e));
+    }
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+  }
+  // The diamond: puts a keyframe on this property at the playhead, or takes the one that is there away. Change the value at another moment and it
+  // moves smoothly between the keyframes.
+  function keyframeActions(c, prop){
+    var has = P.hasKeyframe(E.hist.cur, c.id, prop, relNow(c)), any = !!(c.kf && c.kf[prop]);
+    var list = [{ id: 'edKeyframe', label: has ? '\u25c6 Remove keyframe' : '\u25c7 Add keyframe', on: has, run: function (){ commit(P.toggleKeyframe(E.hist.cur, c.id, prop, relNow(c))); } }];
+    if (any) list.push({ id: 'edKeyframeClear', label: 'Clear keyframes', run: function (){ commit(P.clearKeyframes(E.hist.cur, c.id, prop, relNow(c))); } });
+    return actions(list);
+  }
+  function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); syncOverlays(); }
   function layoutTextLayerBase(){
-    var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe, E.ui.stickerlayer]; if (!boxes[0]) return;
+    var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe, E.ui.stickerlayer, E.ui.overlaylayer]; if (!boxes[0]) return;
     var sw = st.clientWidth, sh = st.clientHeight, vw = m && m.videoWidth, vh = m && m.videoHeight;
     var fr0 = frameAspect(); if (fr0){ vw = Math.round(fr0 * 1000); vh = 1000; }   // the frame has the chosen shape, not the movie's
     boxes.forEach(function (l){
@@ -1063,7 +1164,7 @@ var NakiEditor = (function () {
     if (veilBg !== E.lastVeil){ E.ui.veil.style.background = veilBg; E.ui.veil.style.display = veilBg ? 'block' : 'none'; E.lastVeil = veilBg; }
     if (ex.sharpen !== E.lastSharp){ if (ex.sharpen) E.ui.sharpK.setAttribute('kernelMatrix', LK.sharpenKernel(ex.sharpen)); E.lastSharp = ex.sharpen; }
     var op = vc ? String(vc.opacity != null ? vc.opacity : 1) : '0';
-    var tcss = vc ? framePicture(vc.transform, m) : '';
+    var tcss = vc ? framePicture((vc.kf && NANIM) ? NANIM.pictureTransform(vc.transform, vc.kf, E.t - vc.start) : vc.transform, m) : '';
     if (tcss !== E.lastTransform){ m.style.transform = tcss; E.lastTransform = tcss; }
     if (css !== E.lastFilter){ m.style.filter = css; E.lastFilter = css; }
     if (op !== E.lastOpacity){ m.style.opacity = op; E.lastOpacity = op; }
@@ -1084,7 +1185,7 @@ var NakiEditor = (function () {
     }
     renderTexts(P.textsAt(E.proj, E.t));
     syncBackdrop(m);
-    syncStickers(); syncTransition(m, s, vc);
+    syncStickers(); syncOverlays(); syncTransition(m, s, vc);
     var ms = null, vo = null, mu = null;
     s.audio.forEach(function (a){ if (a.role === 'movieSound') ms = a; else if (a.role === 'voice') vo = a; else if (a.role === 'music') mu = a; });
     h.setMovieGain(ms && !ms.clip.reverse ? ms.gain : 0);
@@ -1114,7 +1215,7 @@ var NakiEditor = (function () {
   }
   function pause(){
     E.playing = false; if (E.raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(E.raf); E.raf = 0;
-    try { E.hooks.movie.pause(); E.hooks.voice.pause(); if (E.hooks.music) E.hooks.music.pause(); E.ui.bgvid.pause(); E.ui.xvid.pause(); } catch (e) {}
+    try { E.hooks.movie.pause(); E.hooks.voice.pause(); if (E.hooks.music) E.hooks.music.pause(); E.ui.bgvid.pause(); E.ui.xvid.pause(); pauseOverlays(); } catch (e) {}
     updateButtons();
   }
   function loop(){
@@ -1277,6 +1378,7 @@ var NakiEditor = (function () {
     try { h.movie.style.filter = ''; h.movie.style.opacity = ''; h.movie.style.transform = ''; h.movie.playbackRate = 1; E.ui.tint.style.display = E.ui.veil.style.display = 'none'; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; } catch (e) {}
     renderTexts([]);
     E.xOn = false; try { E.ui.xvid.pause(); E.ui.xvid.style.display = 'none'; } catch (e) {}
+    removeOverlays();
     Object.keys(E.stickerEls || {}).forEach(function (id){ E.stickerEls[id].remove(); }); E.stickerEls = {};
     if (E.home && E.home.parent) E.home.parent.insertBefore(h.movie, E.home.next);
     E.root.hidden = true; E.isOpen = false;
@@ -1292,4 +1394,4 @@ var NakiEditor = (function () {
 if (typeof module !== 'undefined' && module.exports) module.exports = NakiEditor;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'effects'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'overlay-kf'; }

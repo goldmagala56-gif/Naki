@@ -13,6 +13,7 @@ var _C = (typeof module !== 'undefined' && module.exports) ? require('./core.js'
   LEVEL_STEP_MS: LEVEL_STEP_MS, byteToDb: byteToDb, DB_MIN: DB_MIN };
 
 var _FM = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
+var _AN = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
 var _idn = 0;
 function newId(p){ _idn++; return p + _idn.toString(36) + Math.random().toString(36).slice(2, 6); }
 function r3(x){ return Math.round(x * 1000) / 1000; }
@@ -51,7 +52,7 @@ function finish(p){
     tr.clips.forEach(function (c){ d = Math.max(d, clipEnd(c)); });
   });
   p.durationMs = d;
-  p.tracks = p.tracks.filter(function (t){ return t.kind !== 'sticker' || t.clips.length; });   // an empty sticker row goes away
+  p.tracks = p.tracks.filter(function (t){ return (t.kind !== 'sticker' && t.kind !== 'overlay') || t.clips.length; });   // an empty sticker row goes away
   return p;
 }
 function findClip(p, id){
@@ -67,6 +68,7 @@ function sliceClip(c, from, to){   // the part of clip c covering timeline [from
   if (c.type !== 'freeze' && c.type !== 'text')   // a reversed clip plays its stretch of the movie backwards, so a piece taken from its end reads the movie from the start
     n.in = c.reverse ? c.in + Math.round((clipEnd(c) - to) * (c.speed || 1)) : c.in + Math.round((from - c.start) * (c.speed || 1));
   if (c.gain && c.gain.length) n.gain = gainSlice(c.gain, from - c.start, to - c.start);
+  if (c.kf && _AN) n.kf = kfSlice(c.kf, from - c.start, to - c.start);
   // fades belong to the original clip's ends: remember how much of each fade a piece has already used up
   if (from > c.start){ n.fadeInOff = (c.fadeInOff || 0) + (from - c.start); if (n.fadeInOff >= (c.fadeIn || 0)){ n.fadeIn = 0; n.fadeInOff = 0; } delete n.vFadeIn; delete n.transition; }
   if (to < clipEnd(c)){ n.fadeOutOff = (c.fadeOutOff || 0) + (clipEnd(c) - to); if (n.fadeOutOff >= (c.fadeOut || 0)){ n.fadeOut = 0; n.fadeOutOff = 0; } delete n.vFadeOut; }
@@ -210,6 +212,10 @@ function trimClipStart(p, id, newStart){
       else if (delta < 0) c.gain = [[0, c.gain[0][1]]].concat(c.gain.map(function (pt){ return [pt[0] - delta, pt[1]]; }));
     }
     c.fadeInOff = 0;
+    if (c.kf && _AN){
+      if (delta > 0) c.kf = kfSlice(c.kf, delta, c.dur);
+      else if (delta < 0){ var kk = {}; Object.keys(c.kf).forEach(function (k){ kk[k] = [[0, c.kf[k][0][1]]].concat(c.kf[k].map(function (pt){ return [pt[0] - delta, pt[1]]; })); }); c.kf = kk; }
+    }
     c.start += delta; c.dur -= delta;
   });
   return validate(q).length ? p : finish(q);
@@ -356,6 +362,7 @@ function setClipSpeed(p, id, speed){
   ids.forEach(function (cid){
     var c = findClip(q, cid).clip; c.speed = speed; c.dur = newDur;
     if (c.gain && c.gain.length) c.gain = c.gain.map(function (pt){ return [Math.round(pt[0] * ratio), pt[1]]; });
+    if (c.kf){ var kk2 = {}; Object.keys(c.kf).forEach(function (k){ kk2[k] = c.kf[k].map(function (pt){ return [Math.round(pt[0] * ratio), pt[1]]; }); }); c.kf = kk2; }
     c.fadeInOff = Math.round((c.fadeInOff || 0) * ratio); c.fadeOutOff = Math.round((c.fadeOutOff || 0) * ratio);
     c.fadeIn = Math.min(c.fadeIn || 0, Math.floor(newDur / 2)); c.fadeOut = Math.min(c.fadeOut || 0, Math.floor(newDur / 2));
     if (c.vFadeIn) c.vFadeIn = Math.min(c.vFadeIn, Math.floor(newDur / 2)); if (c.vFadeOut) c.vFadeOut = Math.min(c.vFadeOut, Math.floor(newDur / 2));
@@ -850,7 +857,7 @@ function addSticker(p, t, dur, glyph, out){
   var start = Math.max(0, Math.min(Math.round(t), total - 300)), d = Math.min(Math.round(dur || 3000), total - start); if (d < 300) return p;
   var q = cloneProject(p), rows = q.tracks.filter(function (x){ return x.kind === 'sticker'; }), tr = null;
   for (var i = 0; i < rows.length && !tr; i++) if (!rows[i].clips.some(function (c){ return start < clipEnd(c) && start + d > c.start; })) tr = rows[i];
-  if (!tr){ tr = { id: 't-stk' + (rows.length + 1), kind: 'sticker', role: 'stickers', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr); }
+  if (!tr){ tr = { id: 't-stk' + (function (){ var k = 1; while (q.tracks.some(function (x){ return x.id === 't-stk' + k; })) k++; return k; })(), kind: 'sticker', role: 'stickers', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr); }
   var clip = Object.assign({ id: newId('c'), type: 'text', sticker: true, asset: null, start: start, dur: d, in: 0, speed: 1 }, STICKER_DEFAULTS);
   if (glyph) clip.glyph = String(glyph);
   tr.clips.push(clip); if (out) out.id = clip.id;
@@ -870,6 +877,96 @@ function setStickerProps(p, id, patch){
 function stickersAt(p, t){
   var out = [];
   p.tracks.forEach(function (tr){ if (tr.kind !== 'sticker' || tr.hidden) return; tr.clips.forEach(function (c){ if (c.start <= t && t < clipEnd(c)) out.push(c); }); });
+  return out;
+}
+
+// ---------- keyframes and overlays ----------
+// Keyframes live on a clip as clip.kf = { prop: [[msSinceClipStart, value], ...] }. They work on overlay clips (x, y, size, rot, opacity) and on a picture
+// clip's zoom and pan (zoom, x, y). A property with no keyframes keeps its one fixed value.
+function kfKind(tr){ return tr.kind === 'overlay' ? 'overlay' : (tr.role === 'movie' ? 'picture' : null); }
+function setStaticProp(c, kind, prop, v){
+  if (kind === 'overlay'){ c[prop] = v; return; }
+  var t = Object.assign({ zoom: 1, x: 0, y: 0, rot: 0, flipH: false }, c.transform || {});   // same tidy-up as setTransform
+  t[prop] = v; t.zoom = r3(Math.max(1, Math.min(4, +t.zoom || 1)));
+  t.x = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.x || 0))); t.y = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.y || 0)));
+  t.rot = (((Math.round((+t.rot || 0) / 90) * 90) % 360) + 360) % 360; t.flipH = !!t.flipH;
+  if (t.zoom === 1 && t.rot === 0 && !t.flipH) delete c.transform; else c.transform = t;
+}
+function kfAt(pts, relMs){ var hit = -1; (pts || []).forEach(function (pt, i){ if (Math.abs(pt[0] - relMs) <= 33) hit = i; }); return hit; }
+function putKeyframe(c, prop, relMs, v){
+  relMs = Math.max(0, Math.min(Math.round(c.dur), Math.round(relMs)));
+  c.kf = c.kf || {}; var pts = c.kf[prop] = c.kf[prop] || [], hit = kfAt(pts, relMs);
+  if (hit >= 0) pts[hit] = [pts[hit][0], v]; else pts.push([relMs, v]);
+  pts.sort(function (a, b){ return a[0] - b[0]; });
+}
+// Sets a property at the playhead (relMs since the clip started). With keyframes on that property it sets (or adds) the keyframe there; without,
+// it changes the one fixed value.
+function setAnimated(p, id, prop, value, relMs){
+  var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !_AN || !_AN.RANGE[kind][prop]) return p;
+  var r = _AN.RANGE[kind][prop], v = Math.max(r[0], Math.min(r[1], +value)); if (isNaN(v)) return p; v = r3(v);
+  var q = cloneProject(p), c = findClip(q, id).clip;
+  if (c.kf && c.kf[prop] && c.kf[prop].length) putKeyframe(c, prop, relMs, v); else setStaticProp(c, kind, prop, v);
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+// The diamond button: no keyframe at the playhead = add one holding the current value; one there = take it away (when it was the last one on
+// that property, the property keeps that value).
+function toggleKeyframe(p, id, prop, relMs){
+  var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !_AN || !_AN.RANGE[kind][prop]) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip, pts = c.kf && c.kf[prop];
+  relMs = Math.max(0, Math.min(Math.round(c.dur), Math.round(relMs)));
+  var hit = kfAt(pts, relMs);
+  if (hit >= 0){
+    var v = pts[hit][1]; pts.splice(hit, 1);
+    if (!pts.length){ delete c.kf[prop]; if (!Object.keys(c.kf).length) delete c.kf; setStaticProp(c, kind, prop, v); }
+  } else putKeyframe(c, prop, relMs, r3(_AN.valueOf(c, kind, prop, relMs)));
+  return finish(q);
+}
+function hasKeyframe(p, id, prop, relMs){
+  var f = findClip(p, id); return !!(f && f.clip.kf && f.clip.kf[prop] && kfAt(f.clip.kf[prop], Math.round(relMs)) >= 0);
+}
+// Removes the keyframes of one property (or all of them); each property keeps the value it has at relMs.
+function clearKeyframes(p, id, prop, relMs){
+  var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !f.clip.kf) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip;
+  Object.keys(c.kf).forEach(function (k){ if (prop && k !== prop) return; setStaticProp(c, kind, k, r3(_AN.valueOf(c, kind, k, relMs || 0))); delete c.kf[k]; });
+  if (!Object.keys(c.kf).length) delete c.kf;
+  return finish(q);
+}
+// the keyframes of a piece cut out of a clip: [from, to) in the clip's own time, moved so the piece starts at 0 and animates just as before
+function kfSlice(kf, from, to){
+  var out = {};
+  Object.keys(kf).forEach(function (k){
+    var pts = kf[k], arr = [[0, r3(_AN.kfValue(pts, from))]];
+    pts.forEach(function (pt){ if (pt[0] > from && pt[0] < to) arr.push([pt[0] - from, pt[1]]); });
+    arr.push([to - from, r3(_AN.kfValue(pts, to))]); out[k] = arr;
+  });
+  return out;
+}
+
+// ---------- overlays: a second video or a photo laid over the picture ----------
+// An overlay is a clip on an "overlay" row. x, y = its centre as a fraction of the frame, size = its width as a fraction of the frame width, rot = degrees.
+// A photo is a clip of type 'freeze' (one held picture), a video is type 'video'. The file itself is kept by the page; the project only knows its name,
+// length and shape (project.assets). Overlays that overlap in time go on separate rows. info = { name, kind: 'video' | 'image', durMs, w, h }.
+function addOverlay(p, t, info, out){
+  info = info || {};
+  var total = p.durationMs; if (!(total > 0)) return p;
+  var image = info.kind === 'image', start = Math.max(0, Math.min(Math.round(t), total - 300));
+  var d = Math.min(image ? 3000 : Math.max(300, Math.round(info.durMs || 3000)), total - start); if (d < 300) return p;
+  var q = cloneProject(p), n = 1; while (q.assets['ov' + n]) n++;
+  var asset = 'ov' + n; q.assets[asset] = { type: image ? 'image' : 'video', name: info.name || 'overlay', durMs: image ? null : (info.durMs || null), w: info.w || 0, h: info.h || 0 };
+  var rows = q.tracks.filter(function (x){ return x.kind === 'overlay'; }), tr = null;
+  for (var i = 0; i < rows.length && !tr; i++) if (!rows[i].clips.some(function (c){ return start < clipEnd(c) && start + d > c.start; })) tr = rows[i];
+  if (!tr){
+    var k = 1; while (q.tracks.some(function (x){ return x.id === 't-ov' + k; })) k++;
+    tr = { id: 't-ov' + k, kind: 'overlay', role: 'overlay', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr);
+  }
+  var clip = Object.assign({ id: newId('c'), type: image ? 'freeze' : 'video', asset: asset, start: start, dur: d, in: 0, speed: 1 }, _AN ? _AN.OVERLAY : {});
+  tr.clips.push(clip); if (out){ out.id = clip.id; out.asset = asset; }
+  return finish(q);
+}
+function overlaysAt(p, t){
+  var out = [];
+  p.tracks.forEach(function (tr){ if (tr.kind !== 'overlay' || tr.hidden) return; tr.clips.forEach(function (c){ if (c.start <= t && t < clipEnd(c)) out.push(c); }); });
   return out;
 }
 
@@ -903,9 +1000,10 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,
   transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
-  addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt };
+  addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
+  setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'effects'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'overlay-kf'; }

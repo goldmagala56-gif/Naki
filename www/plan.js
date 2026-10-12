@@ -28,6 +28,7 @@ var NakiPlan = (function () {
       if (c.transform) sp.transform = { zoom: c.transform.zoom, x: c.transform.x, y: c.transform.y, rot: c.transform.rot, flipH: !!c.transform.flipH };
       if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;
       if (c.vFadeOut) sp.vFadeOut = c.vFadeOut;
+      if (c.kf && (c.kf.zoom || c.kf.x || c.kf.y)) { sp.kf = {}; ['zoom', 'x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sp.kf[k] = JSON.parse(JSON.stringify(c.kf[k])); }); }
       video.push(sp);
       cursor = e;
     });
@@ -81,12 +82,26 @@ var NakiPlan = (function () {
       });
     });
     stickers.sort(function (a, b) { return a.startMs - b.startMs; });
+    var overlays = [];
+    p.tracks.forEach(function (tr) {
+      if (tr.kind !== 'overlay' || tr.hidden) return;
+      tr.clips.forEach(function (c) {
+        var a = p.assets && p.assets[c.asset]; if (!a) return;
+        var s = Math.max(0, Math.round(c.start)), e = Math.min(total, Math.round(c.start + c.dur));
+        if (e <= s) return;
+        var o = { startMs: s, durMs: e - s, asset: c.asset, kind: c.type === 'freeze' ? 'image' : 'video', inMs: Math.round(c.in || 0), x: c.x, y: c.y, size: c.size, rot: c.rot || 0, opacity: c.opacity != null ? c.opacity : 1, w: a.w || 0, h: a.h || 0 };
+        if (c.kf) o.kf = JSON.parse(JSON.stringify(c.kf));
+        overlays.push(o);
+      });
+    });
+    overlays.sort(function (a, b) { return a.startMs - b.startMs; });
 
     var mv = p.assets && p.assets.movie;
     var plan = { naki: 'export-plan', version: 2, durationMs: total,
       movie: { name: mv && mv.name, durationMs: mv && mv.durMs }, video: video, audio: audio };
     if (texts.length) plan.texts = texts;
     if (stickers.length) plan.stickers = stickers;
+    if (overlays.length) plan.overlays = overlays;
     if (p.format && p.format.ratio) plan.format = { ratio: p.format.ratio, bg: p.format.bg ? { type: p.format.bg.type, color: p.format.bg.color } : { type: 'navy' } };
     return plan;
   }
@@ -98,4 +113,4 @@ var NakiPlan = (function () {
 })();
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'effects'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'overlay-kf'; }

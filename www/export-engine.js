@@ -17,6 +17,7 @@
 
 var _RV = (typeof module !== 'undefined' && module.exports) ? require('./reverse.js') : window.NakiReverse;
 var _FMT = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
+var _NA = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
 var FPS = 30;
 var SR = 48000;
 var GAIN_HZ = 1000;
@@ -145,8 +146,9 @@ function planToJobs(plan, movieInfo, opts) {
     var look = lookChain(sp, spanSec);
     var over = textFiles.filter(function (t) { return t.clip.startMs < sp.sessionEnd && t.clip.startMs + t.clip.durMs > sp.sessionStart; });
     var tpad = (padStart || tpadSec) ? 'tpad=' + (padStart ? 'start_mode=clone:start_duration=' + padStart.toFixed(3) + (tpadSec ? ':' : '') : '') + (tpadSec ? 'stop_mode=clone:stop_duration=' + tpadSec : '') : '';
-    var isGraph = !!fitChain && typeof fitChain === 'object';   // a blurred background is a whole filter graph, not a chain
-    if (!isGraph && !wm && !over.length && !look && !(speed && speed !== 1)) {
+    var isGraph = !!fitChain && typeof fitChain === 'object';
+    var ovs = _NA ? overlayList.filter(function (o) { return o.startMs < sp.sessionEnd && o.startMs + o.durMs > sp.sessionStart; }) : [];   // a blurred background is a whole filter graph, not a chain
+    if (!isGraph && !ovs.length && !wm && !over.length && !look && !(speed && speed !== 1)) {
       // a plain clip: exactly the chain the earlier versions used
       return sourceArgs.concat(['-an', '-vf', fitChain + (tpad ? ',' + tpad : '') + ',setsar=1,fps=' + FPS + ',format=yuv420p', '-frames:v', String(nFrames)], tailEnc);
     }
@@ -155,6 +157,13 @@ function planToJobs(plan, movieInfo, opts) {
       (tpad ? ',' + tpad : '') + ',format=yuv420p' + (look ? ',' + look : '');
     fc.push(isGraph ? fitChain.graph('[0:v]', '[f0]') + ';[f0]' + head + '[v0]' : '[0:v]' + head + '[v0]');
     var cur = 'v0';
+    ovs.forEach(function (o) {
+      var op = overlayParts(o, sp);
+      inputs.push.apply(inputs, op.inputs);
+      fc.push('[' + next + ':v]' + op.chain + '[ov' + next + ']');
+      fc.push('[' + cur + '][ov' + next + "]overlay=x='" + op.x + "':y='" + op.y + "':eof_action=pass:enable='between(t," + op.a.toFixed(3) + ',' + op.b.toFixed(3) + ")'[v" + (++n) + ']');
+      cur = 'v' + n; next++;
+    });
     if (wm) {
       inputs.push('-i', 'logo.png');
       fc.push('[' + next + ':v]scale=' + wm.logoW + ':-1[wm]'); fc.push('[' + cur + '][wm]overlay=' + wm.overlayPos + '[v' + (++n) + ']');
@@ -174,6 +183,7 @@ function planToJobs(plan, movieInfo, opts) {
   var containFit = fitFilter(width, height, true, padHex);   // fit inside the frame with navy bars (used when a picture is turned on its side)
   // Flip and turn first, then zoom into what is on screen, then fit to the output size. Same order as the editor preview.
   function transformFit(sp) {
+    if (sp.kf && _NA) return animPre(sp) + ',' + ((sp.transform && (sp.transform.rot === 90 || sp.transform.rot === 270)) ? containFit : fit);
     var t = sp.transform;
     if (!t) return fit;
     var rot = t.rot || 0, parts = [], z = t.zoom || 1;
@@ -192,6 +202,7 @@ function planToJobs(plan, movieInfo, opts) {
 
   // The same flip, turn and zoom as transformFit, without the fitting (the blurred-background picture does its own fitting).
   function transformPre(sp) {
+    if (sp.kf && _NA) return animPre(sp);
     var t = sp.transform; if (!t) return '';
     var rot = t.rot || 0, parts = [], z = t.zoom || 1;
     if (t.flipH) parts.push('hflip');
@@ -220,6 +231,7 @@ function planToJobs(plan, movieInfo, opts) {
     if (hIn) transIn[i] = true;
     if (hIn || hOut) {
       c.sessionStart += hIn; c.sessionEnd -= hOut;
+      if (c.kf && hIn && _NA) c.kf = _NA.shiftKf(c.kf, hIn);
       if (c.type === 'play') c.movieStart += Math.round(hIn * (c.speed && c.speed !== 1 ? c.speed : 1));
     }
     return c;
@@ -229,6 +241,7 @@ function planToJobs(plan, movieInfo, opts) {
     var nT = R(we) - R(ws), dSec = nT / FPS, id = String(i).padStart(4, '0');
     function side(sp, idx) {   // the picture of span sp as it looks from timeline time ws for the length of the transition
       var piece = Object.assign({}, sp, { sessionStart: ws, sessionEnd: we }); delete piece.vFadeIn; delete piece.vFadeOut; delete piece.transitionIn;
+      if (piece.kf && _NA) piece.kf = _NA.shiftKf(piece.kf, ws - sp.sessionStart);
       if (sp.type === 'freeze') return { piece: piece, src: ['-loop', '1', '-framerate', String(FPS), '-i', 'f' + String(idx).padStart(4, '0') + '.png'], fit: 'null', speed: 1, tpad: 0, pad: 0 };
       var speed = sp.speed && sp.speed !== 1 ? sp.speed : 1, ms = sp.movieStart + (ws - sp.sessionStart) * speed;
       return { piece: piece, src: ['-ss', clampSec(Math.max(0, ms)).toFixed(3), '-i', 'movie.in'], fit: pictureFit(piece), speed: speed, tpad: Math.ceil(dSec + 1), pad: ms < 0 ? -ms / speed / 1000 : 0 };
@@ -240,6 +253,38 @@ function planToJobs(plan, movieInfo, opts) {
     jobs.push({ label: 'transition ' + i, produces: 't' + id + '.ts', args: ['-i', 'ta' + id + '.ts', '-i', 'tb' + id + '.ts', '-an',
       '-filter_complex', '[0:v][1:v]xfade=transition=' + XFADE[B.transitionIn.type] + ':duration=' + dSec.toFixed(3) + ':offset=0[x]', '-map', '[x]', '-frames:v', String(nT)].concat(enc, ts, ['t' + id + '.ts']) });
     return 't' + id + '.ts';
+  }
+
+  
+// ---- animation: overlays laid over the picture, and a picture whose zoom / pan has keyframes ----
+  var overlayList = plan.overlays || [];
+  // Zoom / pan keyframes on the picture: flip and turn first, then zoompan works out the zoom and the pan for every frame from the keyframes.
+  function animPre(sp) {
+    var t = sp.transform || {}, rot = t.rot || 0, parts = [], kf = sp.kf || {}, spd = sp.speed && sp.speed !== 1 ? sp.speed : 1;
+    if (t.flipH) parts.push('hflip');
+    if (rot === 90) parts.push('transpose=1'); else if (rot === 180) parts.push('hflip,vflip'); else if (rot === 270) parts.push('transpose=2');
+    var side = rot === 90 || rot === 270, sw = Math.max(2, Math.floor((side ? movieInfo.height : movieInfo.width) / 2) * 2), sh = Math.max(2, Math.floor((side ? movieInfo.width : movieInfo.height) / 2) * 2);
+    var tv = '(on/' + FPS + ')', ex = function (k, dflt) { return kf[k] && kf[k].length ? _NA.kfExpr(kf[k], 0, spd, tv) : String(dflt); };
+    parts.push('fps=' + FPS, "zoompan=z='" + ex('zoom', t.zoom || 1) + "':x='(iw-iw/zoom)/2*(1+(" + ex('x', t.x || 0) + "))':y='(ih-ih/zoom)/2*(1+(" + ex('y', t.y || 0) + "))':d=1:s=" + sw + 'x' + sh + ':fps=' + FPS);
+    return parts.join(',');
+  }
+  // One overlay laid over a picture part: cut to the part, sized, turned and faded (changing over time when it has keyframes) and placed.
+  function overlayParts(o, sp) {
+    var a = Math.max(0, (o.startMs - sp.sessionStart) / 1000), b = (Math.min(sp.sessionEnd, o.startMs + o.durMs) - sp.sessionStart) / 1000, len = (b - a).toFixed(3);
+    var src = o.kind === 'image' ? ['-loop', '1', '-framerate', String(FPS), '-t', len, '-i', o.asset + '.in']
+      : ['-ss', ((o.inMs + Math.max(0, sp.sessionStart - o.startMs)) / 1000).toFixed(3), '-t', len, '-i', o.asset + '.in'];
+    var shift = o.startMs - sp.sessionStart, kf = o.kf || {}, asp = o.w > 0 && o.h > 0 ? o.h / o.w : 9 / 16;
+    var anim = function (k, tv) { return kf[k] && kf[k].length ? _NA.kfExpr(kf[k], shift, 1, tv || 't') : null; };
+    var size = anim('size'), rot = anim('rot'), op = anim('opacity', 'T'), x = anim('x'), y = anim('y'), f = [];
+    f.push('setpts=PTS-STARTPTS+' + a.toFixed(3) + '/TB');
+    if (size) f.push("scale=w='trunc(" + width + '*(' + size + ")/2)*2':h='trunc(" + width + '*(' + size + ')*' + asp.toFixed(5) + "/2)*2':eval=frame");
+    else f.push('scale=' + Math.max(2, Math.round(width * o.size / 2) * 2) + ':' + Math.max(2, Math.round(width * o.size * asp / 2) * 2));
+    f.push('format=rgba');
+    if (rot) f.push("rotate=a='(" + rot + ")*PI/180':c=none:ow='hypot(iw,ih)':oh=ow");
+    else if (o.rot) { var rad = (o.rot * Math.PI / 180).toFixed(5); f.push('rotate=a=' + rad + ":c=none:ow='rotw(" + rad + ")':oh='roth(" + rad + ")'"); }
+    if (op) f.push("geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(" + op + ")'");
+    else if (o.opacity != null && o.opacity < 1) f.push('colorchannelmixer=aa=' + o.opacity.toFixed(3));
+    return { inputs: src, chain: f.join(','), x: 'main_w*(' + (x || o.x) + ')-overlay_w/2', y: 'main_h*(' + (y || o.y) + ')-overlay_h/2', a: a, b: b };
   }
 
   
@@ -477,6 +522,8 @@ var NakiExport = (function () {
     ffmpeg.writeFile('voice.in', await fetchFile(voiceBlob));
     var extra = [];
     if (opts.musicFile) { say('Loading your music...'); ffmpeg.writeFile('music.in', await fetchFile(opts.musicFile)); extra.push('music.in'); }
+    var ovIds = Object.keys(opts.overlayFiles || {});
+    for (var oi = 0; oi < ovIds.length; oi++) { say('Loading your overlay...'); ffmpeg.writeFile(ovIds[oi] + '.in', await fetchFile(opts.overlayFiles[ovIds[oi]])); extra.push(ovIds[oi] + '.in'); }
 
     say('Reading the movie...');
     var info = await probe(ffmpeg, 'movie.in');

@@ -29,6 +29,7 @@ var WebCodecsExport = (function () {
   var AUDIO_SR = 48000;
   var WINDOW_S = 20;   // seconds of sound rendered at a time
   var NSTK = (typeof module !== 'undefined' && module.exports) ? require('./stickers.js') : (typeof window !== 'undefined' ? window.NakiStickers : null);
+  var NA = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
   var NAVY = '#111b24';
   var TITLE_POS = { top: 0.07, center: 0.40, bottom: 0.76 };   // same numbers as plan.js / the editor preview
 
@@ -352,12 +353,54 @@ var WebCodecsExport = (function () {
       var img = sample.toCanvasImageSource();   // must be used right now, before the sample is closed
       paintLayer(img, sample.displayWidth || img.displayWidth || img.width, sample.displayHeight || img.displayHeight || img.height, sp);
     }
-    // puts one finished frame on the encoder's canvas: picture, fade to black, logo, titles
+    // the overlays: a photo is drawn as it is; a video gets one picture per output frame, read in step with the video being made
+    var ovs = [];
+    async function setupOverlays() {
+      var list = [], files = opts.overlayFiles || {};
+      for (var oi = 0; oi < (plan.overlays || []).length; oi++) {
+        var o = plan.overlays[oi], f = files[o.asset]; if (!f) continue;
+        var ov = { o: o, cur: null, pulled: 0, bmp: null, w: 0, h: 0 };
+        if (o.kind === 'image') { ov.bmp = await createImageBitmap(f); ov.w = ov.bmp.width; ov.h = ov.bmp.height; }
+        else {
+          var inp = new M.Input({ source: new M.BlobSource(f), formats: M.ALL_FORMATS }), vt = await inp.getPrimaryVideoTrack();
+          if (!vt) continue;
+          ov.input = inp; ov.sink = new M.VideoSampleSink(vt);
+          var cnt = Math.max(1, Math.round(o.durMs * FPS / 1000)), srcSec = o.inMs / 1000;
+          ov.it = ov.sink.samplesAtTimestamps((function* () { for (var k = 0; k < cnt; k++) yield srcSec + k / FPS; })())[Symbol.asyncIterator]();
+        }
+        list.push(ov);
+      }
+      return list;
+    }
+    async function advanceOverlays(tMs) {
+      for (var oi = 0; oi < ovs.length; oi++) {
+        var ov = ovs[oi], o = ov.o; if (!ov.it || tMs < o.startMs || tMs >= o.startMs + o.durMs) continue;
+        var need = Math.round((tMs - o.startMs) * FPS / 1000);
+        while (ov.pulled <= need) {
+          var r = await ov.it.next(); ov.pulled++;
+          if (r.done) break;
+          if (r.value) { if (ov.cur) { try { ov.cur.close(); } catch (e) {} } ov.cur = r.value; }   // no picture for that moment: keep the last one
+        }
+      }
+    }
+    function drawOverlays(tMs) {
+      for (var oi = 0; oi < ovs.length; oi++) {
+        var ov = ovs[oi], o = ov.o; if (tMs < o.startMs || tMs >= o.startMs + o.durMs) continue;
+        var src = ov.bmp || (ov.cur && ov.cur.toCanvasImageSource()); if (!src) continue;
+        var iw = ov.bmp ? ov.w : (ov.cur.displayWidth || src.displayWidth || src.width), ih = ov.bmp ? ov.h : (ov.cur.displayHeight || src.displayHeight || src.height);
+        var R = NA.overlayRect(Object.assign({}, o, { w: iw, h: ih }), NA.overlayState(o, tMs - o.startMs), W, H);
+        ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, R.opacity)); ctx.translate(R.cx, R.cy); ctx.rotate(R.rot * Math.PI / 180);
+        ctx.drawImage(src, -R.w / 2, -R.h / 2, R.w, R.h); ctx.restore();
+      }
+    }
+    
+// puts one finished frame on the encoder's canvas: picture, fade to black, overlays, logo, stickers, titles
     function compose(sp, tMs) {
       ctx.globalAlpha = 1;
       ctx.drawImage(layer, 0, 0);
       var lv = fadeLevel(sp, tMs - sp.sessionStart);
       if (lv < 1) { ctx.globalAlpha = 1 - lv; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+      drawOverlays(tMs);
       if (logoImg) drawWatermark(ctx, logoImg, W, H, opts.logoCorner);
       for (var ks = 0; ks < stickers.length; ks++) if (tMs >= stickers[ks].a && tMs < stickers[ks].b) ctx.drawImage(stickers[ks].c, 0, 0);
       for (var k = 0; k < titles.length; k++) if (tMs >= titles[k].a && tMs < titles[k].b) ctx.drawImage(titles[k].c, 0, 0);
@@ -373,6 +416,7 @@ var WebCodecsExport = (function () {
     output.addAudioTrack(audioSource);
     await output.start();
 
+    ovs = await setupOverlays();
     say('Rendering video...');
     var totalFrames = 0;
     plan.video.forEach(function (sp) { totalFrames += Math.max(0, Math.round((sp.sessionEnd - sp.sessionStart) * FPS / 1000)); });
@@ -392,36 +436,38 @@ var WebCodecsExport = (function () {
           for (var k = 0; k < nFrames; k++) yield startSec + k / FPS;
         })();
         for await (var sample of sink.samplesAtTimestamps(stamps)) {
-          if (sample) { paintSample(sample, sp); sample.close(); }   // null => keep the last picture
+          if (sample) { paintSample(sample, NA ? NA.spanAt(sp, i * 1000 / FPS) : sp); sample.close(); }   // null => keep the last picture
           var t = sp.sessionStart + i * 1000 / FPS;
-          compose(sp, t);
+          await advanceOverlays(t); compose(sp, t);
           await videoSource.add(t / 1000, 1 / FPS);
           i++; framesDone++;
         }
         while (i < nFrames) {   // safety net if the source ended early
           var t2 = sp.sessionStart + i * 1000 / FPS;
-          compose(sp, t2);
+          await advanceOverlays(t2); compose(sp, t2);
           await videoSource.add(t2 / 1000, 1 / FPS);
           i++; framesDone++;
         }
       } else {
         if (sp.type === 'freeze') {
           var held = await sink.getSample(sp.movieAt / 1000);
-          if (held) { paintSample(held, sp); held.close(); } else paintLayer(null, 0, 0, sp);
+          if (held) { paintSample(held, NA ? NA.spanAt(sp, 0) : sp); if (!sp.kf) { held.close(); held = null; } } else paintLayer(null, 0, 0, sp);
         } else {   // 'black': the navy background (and the logo, if any)
           paintLayer(null, 0, 0, sp);
         }
         for (var j = 0; j < nFrames; j++) {
           var tf = sp.sessionStart + j * 1000 / FPS;
-          compose(sp, tf);   // redrawn every frame, because fades and titles can change from frame to frame
+          await advanceOverlays(tf); if (held && sp.kf) paintSample(held, NA.spanAt(sp, j * 1000 / FPS)); compose(sp, tf);   // redrawn every frame, because fades and titles can change from frame to frame
           await videoSource.add(tf / 1000, 1 / FPS);
           framesDone++;
         }
       }
+      if (held) { held.close(); held = null; }
       prog(0.05 + (framesDone / totalFrames) * 0.8);
       say('Rendering video... ' + Math.round((s + 1) / plan.video.length * 100) + '%');
     }
     videoSource.close();
+    ovs.forEach(function (ov) { try { if (ov.cur) ov.cur.close(); if (ov.input && ov.input.dispose) ov.input.dispose(); } catch (e) {} });
 
     say('Mixing your voice with the movie...');
     prog(0.85);
