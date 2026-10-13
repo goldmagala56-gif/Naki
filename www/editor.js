@@ -10,9 +10,11 @@ var NakiEditor = (function () {
   var NSTK = (typeof module !== 'undefined' && module.exports) ? require('./stickers.js') : (typeof window !== 'undefined' ? window.NakiStickers : null);
   var NPR = (typeof module !== 'undefined' && module.exports) ? require('./presets.js') : (typeof window !== 'undefined' ? window.NakiPresets : null);
   var NANIM = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
+  var NSFX = (typeof module !== 'undefined' && module.exports) ? require('./sfx.js') : (typeof window !== 'undefined' ? window.NakiSfx : null);
+  var NCAP = (typeof module !== 'undefined' && module.exports) ? require('./captions.js') : (typeof window !== 'undefined' ? window.NakiCaptions : null);
   var TRANSITIONS = [{ key: 'none', label: 'None' }, { key: 'fade', label: 'Fade' }, { key: 'fadeblack', label: 'Dip to black' }, { key: 'wipeleft', label: 'Wipe' }, { key: 'slideleft', label: 'Slide' }, { key: 'zoomin', label: 'Zoom' }, { key: 'circleopen', label: 'Circle' }];
   var PAD = 16, MIN_PPM = 0.004, MAX_PPM = 0.6, FRAME_MS = 33;
-  var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text', captions: 'Captions', stickers: 'Stickers', overlay: 'Overlay' };
+  var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text', captions: 'Captions', stickers: 'Stickers', overlay: 'Overlay', sfx: 'Effects' };
   var E = { hooks: null, root: null, ui: {}, hist: null, proj: null, sess: null, sel: null, t: 0, playing: false, ppm: 0.06,
     cache: {}, magnet: false, drag: null, raf: 0, wall: 0, wallT: 0, isOpen: false, home: null, pointers: {}, pinch: null,
     voiceGain: null, musicGain: null, quiet: null, quietDb: -42, tool: null, textEls: {}, freezeMs: 2000, saveT: 0, voiceDurMs: null, lastFilter: '', lastOpacity: '', lastRate: 1,
@@ -173,7 +175,7 @@ var NakiEditor = (function () {
       var extra = (c.speed && c.speed !== 1 ? ' ' + c.speed + '×' : '') + (c.filter ? ' · filter' : '') + (c.vFadeIn || c.vFadeOut ? ' · fade' : '') + (c.opacity != null ? ' · ' + Math.round(c.opacity * 100) + '%' : '') + (c.reverse ? ' · reversed' : '') + (c.transform ? ' · ' + (c.transform.zoom > 1 ? 'zoom ' : '') + (c.transform.rot ? c.transform.rot + '° ' : '') + (c.transform.flipH ? 'flip' : '') : '');
       return (c.type === 'freeze' ? 'Paused picture' : 'Movie playing') + extra;
     }
-    return tr.kind === 'sticker' ? (c.glyph || '') + ' Sticker' : tr.kind === 'overlay' ? 'Overlay \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : (ROLE_NAME[tr.role] || 'Audio');
+    return tr.kind === 'sticker' ? (c.glyph || '') + ' Sticker' : tr.kind === 'overlay' ? 'Overlay \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : tr.role === 'sfx' ? 'Effect \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : (ROLE_NAME[tr.role] || 'Audio');
   }
   function drawWave(cv, c){
     var g = cv.getContext && cv.getContext('2d'); if (!g) return;
@@ -610,6 +612,7 @@ var NakiEditor = (function () {
     audio: function (){
       var mt = E.proj.tracks.filter(function (t){ return t.role === 'music'; })[0], has = !!(mt && mt.clips[0]), items = [];
       if (E.hooks.pickMusic) items.push({ id: 'edAddMusic', label: has ? 'Change music' : 'Add music', icon: G.music, run: addMusic });
+      items.push({ id: 'edSfx', label: 'Effects', icon: G.music, run: function (){ openPanel('sfxpick'); } });
       items.push({ id: 'edMix', label: 'Volume', icon: G.mix, run: function (){ openPanel('mix'); } });
       items.push({ id: 'edClipAudio', label: 'Clip', icon: G.clip, run: function (){ openPanel('clipaudio'); } });
       if (has) items.push({ id: 'edRemoveMusic', label: 'Remove music', icon: G.trash, run: function (){ if (E.hooks.setMusicFile) E.hooks.setMusicFile(null); commit(P.removeMusic(E.hist.cur)); } });
@@ -871,6 +874,20 @@ opacity: { title: 'Opacity', build: function (body){
       body.appendChild(keyframeActions(c, cur));
       body.appendChild(mk('div', 'ed-hint', 'Drag the overlay on the picture to move it. For movement, put a keyframe here, move the playhead, change the value, and it glides between them. An overlay has no sound.'));
     } },
+    sfxpick: { title: 'Sound effects', build: function (body){
+      var g = mk('div', 'ed-chips wrap');
+      (NSFX ? NSFX.LIST : []).forEach(function (x){ var b = btn(null, x.label, 'ed-chip'); b.onclick = function (){ addSfxBuiltin(x.key); }; g.appendChild(b); });
+      body.appendChild(g);
+      body.appendChild(actions([{ id: 'edSfxImport', label: 'Import your own sound', run: addSfxFromFile }]));
+      body.appendChild(mk('div', 'ed-hint', 'Tap one to put it at the playhead. Drag it on the timeline to move it; under Clip you can change its volume and fades.'));
+    } },
+    autocaptions: { title: 'Auto captions', build: function (body){
+      var keys = NCAP.LANGS.map(function (l){ return { key: l.key, label: l.label }; }), cur = chipKey('autocaptions', keys, 'english'), run = !!(E.ac && E.ac.running);
+      body.appendChild(chips(keys, cur, pickChip('autocaptions')));
+      var st = mk('div', 'ed-hint', run ? E.ac.msg : 'Listens to your recording on this device and writes the captions at the right times. English works best. Luganda is not supported, so for Luganda use Mark speech and type the words.');
+      E.acStatus = st; body.appendChild(st);
+      body.appendChild(actions([{ id: 'edAutoCapStart', label: run ? 'Working...' : 'Start', run: function (){ runAutoCaptions(cur); } }]));
+    } },
     texts: { title: 'Your texts', build: function (body){
       var list = allTexts();
       if (!list.length){ body.appendChild(mk('div', 'ed-hint', 'No text yet. Tap Add text.')); return; }
@@ -881,6 +898,7 @@ opacity: { title: 'Opacity', build: function (body){
     captions: { title: 'Captions', build: function (body){
       var list = P.captionList(E.hist.cur);
       body.appendChild(actions([{ id: 'edCapAdd', label: 'Add line here', run: addCaptionHere }, { id: 'edCapImport', label: 'Import .srt', run: importSrtFile }, { id: 'edCapExport', label: 'Save .srt', run: exportSrtFile }]));
+      body.appendChild(actions([{ id: 'edCapAuto', label: 'Auto captions', run: function (){ openPanel('autocaptions'); } }, { id: 'edCapMark', label: 'Mark speech', run: markSpeech }]));
       if (!list.length){ body.appendChild(mk('div', 'ed-hint', 'Type subtitle lines at the playhead, or import an .srt file. Times follow your edited video, so cuts move the captions with it.')); return; }
       body.appendChild(chips(list.map(function (c){ return { key: c.id, label: fmtP(c.start) + '  ' + (c.text.length > 22 ? c.text.slice(0, 21) + '…' : c.text) }; }), E.sel, function (id){
         var c = P.findClip(E.proj, id).clip; seek(c.start); E.sel = id; commit0(); openPanel('textedit', 'text');
@@ -1076,6 +1094,75 @@ opacity: { title: 'Opacity', build: function (body){
     if (any) list.push({ id: 'edKeyframeClear', label: 'Clear keyframes', run: function (){ commit(P.clearKeyframes(E.hist.cur, c.id, prop, relNow(c))); } });
     return actions(list);
   }
+  // ----- sound effects -----
+  function placeSfx(info){
+    var out = {}, q = P.addSfx(E.hist.cur, Math.round(E.t), info, out);
+    if (q === E.hist.cur){ toast('There is no room for a sound effect at the playhead.'); return; }
+    E.hooks.setSfxFile(out.asset, info.file);
+    E.sel = out.id; commit(q); closePanel(); toast('Added at the playhead. Press play to hear it.');
+  }
+  function addSfxBuiltin(key){
+    if (!NSFX || !E.hooks.setSfxFile){ toast('Sound effects are not available here.'); return; }
+    var def = NSFX.find(key), wav = NSFX.toWav(NSFX.render(key, 48000), 48000);
+    placeSfx({ file: new File([wav], key + '.wav', { type: 'audio/wav' }), name: def.label, durMs: def.durMs });
+  }
+  function addSfxFromFile(){
+    if (!E.hooks.pickSfx || !E.hooks.setSfxFile){ toast('Importing sounds is not available here.'); return; }
+    pause();
+    Promise.resolve(E.hooks.pickSfx()).then(function (info){ if (info) placeSfx(info); });
+  }
+  // The effects that sound at the playhead: one small audio element each, kept in step with the playhead.
+  function syncSfx(s){
+    if (!E.sfxEls) E.sfxEls = {};
+    var want = {};
+    s.audio.forEach(function (a){
+      if (a.role !== 'sfx') return;
+      var c = a.clip, url = E.hooks.sfxUrl ? E.hooks.sfxUrl(c.asset) : ''; if (!url) return;
+      want[c.id] = true;
+      var d = E.sfxEls[c.id]; if (!d){ d = E.sfxEls[c.id] = new Audio(); d.preload = 'auto'; d._src = ''; }
+      if (d._src !== url){ d._src = url; d.src = url; }
+      d.volume = Math.max(0, Math.min(1, a.gain));
+      var at = a.sourceMs / 1000;
+      if (E.playing){
+        if (d.paused){ d.currentTime = at; var pr = d.play(); if (pr && pr.catch) pr.catch(function (){}); }
+        else if (Math.abs(d.currentTime - at) > 0.3) d.currentTime = at;
+      } else if (!d.paused) d.pause();
+    });
+    Object.keys(E.sfxEls).forEach(function (id){ if (!want[id]){ try { E.sfxEls[id].pause(); } catch (e) {} delete E.sfxEls[id]; } });
+  }
+  function pauseSfx(){ Object.keys(E.sfxEls || {}).forEach(function (id){ try { E.sfxEls[id].pause(); } catch (e) {} }); }
+  function removeSfx(){ pauseSfx(); E.sfxEls = {}; }
+  // ----- auto captions -----
+  function applyCaptionItems(items){
+    var had = P.captionList(E.hist.cur).length;
+    if (had && !confirm('Replace your ' + had + ' caption lines with the ' + items.length + ' new ones?')){ renderDock(); return; }
+    var out = {}, q = P.addCaptions(E.hist.cur, items, { replace: true }, out);
+    if (q === E.hist.cur && !out.added){ toast('None of the lines fit the video.'); renderDock(); return; }
+    commit(q); openPanel('captions', 'text');
+    toast(out.added + ' caption line' + (out.added === 1 ? '' : 's') + ' added. Check them, speech recognition makes mistakes.', 8000);
+  }
+  // Works for any language: a caption slot for every stretch where you were talking. You type the words.
+  function markSpeech(){
+    var ranges = NCAP.chunkRanges(P.speechRanges(E.hist.cur, { thresholdDb: E.quietDb }), 6000);
+    if (!ranges.length){ toast('No speech was found in your recording.'); return; }
+    applyCaptionItems(ranges.map(function (r){ return { startMs: r.start, endMs: r.end, text: '\u2026' }; }));
+  }
+  function runAutoCaptions(langKey){
+    if (E.ac && E.ac.running) return;
+    var blob = E.hooks.getVoiceBlob && E.hooks.getVoiceBlob();
+    if (!blob || !blob.size){ toast('There is no voice recording to listen to.'); return; }
+    pause(); E.ac = { running: true, msg: 'Starting...' }; renderDock();
+    var status = function (m){ if (E.ac) E.ac.msg = m; if (E.acStatus) E.acStatus.textContent = m; };
+    NCAP.recognize(blob, { language: langKey, onStatus: status }).then(function (segs){
+      var items = P.captionsFromVoice(E.hist.cur, NCAP.splitLines(segs, 42));
+      E.ac = null;
+      if (!items.length){ toast('No speech was found in the part of the recording you kept.', 7000); renderDock(); return; }
+      applyCaptionItems(items);
+    }).catch(function (err){
+      E.ac = null; console.error('auto captions failed', err); renderDock();
+      toast('Auto captions did not work' + (err && err.message ? ': ' + err.message : '') + '. The first time it needs internet.', 10000);
+    });
+  }
   function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); syncOverlays(); }
   function layoutTextLayerBase(){
     var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe, E.ui.stickerlayer, E.ui.overlaylayer]; if (!boxes[0]) return;
@@ -1185,7 +1272,7 @@ opacity: { title: 'Opacity', build: function (body){
     }
     renderTexts(P.textsAt(E.proj, E.t));
     syncBackdrop(m);
-    syncStickers(); syncOverlays(); syncTransition(m, s, vc);
+    syncStickers(); syncOverlays(); syncSfx(s); syncTransition(m, s, vc);
     var ms = null, vo = null, mu = null;
     s.audio.forEach(function (a){ if (a.role === 'movieSound') ms = a; else if (a.role === 'voice') vo = a; else if (a.role === 'music') mu = a; });
     h.setMovieGain(ms && !ms.clip.reverse ? ms.gain : 0);
@@ -1215,7 +1302,7 @@ opacity: { title: 'Opacity', build: function (body){
   }
   function pause(){
     E.playing = false; if (E.raf && typeof cancelAnimationFrame === 'function') cancelAnimationFrame(E.raf); E.raf = 0;
-    try { E.hooks.movie.pause(); E.hooks.voice.pause(); if (E.hooks.music) E.hooks.music.pause(); E.ui.bgvid.pause(); E.ui.xvid.pause(); pauseOverlays(); } catch (e) {}
+    try { E.hooks.movie.pause(); E.hooks.voice.pause(); if (E.hooks.music) E.hooks.music.pause(); E.ui.bgvid.pause(); E.ui.xvid.pause(); pauseOverlays(); pauseSfx(); } catch (e) {}
     updateButtons();
   }
   function loop(){
@@ -1378,7 +1465,7 @@ opacity: { title: 'Opacity', build: function (body){
     try { h.movie.style.filter = ''; h.movie.style.opacity = ''; h.movie.style.transform = ''; h.movie.playbackRate = 1; E.ui.tint.style.display = E.ui.veil.style.display = 'none'; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; } catch (e) {}
     renderTexts([]);
     E.xOn = false; try { E.ui.xvid.pause(); E.ui.xvid.style.display = 'none'; } catch (e) {}
-    removeOverlays();
+    removeOverlays(); removeSfx();
     Object.keys(E.stickerEls || {}).forEach(function (id){ E.stickerEls[id].remove(); }); E.stickerEls = {};
     if (E.home && E.home.parent) E.home.parent.insertBefore(h.movie, E.home.next);
     E.root.hidden = true; E.isOpen = false;
@@ -1394,4 +1481,4 @@ opacity: { title: 'Opacity', build: function (body){
 if (typeof module !== 'undefined' && module.exports) module.exports = NakiEditor;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'overlay-kf'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'sound'; }

@@ -320,6 +320,7 @@ function planToJobs(plan, movieInfo, opts) {
 
   /* --- sound: one lane per source, made of clip files and silent gaps --- */
   var lanes = { movie: [], voice: [], music: [] }, cursor = { movie: 0, voice: 0, music: 0 };
+  (plan.audio || []).forEach(function (c) { if (c.file && /^sfx/.test(c.src) && !lanes[c.src]) { lanes[c.src] = []; cursor[c.src] = 0; } });   // one lane for each effects row
   var totalSamples = Sm(plan.durationMs);
   function silence(name, samples) {
     return { label: 'silence', produces: name, args: ['-f', 'lavfi', '-i', 'anullsrc=r=' + SR + ':cl=stereo',
@@ -356,8 +357,8 @@ function planToJobs(plan, movieInfo, opts) {
       '[a][g]amultiply,aformat=sample_fmts=s16:channel_layouts=stereo[o]';
     var files = {}; files[gfile] = buildGainRaw(c.points, c.durMs + lostMs);
     jobs.push({ label: 'sound ' + src + ' ' + (i + 1), produces: afile, files: files,
-      args: (rev ? ['-ss', clampSec(c.inMs).toFixed(3), '-t', (c.durMs * spd / 1000).toFixed(3), '-i', SRC_FILE[src]]
-        : ['-ss', clampSec(c.inMs + lostMs * spd).toFixed(3), '-i', SRC_FILE[src]]).concat([
+      args: (rev ? ['-ss', clampSec(c.inMs).toFixed(3), '-t', (c.durMs * spd / 1000).toFixed(3), '-i', c.file || SRC_FILE[src]]
+        : ['-ss', clampSec(c.inMs + lostMs * spd).toFixed(3), '-i', c.file || SRC_FILE[src]]).concat([
         '-f', 'f32le', '-ar', String(GAIN_HZ), '-ac', '2', '-i', gfile,
         '-filter_complex', fc, '-map', '[o]', '-t', (n / SR + 0.05).toFixed(3), '-c:a', 'pcm_s16le', '-f', 'wav', afile]) });
     lanes[src].push(afile);
@@ -367,7 +368,7 @@ function planToJobs(plan, movieInfo, opts) {
   Object.keys(lanes).forEach(function (src) {
     if (!lanes[src].length) return;
     if (totalSamples > cursor[src]) {
-      var tail = 't' + src[0] + '.wav';
+      var tail = 't' + (/^sfx/.test(src) ? '_' + src : src[0]) + '.wav';
       jobs.push(silence(tail, totalSamples - cursor[src]));
       lanes[src].push(tail);
     }
@@ -524,6 +525,8 @@ var NakiExport = (function () {
     if (opts.musicFile) { say('Loading your music...'); ffmpeg.writeFile('music.in', await fetchFile(opts.musicFile)); extra.push('music.in'); }
     var ovIds = Object.keys(opts.overlayFiles || {});
     for (var oi = 0; oi < ovIds.length; oi++) { say('Loading your overlay...'); ffmpeg.writeFile(ovIds[oi] + '.in', await fetchFile(opts.overlayFiles[ovIds[oi]])); extra.push(ovIds[oi] + '.in'); }
+    var sfxNames = Object.keys(opts.sfxFiles || {});
+    for (var si = 0; si < sfxNames.length; si++) { say('Loading your sound effects...'); ffmpeg.writeFile(sfxNames[si], await fetchFile(opts.sfxFiles[sfxNames[si]])); extra.push(sfxNames[si]); }
 
     say('Reading the movie...');
     var info = await probe(ffmpeg, 'movie.in');

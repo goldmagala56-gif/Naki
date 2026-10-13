@@ -40,7 +40,7 @@ var NakiPlan = (function () {
     var audio = [];
     p.tracks.forEach(function (tr) {
       if (tr.kind !== 'audio' || tr.muted) return;
-      var src = ROLE_SRC[tr.role]; if (!src) return;
+      var src = ROLE_SRC[tr.role] || (tr.role === 'sfx' ? 'sfx' + String(tr.id).replace(/\D/g, '') : null); if (!src) return;   // each effects row is its own lane
       tr.clips.forEach(function (c) {
         if (!(c.dur > 0)) return;
         var n = Math.ceil(c.dur / STEP) + 1, series = [], any = false;
@@ -54,6 +54,7 @@ var NakiPlan = (function () {
           points: C.simplifyGain(series, STEP, 0.01) };
         if (src === 'movie' && c.speed && c.speed !== 1) a.speed = c.speed;
         if (src === 'movie' && c.reverse) a.reverse = true;
+        if (tr.role === 'sfx') a.file = c.asset + '.in';
         audio.push(a);
       });
     });
@@ -113,4 +114,4 @@ var NakiPlan = (function () {
 })();
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'overlay-kf'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'sound'; }

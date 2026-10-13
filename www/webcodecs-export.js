@@ -279,6 +279,8 @@ var WebCodecsExport = (function () {
       movieSink = new M.AudioBufferSink(sources.movieAudioTrack);
     }
 
+    var sfxBufs = {}, sfxNames = Object.keys(sources.sfxFiles || {});   // the sound effects, decoded once
+    for (var si = 0; si < sfxNames.length; si++) { try { sfxBufs[sfxNames[si]] = await decodeWhole(sources.sfxFiles[sfxNames[si]]); } catch (e) {} }
     var totalSamples = Math.round(plan.durationMs / 1000 * AUDIO_SR);
     var stepSamples = WINDOW_S * AUDIO_SR;
     for (var pos = 0; pos < totalSamples; pos += stepSamples) {
@@ -300,7 +302,13 @@ var WebCodecsExport = (function () {
 
         var inStartSec = (c.inMs + (oStart - c.startMs)) / 1000;
         var spanSec = (oEnd - oStart) / 1000;
-        if (c.src === 'voice' || c.src === 'music') {
+        if (c.file) {   // a sound effect: its own file
+          var fbuf = sfxBufs[c.file];
+          if (!fbuf || inStartSec >= fbuf.duration) continue;
+          var fsrc = ctx.createBufferSource();
+          fsrc.buffer = fbuf; fsrc.connect(gainNode);
+          fsrc.start((oStart - winStartMs) / 1000, inStartSec, Math.min(spanSec, fbuf.duration - inStartSec));
+        } else if (c.src === 'voice' || c.src === 'music') {
           var buf = c.src === 'voice' ? voiceBuf : musicBuf;
           if (!buf || inStartSec >= buf.duration) continue;
           var src = ctx.createBufferSource();
@@ -510,7 +518,7 @@ var WebCodecsExport = (function () {
 
     say('Mixing your voice with the movie...');
     prog(0.85);
-    await renderAudio(M, plan, { movieAudioTrack: audioTrack, voiceBlob: voiceBlob, musicFile: opts.musicFile }, audioSource, prog);
+    await renderAudio(M, plan, { movieAudioTrack: audioTrack, voiceBlob: voiceBlob, musicFile: opts.musicFile, sfxFiles: opts.sfxFiles }, audioSource, prog);
     audioSource.close();
 
     say('Finishing up...');

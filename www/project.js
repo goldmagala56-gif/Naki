@@ -52,7 +52,7 @@ function finish(p){
     tr.clips.forEach(function (c){ d = Math.max(d, clipEnd(c)); });
   });
   p.durationMs = d;
-  p.tracks = p.tracks.filter(function (t){ return (t.kind !== 'sticker' && t.kind !== 'overlay') || t.clips.length; });   // an empty sticker row goes away
+  p.tracks = p.tracks.filter(function (t){ return (t.kind !== 'sticker' && t.kind !== 'overlay' && t.role !== 'sfx') || t.clips.length; });   // an empty sticker row goes away
   return p;
 }
 function findClip(p, id){
@@ -970,6 +970,52 @@ function overlaysAt(p, t){
   return out;
 }
 
+// ---------- sound effects ----------
+// A sound effect is an ordinary audio clip on an "Effects" row (role 'sfx'). The sound itself is a file kept by the page (project.assets only knows its name
+// and length), so it splits, trims, moves, fades and changes volume like any other sound clip. Effects that overlap in time go on separate rows.
+// info = { name, durMs }.
+function addSfx(p, t, info, out){
+  info = info || {};
+  var total = p.durationMs; if (!(total > 0)) return p;
+  var start = Math.max(0, Math.min(Math.round(t), total - 100)), d = Math.min(Math.max(100, Math.round(info.durMs || 1000)), total - start); if (d < 100) return p;
+  var q = cloneProject(p), n = 1; while (q.assets['fx' + n]) n++;
+  var asset = 'fx' + n; q.assets[asset] = { type: 'audio', name: info.name || 'effect', durMs: info.durMs || null };
+  var rows = q.tracks.filter(function (x){ return x.role === 'sfx'; }), tr = null;
+  for (var i = 0; i < rows.length && !tr; i++) if (!rows[i].clips.some(function (c){ return start < clipEnd(c) && start + d > c.start; })) tr = rows[i];
+  if (!tr){
+    var k = 1; while (q.tracks.some(function (x){ return x.id === 't-fx' + k; })) k++;
+    tr = { id: 't-fx' + k, kind: 'audio', role: 'sfx', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr);
+  }
+  var clip = { id: newId('c'), type: 'audio', asset: asset, start: start, dur: d, in: 0, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0 };
+  tr.clips.push(clip); if (out){ out.id = clip.id; out.asset = asset; }
+  return finish(q);
+}
+
+// ---------- auto captions ----------
+// The stretches where you were talking, on the edited timeline: the quiet pauses (findSilentRanges) turned inside out. The microphone history is cut
+// along with the video, so this stays right after edits.
+function speechRanges(p, o){
+  o = Object.assign({ thresholdDb: -42, minPauseMs: 500, minSpeechMs: 300 }, o || {});
+  var lv = p.levels || [], sil = findSilentRanges(lv, { thresholdDb: o.thresholdDb, minMs: o.minPauseMs, padMs: 0 }), out = [], cur = 0;
+  sil.forEach(function (r){ if (r.start - cur >= o.minSpeechMs) out.push({ start: cur, end: r.start }); cur = r.end; });
+  var end = Math.min(p.durationMs, lv.length * _C.LEVEL_STEP_MS); if (end - cur >= o.minSpeechMs) out.push({ start: cur, end: end });
+  return out;
+}
+// Words found in the voice FILE (segs = [{ startMs, endMs, text }], times in the file) placed on the edited timeline, wherever that part of the voice is still
+// used. A line that falls in a part that was cut out is dropped; one that crosses a cut is kept in each piece.
+function captionsFromVoice(p, segs){
+  var voice = []; p.tracks.forEach(function (t){ if (t.role === 'voice') t.clips.forEach(function (c){ voice.push(c); }); });
+  var out = [];
+  (segs || []).forEach(function (sg){
+    voice.forEach(function (c){
+      var sp = c.speed || 1, s = Math.max(sg.startMs, c.in), e = Math.min(sg.endMs, c.in + c.dur * sp);
+      if (e - s < 150) return;
+      out.push({ startMs: Math.round(c.start + (s - c.in) / sp), endMs: Math.round(c.start + (e - c.in) / sp), text: sg.text });
+    });
+  });
+  return out.sort(function (a, b){ return a.startMs - b.startMs; });
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -1001,9 +1047,10 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,
   transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
   addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
-  setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt };
+  setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt,
+  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'overlay-kf'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'sound'; }

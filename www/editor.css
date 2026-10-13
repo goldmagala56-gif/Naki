@@ -152,3 +152,7 @@
 .ed-stage .ed-ovl.sel{outline:2px dashed var(--mango);outline-offset:3px}
 .ed-clip.k-overlay{background:#0f7c8a;border-color:#3cc4d4}
 .ed-kf{position:absolute;bottom:3px;width:8px;height:8px;margin-left:-4px;background:var(--mango);transform:rotate(45deg);pointer-events:none;z-index:2}
+
+/* sound effects, auto captions */
+.ed-chips.wrap{flex-wrap:wrap;overflow:visible}
+.ed-clip.k-sfx{background:#b5792a;border-color:#e0a24a}
