@@ -28,6 +28,31 @@ var WebCodecsExport = (function () {
   var FPS = 30;
   var AUDIO_SR = 48000;
   var WINDOW_S = 20;   // seconds of sound rendered at a time
+  // How much video data to spend. This engine encodes on the phone's video chip, which is fast, so it can afford far more than the old settings did
+  // (they gave only about 1.5 Mbit/s for 720p, which looks blocky on a movie). BPP = bits per pixel per frame: "faster" is a good quality for
+  // sharing, "sharper" is close to the original. MAX_BYTES keeps a long export from filling the phone's memory, because the finished file is built
+  // in memory; a very long video gets a lower rate instead of a crash.
+  var BPP = { faster: 0.12, sharper: 0.2 }, MAX_BYTES = 450e6, AUDIO_BPS = 192000, MAX_BITRATE = 16e6, MIN_BITRATE = 1.2e6;
+  function pickBitrate(w, h, quality, durationSec, fps) {
+    var want = w * h * (fps || 30) * (BPP[quality] || BPP.faster);
+    var cap = Math.max(MIN_BITRATE, MAX_BYTES * 8 / Math.max(1, durationSec) - AUDIO_BPS);
+    return Math.round(Math.min(want, cap, MAX_BITRATE) / 1000) * 1000;
+  }
+  // The size to export at when nothing smaller was asked for: the movie's own size, up to 1080. For a tall frame the number is the width.
+  function ownTier(ratio, srcW, srcH) {
+    var wide = true;
+    if (ratio !== 'original') { var p = String(ratio).split(':'); wide = (+p[0]) >= (+p[1]); }
+    return Math.min(wide ? srcH : srcW, 1080);
+  }
+  // A 24 or 25 fps movie keeps its own rate (at 30 fps some pictures would be shown twice and it would look jerky). Everything else is 30.
+  async function pickFps(track) {
+    try {
+      if (!track || !track.computePacketStats) return 30;
+      var st = await track.computePacketStats(150), r = st && st.averagePacketRate;
+      if (r > 23.5 && r < 25.5) return r < 24.5 ? 24 : 25;
+    } catch (e) {}
+    return 30;
+  }
   var NSTK = (typeof module !== 'undefined' && module.exports) ? require('./stickers.js') : (typeof window !== 'undefined' ? window.NakiStickers : null);
   var NA = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
   var NAVY = '#111b24';
@@ -320,14 +345,29 @@ var WebCodecsExport = (function () {
     var audioTrack = await input.getPrimaryAudioTrack();
     var sink = new M.VideoSampleSink(videoTrack);
 
-    var tier = opts.height || 720;
     var ratio = opts.ratio || (opts.vertical ? '9:16' : 'original');
-    var size = (ratio !== 'original' && FM && ratio !== '9:16') ? FM.frameSize(tier, ratio, videoTrack.codedWidth || 1280, videoTrack.codedHeight || 720, 1)
-      : targetSize(tier, ratio !== 'original', videoTrack.codedWidth || 1280, videoTrack.codedHeight || 720);
-    var W = size.width, H = size.height, vertical = ratio !== 'original';
-
+    var srcW = videoTrack.codedWidth || 1280, srcH = videoTrack.codedHeight || 720, vertical = ratio !== 'original';
+    function sizeFor(t) {
+      return (ratio !== 'original' && FM && ratio !== '9:16') ? FM.frameSize(t, ratio, srcW, srcH, 1) : targetSize(t, ratio !== 'original', srcW, srcH);
+    }
+    var duration = Math.max(1, plan.durationMs / 1000);
+    FPS = await pickFps(videoTrack);
+    // At least the size that was asked for, and the movie's own size (up to 1080) when that is bigger: the slow engine needs the small cap, this one does not.
+    var tier = Math.max(opts.height || 720, ownTier(ratio, srcW, srcH)), size = sizeFor(tier), bitrate = pickBitrate(size.width, size.height, opts.quality, duration, FPS);
+    // Ask the device first whether it can encode that. If its video chip cannot do the big size, use 720 (software encoding of 1080 would be very slow);
+    // if it has no video chip for it at all, let the browser choose.
+    var accel = 'prefer-hardware';
+    async function canEncode(a) {
+      try { return await M.canEncodeVideo('avc', { width: size.width, height: size.height, bitrate: bitrate, hardwareAcceleration: a }); } catch (e) { return true; }   // cannot tell: try it
+    }
+    if (!(await canEncode(accel)) && tier > 720) { tier = 720; size = sizeFor(tier); bitrate = pickBitrate(size.width, size.height, opts.quality, duration, FPS); }
+    if (!(await canEncode(accel))) accel = 'no-preference';
+    var W = size.width, H = size.height;
+    try { WebCodecsExport.lastInfo = { width: W, height: H, fps: FPS, mbit: Math.round(bitrate / 1e5) / 10, accel: accel }; } catch (e) {}
+    if (callbacks.onInfo) callbacks.onInfo(WebCodecsExport.lastInfo);
     var canvas = makeCanvas(W, H), ctx = canvas.getContext('2d');       // what the encoder sees
-    var layer = makeCanvas(W, H), lctx = layer.getContext('2d');        // the picture part of the current frame
+    ctx.imageSmoothingQuality = 'high';   // a big movie scaled down looks much cleaner than with the default
+    var layer = makeCanvas(W, H), lctx = layer.getContext('2d'); lctx.imageSmoothingQuality = 'high';        // the picture part of the current frame
 
     var logoImg = null;
     if (opts.logoFile) {
@@ -407,9 +447,8 @@ var WebCodecsExport = (function () {
     }
 
     var output = new M.Output({ format: new M.Mp4OutputFormat(), target: new M.BufferTarget() });
-    var quality = opts.quality === 'sharper' ? M.QUALITY_HIGH : M.QUALITY_MEDIUM;
     var videoSource = new M.CanvasSource(canvas, {
-      codec: 'avc', quality: quality, hardwareAcceleration: 'prefer-hardware', latencyMode: 'realtime',
+      codec: 'avc', bitrate: bitrate, bitrateMode: 'variable', hardwareAcceleration: accel, latencyMode: 'quality', keyFrameInterval: 2,
     });
     output.addVideoTrack(videoSource);
     var audioSource = new M.AudioBufferSource({ codec: 'aac', quality: M.QUALITY_HIGH });
@@ -417,7 +456,7 @@ var WebCodecsExport = (function () {
     await output.start();
 
     ovs = await setupOverlays();
-    say('Rendering video...');
+    say('Rendering video... ' + W + 'x' + H + ', ' + (bitrate / 1e6).toFixed(1) + ' Mbit/s');
     var totalFrames = 0;
     plan.video.forEach(function (sp) { totalFrames += Math.max(0, Math.round((sp.sessionEnd - sp.sessionStart) * FPS / 1000)); });
     if (!totalFrames) totalFrames = 1;
@@ -484,7 +523,7 @@ var WebCodecsExport = (function () {
   }
 
   return { isSupported: isSupported, canRender: canRender, hasHardwareEncoder: hasHardwareEncoder, run: run,
-    _test: { gainOfClip: gainOfClip, automate: automate, targetSize: targetSize, renderAudio: renderAudio,
+    _test: { pickBitrate: pickBitrate, ownTier: ownTier, pickFps: pickFps, gainOfClip: gainOfClip, automate: automate, targetSize: targetSize, renderAudio: renderAudio,
       layout: layout, drawPicture: drawPicture, applyExtras: applyExtras, fadeLevel: fadeLevel, drawTitle: drawTitle,
       setFilterSupport: function (v) { filterOk = v; } } };
 })();
