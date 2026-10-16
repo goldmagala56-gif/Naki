@@ -18,6 +18,7 @@
 var _RV = (typeof module !== 'undefined' && module.exports) ? require('./reverse.js') : window.NakiReverse;
 var _FMT = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
 var _NA = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
+var _FX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
 var FPS = 30;
 var SR = 48000;
 var GAIN_HZ = 1000;
@@ -115,6 +116,23 @@ function planToJobs(plan, movieInfo, opts) {
   var ts = ['-f', 'mpegts', '-muxdelay', '0', '-muxpreload', '0'];
   var maxMovieSec = Math.max(0, (plan.movie && plan.movie.durationMs ? plan.movie.durationMs / 1000 : movieInfo.durationSec) - 0.1);
   var clampSec = function (ms) { return Math.max(0, Math.min(ms / 1000, maxMovieSec || ms / 1000)); };
+  // ---- videos added to the picture line (Add video): each part of the picture says which file it comes from (sp.asset); no asset means the original movie ----
+  var assets = opts.assets || {};
+  function assetOf(sp) { return sp && sp.asset && assets[sp.asset] ? assets[sp.asset] : null; }
+  function fileOf(sp) { return sp && sp.asset ? sp.asset + '.in' : 'movie.in'; }
+  function clampFor(sp, ms) {
+    var a = assetOf(sp); if (!a) return clampSec(ms);
+    var d = Math.max(0, (a.durationSec || 0) - 0.1); return Math.max(0, Math.min(ms / 1000, d || ms / 1000));
+  }
+  // A picture from another file is fitted inside the frame with bars when its shape is not the frame's shape.
+  function baseFit(sp) {
+    var a = assetOf(sp);
+    if (a && a.width && a.height) {
+      var asp = a.width * (a.sar || 1) / a.height, main = movieInfo.width * movieInfo.sar / movieInfo.height;
+      if (Math.abs(asp / main - 1) > 0.02) return containFit;
+    }
+    return fit;
+  }
 
   // Titles are drawn by the page as transparent full-size pictures (textFiles) and laid over the video
   // with ffmpeg's overlay, so ffmpeg never needs a font file.
@@ -158,11 +176,30 @@ function planToJobs(plan, movieInfo, opts) {
     fc.push(isGraph ? fitChain.graph('[0:v]', '[f0]') + ';[f0]' + head + '[v0]' : '[0:v]' + head + '[v0]');
     var cur = 'v0';
     ovs.forEach(function (o) {
-      var op = overlayParts(o, sp);
+      var op = overlayParts(o, sp), bm = _FX && op.blend ? _FX.ffBlend(op.blend) : null;
+      if (!bm) {   // the normal way: laid over the picture
+        inputs.push.apply(inputs, op.inputs);
+        fc.push('[' + next + ':v]' + op.chain + '[ov' + next + ']');
+        fc.push('[' + cur + '][ov' + next + "]overlay=x='" + op.x + "':y='" + op.y + "':eof_action=pass:enable='between(t," + op.a.toFixed(3) + ',' + op.b.toFixed(3) + ")'[v" + (++n) + ']');
+        cur = 'v' + n; next++;
+        return;
+      }
+      // A blend mode: the overlay is put on a see-through frame the size of the picture, mixed with a copy of the picture, and that mix is laid back
+      // over the picture only where the overlay is (its own see-through parts, from a mask or a key, stay see-through).
+      var L = 'bm' + next, ci = next, oi = next + 1, part = ((sp.sessionEnd - sp.sessionStart) / 1000 + 1).toFixed(3);
+      inputs.push('-f', 'lavfi', '-i', 'color=c=black@0:s=' + width + 'x' + height + ':r=' + FPS + ':d=' + part + ',format=rgba');   // the format inside the source is what keeps its see-through (alpha 0)
       inputs.push.apply(inputs, op.inputs);
-      fc.push('[' + next + ':v]' + op.chain + '[ov' + next + ']');
-      fc.push('[' + cur + '][ov' + next + "]overlay=x='" + op.x + "':y='" + op.y + "':eof_action=pass:enable='between(t," + op.a.toFixed(3) + ',' + op.b.toFixed(3) + ")'[v" + (++n) + ']');
-      cur = 'v' + n; next++;
+      fc.push('[' + oi + ':v]' + op.chain + '[' + L + 'o]');
+      fc.push('[' + ci + ':v][' + L + "o]overlay=x='" + op.x + "':y='" + op.y + "':eof_action=pass:format=auto[" + L + 'g]');
+      fc.push('[' + cur + ']split[' + L + 's0][' + L + 's1]');
+      fc.push('[' + L + 'g]split[' + L + 'ga][' + L + 'gb]');
+      fc.push('[' + L + 'gb]alphaextract[' + L + 'al]');
+      fc.push('[' + L + 'ga]format=gbrp[' + L + 'gf]');
+      fc.push('[' + L + 's1]format=gbrp[' + L + 'bf]');
+      fc.push('[' + L + 'bf][' + L + 'gf]blend=all_mode=' + bm + '[' + L + 'bl]');
+      fc.push('[' + L + 'bl][' + L + 'al]alphamerge[' + L + 'ba]');
+      fc.push('[' + L + 's0][' + L + "ba]overlay=eof_action=pass:enable='between(t," + op.a.toFixed(3) + ',' + op.b.toFixed(3) + ")'[v" + (++n) + ']');
+      cur = 'v' + n; next += 2;
     });
     if (wm) {
       inputs.push('-i', 'logo.png');
@@ -183,9 +220,9 @@ function planToJobs(plan, movieInfo, opts) {
   var containFit = fitFilter(width, height, true, padHex);   // fit inside the frame with navy bars (used when a picture is turned on its side)
   // Flip and turn first, then zoom into what is on screen, then fit to the output size. Same order as the editor preview.
   function transformFit(sp) {
-    if (sp.kf && _NA) return animPre(sp) + ',' + ((sp.transform && (sp.transform.rot === 90 || sp.transform.rot === 270)) ? containFit : fit);
+    if (sp.kf && _NA) return animPre(sp) + ',' + ((sp.transform && (sp.transform.rot === 90 || sp.transform.rot === 270)) ? containFit : baseFit(sp));
     var t = sp.transform;
-    if (!t) return fit;
+    if (!t) return baseFit(sp);
     var rot = t.rot || 0, parts = [], z = t.zoom || 1;
     if (t.flipH) parts.push('hflip');
     if (rot === 90) parts.push('transpose=1'); else if (rot === 180) parts.push('hflip,vflip'); else if (rot === 270) parts.push('transpose=2');
@@ -195,7 +232,7 @@ function planToJobs(plan, movieInfo, opts) {
       parts.push(containFit); if (crop) parts.push(crop, 'scale=' + width + ':' + height + ':flags=bicubic');
     } else {
       if (crop) parts.push(crop);
-      parts.push(sideways ? containFit : fit);
+      parts.push(sideways ? containFit : baseFit(sp));
     }
     return parts.join(',');
   }
@@ -244,7 +281,7 @@ function planToJobs(plan, movieInfo, opts) {
       if (piece.kf && _NA) piece.kf = _NA.shiftKf(piece.kf, ws - sp.sessionStart);
       if (sp.type === 'freeze') return { piece: piece, src: ['-loop', '1', '-framerate', String(FPS), '-i', 'f' + String(idx).padStart(4, '0') + '.png'], fit: 'null', speed: 1, tpad: 0, pad: 0 };
       var speed = sp.speed && sp.speed !== 1 ? sp.speed : 1, ms = sp.movieStart + (ws - sp.sessionStart) * speed;
-      return { piece: piece, src: ['-ss', clampSec(Math.max(0, ms)).toFixed(3), '-i', 'movie.in'], fit: pictureFit(piece), speed: speed, tpad: Math.ceil(dSec + 1), pad: ms < 0 ? -ms / speed / 1000 : 0 };
+      return { piece: piece, src: ['-ss', clampFor(sp, Math.max(0, ms)).toFixed(3), '-i', fileOf(sp)], fit: pictureFit(piece), speed: speed, tpad: Math.ceil(dSec + 1), pad: ms < 0 ? -ms / speed / 1000 : 0 };
     }
     var a = side(A, i - 1), b = side(B, i);
     [['transition A ', 'ta', a], ['transition B ', 'tb', b]].forEach(function (x) {
@@ -263,7 +300,7 @@ function planToJobs(plan, movieInfo, opts) {
     var t = sp.transform || {}, rot = t.rot || 0, parts = [], kf = sp.kf || {}, spd = sp.speed && sp.speed !== 1 ? sp.speed : 1;
     if (t.flipH) parts.push('hflip');
     if (rot === 90) parts.push('transpose=1'); else if (rot === 180) parts.push('hflip,vflip'); else if (rot === 270) parts.push('transpose=2');
-    var side = rot === 90 || rot === 270, sw = Math.max(2, Math.floor((side ? movieInfo.height : movieInfo.width) / 2) * 2), sh = Math.max(2, Math.floor((side ? movieInfo.width : movieInfo.height) / 2) * 2);
+    var side = rot === 90 || rot === 270, mi = assetOf(sp) || movieInfo, sw = Math.max(2, Math.floor((side ? mi.height : mi.width) / 2) * 2), sh = Math.max(2, Math.floor((side ? mi.width : mi.height) / 2) * 2);
     var tv = '(on/' + FPS + ')', ex = function (k, dflt) { return kf[k] && kf[k].length ? _NA.kfExpr(kf[k], 0, spd, tv) : String(dflt); };
     parts.push('fps=' + FPS, "zoompan=z='" + ex('zoom', t.zoom || 1) + "':x='(iw-iw/zoom)/2*(1+(" + ex('x', t.x || 0) + "))':y='(ih-ih/zoom)/2*(1+(" + ex('y', t.y || 0) + "))':d=1:s=" + sw + 'x' + sh + ':fps=' + FPS);
     return parts.join(',');
@@ -277,14 +314,17 @@ function planToJobs(plan, movieInfo, opts) {
     var anim = function (k, tv) { return kf[k] && kf[k].length ? _NA.kfExpr(kf[k], shift, 1, tv || 't') : null; };
     var size = anim('size'), rot = anim('rot'), op = anim('opacity', 'T'), x = anim('x'), y = anim('y'), f = [];
     f.push('setpts=PTS-STARTPTS+' + a.toFixed(3) + '/TB');
+    if (o.chroma && _FX) f.push(_FX.chromaFilter(o.chroma));
     if (size) f.push("scale=w='trunc(" + width + '*(' + size + ")/2)*2':h='trunc(" + width + '*(' + size + ')*' + asp.toFixed(5) + "/2)*2':eval=frame");
     else f.push('scale=' + Math.max(2, Math.round(width * o.size / 2) * 2) + ':' + Math.max(2, Math.round(width * o.size * asp / 2) * 2));
     f.push('format=rgba');
+    var maskX = o.mask && _FX ? _FX.maskAlphaExpr(o.mask) : null;
+    if (maskX) f.push("geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(" + maskX + ")'");
     if (rot) f.push("rotate=a='(" + rot + ")*PI/180':c=none:ow='hypot(iw,ih)':oh=ow");
     else if (o.rot) { var rad = (o.rot * Math.PI / 180).toFixed(5); f.push('rotate=a=' + rad + ":c=none:ow='rotw(" + rad + ")':oh='roth(" + rad + ")'"); }
     if (op) f.push("geq=r='r(X,Y)':g='g(X,Y)':b='b(X,Y)':a='alpha(X,Y)*(" + op + ")'");
     else if (o.opacity != null && o.opacity < 1) f.push('colorchannelmixer=aa=' + o.opacity.toFixed(3));
-    return { inputs: src, chain: f.join(','), x: 'main_w*(' + (x || o.x) + ')-overlay_w/2', y: 'main_h*(' + (y || o.y) + ')-overlay_h/2', a: a, b: b };
+    return { blend: o.blend, inputs: src, chain: f.join(','), x: 'main_w*(' + (x || o.x) + ')-overlay_w/2', y: 'main_h*(' + (y || o.y) + ')-overlay_h/2', a: a, b: b };
   }
 
   
@@ -303,10 +343,10 @@ function planToJobs(plan, movieInfo, opts) {
         jobs.push({ label: 'picture ' + (i + 1), produces: vfile, files: rv.files,
           args: pictureArgs(rv.sourceArgs, 'null', nFrames, vfile, sp, spanSec, 1, 1) });
       } else jobs.push({ label: 'picture ' + (i + 1), produces: vfile,
-        args: pictureArgs(['-ss', clampSec(sp.movieStart).toFixed(3), '-i', 'movie.in'], pictureFit(sp), nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
+        args: pictureArgs(['-ss', clampFor(sp, sp.movieStart).toFixed(3), '-i', fileOf(sp)], pictureFit(sp), nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
     } else if (sp.type === 'freeze') {
       var png = 'f' + id + '.png';
-      jobs.push({ label: 'frozen frame ' + (i + 1), produces: png, args: ['-ss', clampSec(sp.movieAt).toFixed(3), '-i', 'movie.in', '-an', '-frames:v', '1',
+      jobs.push({ label: 'frozen frame ' + (i + 1), produces: png, args: ['-ss', clampFor(sp, sp.movieAt).toFixed(3), '-i', fileOf(sp), '-an', '-frames:v', '1',
         ].concat(freezeFilterArgs(sp), [png]) });
       jobs.push({ label: 'frozen picture ' + (i + 1), produces: vfile,
         args: pictureArgs(['-loop', '1', '-framerate', String(FPS), '-i', png], 'null', nFrames, vfile, sp, spanSec, 1, 0) });
@@ -338,7 +378,9 @@ function planToJobs(plan, movieInfo, opts) {
   }
   (plan.audio || []).forEach(function (c, i) {
     var src = c.src;
-    if (!lanes[src] || (src === 'movie' && !movieInfo.hasAudio)) return;
+    var ai = (c.asset && assets[c.asset]) || movieInfo, inName = c.file || (c.asset ? c.asset + '.in' : SRC_FILE[src]);
+    var clampC = function (ms) { var a = c.asset && assets[c.asset]; if (!a) return clampSec(ms); var d = Math.max(0, (a.durationSec || 0) - 0.1); return Math.max(0, Math.min(ms / 1000, d || ms / 1000)); };
+    if (!lanes[src] || (src === 'movie' && !ai.hasAudio)) return;
     var startS = Math.max(Sm(c.startMs), cursor[src]);
     var n = Sm(c.startMs + c.durMs) - startS;
     if (n <= 0) return;
@@ -352,13 +394,13 @@ function planToJobs(plan, movieInfo, opts) {
     var lostMs = (startS - Sm(c.startMs)) * 1000 / SR;   // only non-zero if clips overlapped
     var spd = c.speed && c.speed !== 1 ? c.speed : 1;
     var rev = !!c.reverse && src === 'movie';
-    var fc = '[0:a]' + sourceChain(src, movieInfo) + (rev ? ',areverse' : '') + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
+    var fc = '[0:a]' + sourceChain(src, ai) + (rev ? ',areverse' : '') + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
       '[1:a]aresample=' + SR + ',aformat=sample_fmts=fltp:channel_layouts=stereo[g];' +
       '[a][g]amultiply,aformat=sample_fmts=s16:channel_layouts=stereo[o]';
     var files = {}; files[gfile] = buildGainRaw(c.points, c.durMs + lostMs);
     jobs.push({ label: 'sound ' + src + ' ' + (i + 1), produces: afile, files: files,
-      args: (rev ? ['-ss', clampSec(c.inMs).toFixed(3), '-t', (c.durMs * spd / 1000).toFixed(3), '-i', c.file || SRC_FILE[src]]
-        : ['-ss', clampSec(c.inMs + lostMs * spd).toFixed(3), '-i', c.file || SRC_FILE[src]]).concat([
+      args: (rev ? ['-ss', clampC(c.inMs).toFixed(3), '-t', (c.durMs * spd / 1000).toFixed(3), '-i', inName]
+        : ['-ss', clampC(c.inMs + lostMs * spd).toFixed(3), '-i', inName]).concat([
         '-f', 'f32le', '-ar', String(GAIN_HZ), '-ac', '2', '-i', gfile,
         '-filter_complex', fc, '-map', '[o]', '-t', (n / SR + 0.05).toFixed(3), '-c:a', 'pcm_s16le', '-f', 'wav', afile]) });
     lanes[src].push(afile);
@@ -539,6 +581,13 @@ var NakiExport = (function () {
       extra.push('logo.png');
     }
 
+    var vIds = Object.keys(opts.videoFiles || {}), vInfos = {};
+    for (var vi = 0; vi < vIds.length; vi++) {
+      say('Loading a video you added...');
+      ffmpeg.writeFile(vIds[vi] + '.in', await fetchFile(opts.videoFiles[vIds[vi]])); extra.push(vIds[vi] + '.in');
+      vInfos[vIds[vi]] = await probe(ffmpeg, vIds[vi] + '.in');
+    }
+    opts = Object.assign({}, opts, { assets: vInfos });
     var built = planToJobs(plan, info, opts);
     if (built.textFiles.length) {
       say('Preparing your titles...');

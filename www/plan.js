@@ -20,6 +20,7 @@ var NakiPlan = (function () {
         : { type: 'play', sessionStart: s, sessionEnd: e, movieStart: c.in + (c.reverse ? 0 : Math.round((s - Math.round(c.start)) * (c.speed || 1))) };
       if (sp.type === 'play' && c.reverse) sp.reverse = true;   // movieStart is then the START of the stretch; the part plays from its end back to it
       if (sp.type === 'play' && c.speed && c.speed !== 1) sp.speed = c.speed;
+      if (c.asset && c.asset !== 'movie') sp.asset = c.asset;   // a picture from a video added with Add video
       if (c.filter){
         sp.filter = { brightness: c.filter.brightness, contrast: c.filter.contrast, saturate: c.filter.saturate };
         ['warmth', 'sharpen', 'vignette', 'matte'].forEach(function (k) { if (c.filter[k]) sp.filter[k] = c.filter[k]; });
@@ -55,6 +56,7 @@ var NakiPlan = (function () {
         if (src === 'movie' && c.speed && c.speed !== 1) a.speed = c.speed;
         if (src === 'movie' && c.reverse) a.reverse = true;
         if (tr.role === 'sfx') a.file = c.asset + '.in';
+        if (src === 'movie' && c.asset && c.asset !== 'movie') a.asset = c.asset;
         audio.push(a);
       });
     });
@@ -92,6 +94,9 @@ var NakiPlan = (function () {
         if (e <= s) return;
         var o = { startMs: s, durMs: e - s, asset: c.asset, kind: c.type === 'freeze' ? 'image' : 'video', inMs: Math.round(c.in || 0), x: c.x, y: c.y, size: c.size, rot: c.rot || 0, opacity: c.opacity != null ? c.opacity : 1, w: a.w || 0, h: a.h || 0 };
         if (c.kf) o.kf = JSON.parse(JSON.stringify(c.kf));
+        if (c.blend) o.blend = c.blend;
+        if (c.mask) o.mask = JSON.parse(JSON.stringify(c.mask));
+        if (c.chroma) o.chroma = JSON.parse(JSON.stringify(c.chroma));
         overlays.push(o);
       });
     });
@@ -114,4 +119,4 @@ var NakiPlan = (function () {
 })();
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'sound'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'masks-fx'; }

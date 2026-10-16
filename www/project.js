@@ -14,6 +14,7 @@ var _C = (typeof module !== 'undefined' && module.exports) ? require('./core.js'
 
 var _FM = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
 var _AN = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
+var _FX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
 var _idn = 0;
 function newId(p){ _idn++; return p + _idn.toString(36) + Math.random().toString(36).slice(2, 6); }
 function r3(x){ return Math.round(x * 1000) / 1000; }
@@ -427,7 +428,7 @@ function insertFreeze(p, t, dur){
       out.push(left, right);
     });
     if (tr.role === 'movie' && !inFreeze)
-      out.push(Object.assign({ id: newId('c'), type: 'freeze', asset: 'movie', start: t, dur: dur, in: movieMs, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0, link: newId('l') }, look));
+      out.push(Object.assign({ id: newId('c'), type: 'freeze', asset: s.video.clip.asset || 'movie', start: t, dur: dur, in: movieMs, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0, link: newId('l') }, look));
     tr.clips = out;
   });
   if (p.levels && p.levels.length){
@@ -500,7 +501,7 @@ function duplicateClip(p, id, out){
 // Plays a movie clip backwards: the same stretch of the movie, last picture first. Its linked movie sound is
 // reversed with it. A paused picture has nothing to play backwards. on = true / false, or leave out to switch.
 function setReverse(p, id, on){
-  var f = findClip(p, id); if (!f || f.track.kind !== 'video' || f.clip.type !== 'video') return p;
+  var f = findClip(p, id); if (!f || f.track.kind !== 'video' || f.clip.type !== 'video' || (f.clip.asset && f.clip.asset !== 'movie')) return p;
   var want = on === undefined ? !f.clip.reverse : !!on;
   if (want === !!f.clip.reverse) return p;
   var q = cloneProject(p);
@@ -514,7 +515,7 @@ function movieNeeded(p){
   var need = 0;
   p.tracks.forEach(function (tr){
     if (tr.kind !== 'video') return;
-    tr.clips.forEach(function (c){ need = Math.max(need, c.type === 'freeze' ? c.in : c.in + c.dur * (c.speed || 1)); });
+    tr.clips.forEach(function (c){ if (c.asset && c.asset !== 'movie') return; need = Math.max(need, c.type === 'freeze' ? c.in : c.in + c.dur * (c.speed || 1)); });
   });
   return Math.round(need);
 }
@@ -1016,6 +1017,40 @@ function captionsFromVoice(p, segs){
   return out.sort(function (a, b){ return a.startMs - b.startMs; });
 }
 
+// ---------- adding another video to the picture line ----------
+// Appends a whole video file (with its own sound) after the last picture clip, like CapCut's "Add". The file itself is kept by the page; the project only
+// knows its name, length and shape (project.assets). The new picture clip and its sound are linked, so they split, trim, move, change speed and cut together,
+// and every picture clip says which file it comes from (clip.asset: 'movie' is the original). info = { name, durMs, w, h }.
+function addVideoClip(p, info, out){
+  info = info || {};
+  var dur = Math.round(+info.durMs || 0); if (!(dur >= 300)) return p;
+  var q = cloneProject(p), lane = pictureLane(q); if (!lane) return p;
+  var snd = q.tracks.filter(function (t){ return t.role === 'movieSound'; })[0];
+  if (!snd){ snd = { id: 't-moviesound', kind: 'audio', role: 'movieSound', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.splice(q.tracks.indexOf(lane) + 1, 0, snd); }
+  var start = 0; lane.clips.forEach(function (c){ start = Math.max(start, clipEnd(c)); });
+  var n = 1; while (q.assets['v' + n]) n++;
+  var asset = 'v' + n; q.assets[asset] = { type: 'video', name: info.name || 'video', durMs: dur, w: info.w || 0, h: info.h || 0 };
+  var link = newId('l'), pid = newId('c');
+  lane.clips.push({ id: pid, type: 'video', asset: asset, start: start, dur: dur, in: 0, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0, link: link });
+  snd.clips.push({ id: newId('c'), type: 'audio', asset: asset, start: start, dur: dur, in: 0, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0, link: link });
+  if (out){ out.id = pid; out.asset = asset; }
+  return finish(q);
+}
+
+// ---------- blend modes, masks and chroma key on overlays ----------
+// Changes the look of one overlay. patch = { blend: 'normal' | 'multiply' | ..., mask: { shape, amount } | null, chroma: { color, similarity, blend } | null }.
+// A mask or chroma patch is mixed into what the overlay already has. null (or shape 'none', blend 'normal') takes it away; {} switches the chroma key on
+// with its usual settings. See fx.js.
+function setOverlayFx(p, id, patch){
+  var f = findClip(p, id); if (!f || f.track.kind !== 'overlay' || !_FX) return p;
+  patch = patch || {};
+  var q = cloneProject(p), c = findClip(q, id).clip;
+  if (patch.blend !== undefined){ var b = _FX.cleanBlend(patch.blend); if (b) c.blend = b; else delete c.blend; }
+  if (patch.mask !== undefined){ var m = _FX.cleanMask(patch.mask === null ? null : Object.assign({}, c.mask || {}, patch.mask)); if (m) c.mask = m; else delete c.mask; }
+  if (patch.chroma !== undefined){ var k = _FX.cleanChroma(patch.chroma === null ? null : Object.assign({}, c.chroma || {}, patch.chroma)); if (k) c.chroma = k; else delete c.chroma; }
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -1047,10 +1082,10 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,
   transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
   addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
-  setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt,
-  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice };
+  setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
+  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'sound'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'masks-fx'; }

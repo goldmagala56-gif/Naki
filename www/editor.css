@@ -156,3 +156,7 @@
 /* sound effects, auto captions */
 .ed-chips.wrap{flex-wrap:wrap;overflow:visible}
 .ed-clip.k-sfx{background:#b5792a;border-color:#e0a24a}
+
+/* the + after the last picture clip (Add video) */
+.ed-add{position:absolute;top:50%;transform:translateY(-50%);width:44px;height:44px;padding:0;border-radius:12px;border:2px dashed var(--mango);background:rgba(255,159,28,.12);color:var(--mango);font-size:26px;line-height:1;display:flex;align-items:center;justify-content:center;cursor:pointer;touch-action:manipulation}
+.ed-add:active{transform:translateY(-50%) scale(.96)}

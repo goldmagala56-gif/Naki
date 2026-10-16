@@ -55,6 +55,7 @@ var WebCodecsExport = (function () {
   }
   var NSTK = (typeof module !== 'undefined' && module.exports) ? require('./stickers.js') : (typeof window !== 'undefined' ? window.NakiStickers : null);
   var NA = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
+  var NFX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
   var NAVY = '#111b24';
   var TITLE_POS = { top: 0.07, center: 0.40, bottom: 0.76 };   // same numbers as plan.js / the editor preview
 
@@ -279,6 +280,8 @@ var WebCodecsExport = (function () {
       movieSink = new M.AudioBufferSink(sources.movieAudioTrack);
     }
 
+    var assetSinks = {};   // the sound of each video added to the picture line
+    Object.keys(sources.assetAudio || {}).forEach(function (k) { if (sources.assetAudio[k]) assetSinks[k] = new M.AudioBufferSink(sources.assetAudio[k]); });
     var sfxBufs = {}, sfxNames = Object.keys(sources.sfxFiles || {});   // the sound effects, decoded once
     for (var si = 0; si < sfxNames.length; si++) { try { sfxBufs[sfxNames[si]] = await decodeWhole(sources.sfxFiles[sfxNames[si]]); } catch (e) {} }
     var totalSamples = Math.round(plan.durationMs / 1000 * AUDIO_SR);
@@ -314,9 +317,9 @@ var WebCodecsExport = (function () {
           var src = ctx.createBufferSource();
           src.buffer = buf; src.connect(gainNode);
           src.start((oStart - winStartMs) / 1000, inStartSec, Math.min(spanSec, buf.duration - inStartSec));
-        } else if (movieSink) {
+        } else if (c.asset ? assetSinks[c.asset] : movieSink) {
           // decode only the little piece of movie sound this window needs
-          for await (var wrapped of movieSink.buffers(inStartSec, inStartSec + spanSec)) {
+          for await (var wrapped of (c.asset ? assetSinks[c.asset] : movieSink).buffers(inStartSec, inStartSec + spanSec)) {
             var cut = Math.max(0, inStartSec - wrapped.timestamp);          // buffer began before our piece
             var sessSec = c.startMs / 1000 + (wrapped.timestamp - c.inMs / 1000) + cut;
             var when = sessSec - winStartMs / 1000;
@@ -352,6 +355,13 @@ var WebCodecsExport = (function () {
     if (!videoTrack) throw new Error('Naki could not read this movie file.');
     var audioTrack = await input.getPrimaryAudioTrack();
     var sink = new M.VideoSampleSink(videoTrack);
+    var vids = {}, vfiles = opts.videoFiles || {};   // the videos added to the picture line (Add video): asset -> { sink, audioTrack, input }
+    for (var vk = 0, vkeys = Object.keys(vfiles); vk < vkeys.length; vk++) {
+      var vin = new M.Input({ source: new M.BlobSource(vfiles[vkeys[vk]]), formats: M.ALL_FORMATS }), vtrack = await vin.getPrimaryVideoTrack();
+      if (vtrack) vids[vkeys[vk]] = { input: vin, sink: new M.VideoSampleSink(vtrack), audioTrack: await vin.getPrimaryAudioTrack() };
+    }
+    var assetAudio = {}; Object.keys(vids).forEach(function (k) { assetAudio[k] = vids[k].audioTrack; });
+    function sinkFor(sp) { return (sp.asset && vids[sp.asset]) ? vids[sp.asset].sink : sink; }
 
     var ratio = opts.ratio || (opts.vertical ? '9:16' : 'original');
     var srcW = videoTrack.codedWidth || 1280, srcH = videoTrack.codedHeight || 720, vertical = ratio !== 'original';
@@ -395,7 +405,7 @@ var WebCodecsExport = (function () {
     // paints the picture part: the background, then the picture with its flip / turn / zoom / opacity / look
     function paintLayer(img, iw, ih, sp) {
       paintBg(lctx, img, iw, ih);
-      if (img) { drawPicture(lctx, img, iw, ih, W, H, vertical, sp); applyExtras(lctx, sp.filter, W, H); }
+      if (img) { drawPicture(lctx, img, iw, ih, W, H, vertical || !!(sp.asset && Math.abs((iw / ih) / (W / H) - 1) > 0.02), sp); applyExtras(lctx, sp.filter, W, H); }   // an added video of another shape gets bars
     }
     function paintSample(sample, sp) {
       var img = sample.toCanvasImageSource();   // must be used right now, before the sample is closed
@@ -437,6 +447,7 @@ var WebCodecsExport = (function () {
         var src = ov.bmp || (ov.cur && ov.cur.toCanvasImageSource()); if (!src) continue;
         var iw = ov.bmp ? ov.w : (ov.cur.displayWidth || src.displayWidth || src.width), ih = ov.bmp ? ov.h : (ov.cur.displayHeight || src.displayHeight || src.height);
         var R = NA.overlayRect(Object.assign({}, o, { w: iw, h: ih }), NA.overlayState(o, tMs - o.startMs), W, H);
+        if (NFX && (o.blend || o.mask || o.chroma)) { NFX.drawFx(ctx, src, R, o); continue; }
         ctx.save(); ctx.globalAlpha = Math.max(0, Math.min(1, R.opacity)); ctx.translate(R.cx, R.cy); ctx.rotate(R.rot * Math.PI / 180);
         ctx.drawImage(src, -R.w / 2, -R.h / 2, R.w, R.h); ctx.restore();
       }
@@ -482,7 +493,7 @@ var WebCodecsExport = (function () {
         var stamps = (function* () {
           for (var k = 0; k < nFrames; k++) yield startSec + k / FPS;
         })();
-        for await (var sample of sink.samplesAtTimestamps(stamps)) {
+        for await (var sample of sinkFor(sp).samplesAtTimestamps(stamps)) {
           if (sample) { paintSample(sample, NA ? NA.spanAt(sp, i * 1000 / FPS) : sp); sample.close(); }   // null => keep the last picture
           var t = sp.sessionStart + i * 1000 / FPS;
           await advanceOverlays(t); compose(sp, t);
@@ -497,7 +508,7 @@ var WebCodecsExport = (function () {
         }
       } else {
         if (sp.type === 'freeze') {
-          var held = await sink.getSample(sp.movieAt / 1000);
+          var held = await sinkFor(sp).getSample(sp.movieAt / 1000);
           if (held) { paintSample(held, NA ? NA.spanAt(sp, 0) : sp); if (!sp.kf) { held.close(); held = null; } } else paintLayer(null, 0, 0, sp);
         } else {   // 'black': the navy background (and the logo, if any)
           paintLayer(null, 0, 0, sp);
@@ -518,13 +529,14 @@ var WebCodecsExport = (function () {
 
     say('Mixing your voice with the movie...');
     prog(0.85);
-    await renderAudio(M, plan, { movieAudioTrack: audioTrack, voiceBlob: voiceBlob, musicFile: opts.musicFile, sfxFiles: opts.sfxFiles }, audioSource, prog);
+    await renderAudio(M, plan, { movieAudioTrack: audioTrack, voiceBlob: voiceBlob, musicFile: opts.musicFile, sfxFiles: opts.sfxFiles, assetAudio: assetAudio }, audioSource, prog);
     audioSource.close();
 
     say('Finishing up...');
     prog(0.98);
     await output.finalize();
     if (input.dispose) input.dispose();
+    Object.keys(vids).forEach(function (k) { try { if (vids[k].input.dispose) vids[k].input.dispose(); } catch (e) {} });
 
     prog(1); say('Done.');
     return new Blob([output.target.buffer], { type: 'video/mp4' });
