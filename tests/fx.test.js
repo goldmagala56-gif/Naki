@@ -112,7 +112,8 @@ ok('ffmpeg engine: a blend mode puts the overlay on a see-through frame, mixes i
   assert(a.join(' ').includes('-ss 0.000 -t 1.000 -i ov1.in'), 'the overlay file is still cut to the part');
   const b = argsFor(r, 'v0001.ts'), gb = graph(b); assert(gb.includes('blend=all_mode=multiply') && gb.includes("between(t,0.000,1.000)"), 'the next part carries on: ' + gb);
   const two = E.planToJobs(plan0({ overlays: [ov0({ blend: 'screen' }), ov0({ startMs: 1500, durMs: 1000, asset: 'ov2', blend: 'difference', x: 0.3 })] }), info0, { height: 360 }), tg = graph(argsFor(two, 'v0000.ts'));
-  assert(tg.includes('blend=all_mode=screen') && tg.includes('blend=all_mode=difference'), 'two blended overlays in one part'); const labels = tg.match(/\[bm\d+g\]/g); assert.strictEqual(new Set(labels).size, labels.length, 'every label is used once: ' + labels);
+  assert(tg.includes('blend=all_mode=screen') && tg.includes('blend=all_mode=difference'), 'two blended overlays in one part'); const labels = tg.match(/\[bm\d+g\]/g), cnt = {}; labels.forEach(l => { cnt[l] = (cnt[l] || 0) + 1; });   // a label is made once and used once, so it shows up twice
+  Object.keys(cnt).forEach(l => assert.strictEqual(cnt[l], 2, 'each label is made once and used once: ' + l)); assert.strictEqual(Object.keys(cnt).length, 2, 'two blended overlays use two separate sets of labels: ' + Object.keys(cnt));
   const kf = E.planToJobs(plan0({ overlays: [ov0({ blend: 'add', kf: { size: [[0, 0.2], [2000, 0.5]] }, mask: { shape: 'rounded', amount: 0.3 } })] }), info0, { height: 360 }); assert(graph(argsFor(kf, 'v0000.ts')).includes('blend=all_mode=addition'), 'with keyframes and a mask too');
   const norm = E.planToJobs(plan0({ overlays: [ov0({ blend: 'normal' })] }), info0, { height: 360 }); assert(!graph(argsFor(norm, 'v0000.ts')).includes('blend='));
 });
