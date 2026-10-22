@@ -71,6 +71,7 @@ var NakiPlan = (function () {
         if (e > s){
           var tx = { startMs: s, durMs: e - s, text: String(c.text), size: c.size, color: c.color, pos: c.pos, weight: c.weight, bg: !!c.bg };
           if (c.font) tx.font = c.font; if (c.outline) tx.outline = c.outline; if (c.shadow != null) tx.shadow = c.shadow;
+          if (c.anim) tx.anim = JSON.parse(JSON.stringify(c.anim));
           texts.push(tx);
         }
       });

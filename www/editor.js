@@ -13,6 +13,7 @@ var NakiEditor = (function () {
   var NFX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
   var NSFX = (typeof module !== 'undefined' && module.exports) ? require('./sfx.js') : (typeof window !== 'undefined' ? window.NakiSfx : null);
   var NCAP = (typeof module !== 'undefined' && module.exports) ? require('./captions.js') : (typeof window !== 'undefined' ? window.NakiCaptions : null);
+  var NMO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
   var TRANSITIONS = [{ key: 'none', label: 'None' }, { key: 'fade', label: 'Fade' }, { key: 'fadeblack', label: 'Dip to black' }, { key: 'wipeleft', label: 'Wipe' }, { key: 'slideleft', label: 'Slide' }, { key: 'zoomin', label: 'Zoom' }, { key: 'circleopen', label: 'Circle' }];
   var PAD = 16, MIN_PPM = 0.004, MAX_PPM = 0.6, FRAME_MS = 33;
   var ROLE_NAME = { movie: 'Picture', movieSound: 'Movie sound', voice: 'Your voice', music: 'Music', text: 'Text', captions: 'Captions', stickers: 'Stickers', overlay: 'Overlay', sfx: 'Effects' };
@@ -483,6 +484,8 @@ var NakiEditor = (function () {
     quiet: svg('<path d="M5 9v6h3l5 4V5L8 9z"/><path d="M17 9.5l4 5M21 9.5l-4 5"/>'),
     reset: svg('<path d="M3 12a9 9 0 109-9 9 9 0 00-6.4 2.6L3 8"/><path d="M3 3v5h5"/>'),
     transition: svg('<rect x="3" y="6" width="8" height="12" rx="1.5"/><rect x="13" y="6" width="8" height="12" rx="1.5"/><path d="M11 12h2"/>'),
+    motion: svg('<path d="M3 18c4 0 5-12 9-12s5 12 9 12"/>'),
+    anim: svg('<path d="M5 19l5-14 5 14M7.3 14h5.4"/><path d="M19 9v7M16 12l3-3 3 3"/>'),
     filters: svg('<circle cx="9" cy="10" r="5"/><circle cx="15" cy="10" r="5"/><circle cx="12" cy="15" r="5"/>'),
     sticker: svg('<path d="M20 12a8 8 0 11-8-8h5a3 3 0 013 3z"/><path d="M9 10h.01M15 10h.01M8.5 14.5a4.5 4.5 0 007 0"/>'),
     music: svg('<path d="M9 18.5a2.8 2.8 0 11-2.8-2.8c.5 0 1 .1 1.4.4V5l11-2.5v13.6a2.8 2.8 0 11-2.8-2.8c.5 0 1 .1 1.4.4V6.1L9 8.3z"/>', true),
@@ -593,6 +596,7 @@ var NakiEditor = (function () {
         { id: 'edAdjust', label: 'Adjust', icon: G.adjust, run: P2('adjust') },
         { id: 'edFilters', label: 'Filters', icon: G.filters, run: P2('filters') },
         { id: 'edTransition', label: 'Transition', icon: G.transition, run: P2('transition') },
+        { id: 'edMotion', label: 'Motion', icon: G.motion, run: P2('motion') },
         { id: 'edFade', label: 'Fade', icon: G.fade, run: P2('fade') },
         { id: 'edAddVideo', label: 'Add video', icon: G.addVideo, run: addVideoFromFile },
         { id: 'edReplace', label: 'Replace', icon: G.replace, run: replaceMovie },
@@ -606,6 +610,7 @@ var NakiEditor = (function () {
         { id: 'edAddOverlay', label: 'Add', icon: G.sticker, run: addOverlayFromFile },
         { id: 'edOverlayEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel('overlayedit'); }, disabled: !isO },
         { id: 'edOverlayFx', label: 'Blend', icon: G.adjust, run: function (){ openPanel('overlayfx'); }, disabled: !isO },
+        { id: 'edOverlayMotion', label: 'Motion', icon: G.motion, run: function (){ openPanel('motion'); }, disabled: !isO },
         { id: 'edOverlayDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isO },
         { id: 'edOverlayDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isO }
       ];
@@ -635,6 +640,7 @@ var NakiEditor = (function () {
         { id: 'edCaptions', label: 'Captions', icon: G.captions, run: function (){ openPanel('captions'); } },
         { id: 'edTextEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel('textedit'); }, disabled: !isText },
         { id: 'edTextStyle', label: 'Style', icon: G.style, run: function (){ openPanel('textstyle'); }, disabled: !isText },
+        { id: 'edTextAnim', label: 'Animate', icon: G.anim, run: function (){ openPanel('textanim'); }, disabled: !isText },
         { id: 'edTextList', label: 'Texts', icon: G.list, run: function (){ openPanel('texts'); }, disabled: !any },
         { id: 'edTextDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isText },
         { id: 'edTextDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isText }
@@ -873,7 +879,34 @@ opacity: { title: 'Opacity', build: function (body){
         function (v){ var o = {}; o[cur] = v / 100; live(ps(o)); }, function (v){ var o = {}; o[cur] = v / 100; commit(ps(o)); }));
       body.appendChild(mk('div', 'ed-hint', 'You can also drag the sticker on the picture, and drag its ends on the timeline to change how long it shows.'));
     } },
+    textanim: { title: 'Text animation', build: function (body){
+      var c = selText(); if (!c || !NMO){ body.appendChild(mk('div', 'ed-hint', 'Tap a text on the timeline first.')); return; }
+      var an = c.anim || {}, keys = [{ key: 'in', label: 'In' }, { key: 'out', label: 'Out' }, { key: 'loop', label: 'Loop' }], cur = chipKey('textanim', keys, 'in');
+      var list = cur === 'in' ? NMO.TEXT_IN : cur === 'out' ? NMO.TEXT_OUT : NMO.TEXT_LOOP, set = function (o){ return P.setTextAnim(E.hist.cur, c.id, o); };
+      body.appendChild(chips(keys, cur, pickChip('textanim')));
+      body.appendChild(chips(list, an[cur] || 'none', function (k){
+        var o = {}; o[cur] = k; commit(set(o));
+        seek(cur === 'out' ? c.start + c.dur - 250 : c.start);   // so you see the start (or the end) of it right away
+      }));
+      if (cur !== 'loop' && an[cur]) body.appendChild(sliderRow('Length', 100, Math.max(200, Math.min(2000, Math.floor(c.dur / 2))), 100, an[cur + 'Ms'] || 500, secs, null, function (v){ var o = {}; o[cur + 'Ms'] = v; commit(set(o)); }));
+      var acts = [{ id: 'edTextAnimClear', label: 'Clear', run: function (){ commit(set({ in: 'none', out: 'none', loop: 'none' })); } }];
+      if (c.caption) acts.push({ id: 'edTextAnimAll', label: 'Apply to all captions', run: function (){ commit(P.setCaptionAnim(E.hist.cur, c.anim || {})); toast('Every caption has this animation now.'); } });
+      body.appendChild(actions(acts));
+      body.appendChild(mk('div', 'ed-hint', 'Press play to see it. Typewriter types the words one letter at a time. A loop keeps moving while the text shows. The exported video looks the same; very long texts with a loop keep the loop only in the fast export.'));
+    } },
+    motion: { title: 'Motion', build: function (body){
+      var f = E.sel && P.findClip(E.proj, E.sel), isO = !!(f && f.track.kind === 'overlay'), c = isO ? f.clip : needPicture(body);
+      if (!c || !NMO) return;
+      var cur = (E.chip.motion && E.chip.motion.id === c.id) ? E.chip.motion.key : 'none';
+      body.appendChild(chips(isO ? NMO.OVERLAY_PRESETS : NMO.PICTURE_PRESETS, cur, function (k){
+        E.chip.motion = { id: c.id, key: k }; commit(P.setMotionPreset(E.hist.cur, c.id, k)); seek(c.start);
+      }));
+      body.appendChild(mk('div', 'ed-hint', isO
+        ? 'A ready-made movement for this overlay. Press play to see it. It replaces the keyframes the overlay had; you can still fine-tune it under Edit.'
+        : 'A slow zoom or pan across this clip. Press play to see it. It replaces the zoom keyframes the clip had; fine-tune it under Zoom.'));
+    } },
     overlayedit: { title: 'Overlay', build: function (body){
+
       var c = selOverlay(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap an overlay on the timeline or the picture first.')); return; }
       var keys = ['size', 'rot', 'opacity', 'x', 'y'].map(function (k){ return { key: k, label: KF_LABEL[k] }; }), cur = chipKey('overlayedit', keys, 'size');
       var val = NANIM.valueOf(c, 'overlay', cur, relNow(c)), set = function (v){ return P.setAnimated(E.hist.cur, c.id, cur, v, relNow(c)); };
@@ -1288,13 +1321,21 @@ opacity: { title: 'Opacity', build: function (body){
         d = E.textEls[c.id] = mk('div', 'ed-textov'); d._sp = mk('span'); d._sp.style.cssText = 'display:inline-block;padding:0.2em 0.4em;white-space:pre-wrap;word-break:break-word';
         d.style.left = d.style.right = 'calc(6% - 0.4em)'; d.appendChild(d._sp); layer.appendChild(d); layoutTextLayer();
       }
-      if (d._txt !== c.text){ d._sp.textContent = c.text || ''; d._txt = c.text; }
+      var shownText = c.text || '', stt = (c.anim && NMO) ? NMO.textState(c.anim, E.t - c.start, c.dur) : null;   // typewriter: only the typed part
+      if (stt && stt.chars < 1) shownText = NMO.visibleText(shownText, stt.chars);
+      if (d._txt !== shownText){ d._sp.textContent = shownText; d._txt = shownText; }
       var st = lookLib().titleStyle(c, layer.clientHeight || 240);
       d.style.fontSize = st.px + 'px'; d.style.fontFamily = st.fontFamily; d.style.textShadow = st.shadow;
       d.style.webkitTextStroke = st.stroke; d.style.paintOrder = 'stroke fill';
       d.style.color = c.color || '#fff'; d.style.fontWeight = c.weight || 700;
       d.style.top = ((NP.TEXT_POS[c.pos] != null ? NP.TEXT_POS[c.pos] : NP.TEXT_POS.bottom) * 100) + '%';
       d._sp.style.background = c.bg ? 'rgba(0,0,0,.55)' : 'transparent';
+      var an = c.anim && NMO ? NMO.textState(c.anim, E.t - c.start, c.dur) : null;
+      if (an){
+        var LW = layer.clientWidth || 320, LH = layer.clientHeight || 240;
+        d.style.transformOrigin = '50% 50%'; d.style.opacity = shownText ? String(an.alpha) : '0';
+        d.style.transform = 'translate(' + (an.dx * LW) + 'px,' + (an.dy * LH) + 'px) rotate(' + an.rot + 'deg) scale(' + an.scale + ')';
+      } else { if (d.style.transform) d.style.transform = ''; if (d.style.opacity) d.style.opacity = ''; }
     });
     Object.keys(E.textEls).forEach(function (id){ if (!want[id]){ E.textEls[id].remove(); delete E.textEls[id]; } });
   }

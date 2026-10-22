@@ -365,6 +365,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="format.js"></script>
 <script src="stickers.js"></script>
 <script src="presets.js"></script>
+<script src="motion.js"></script>
 <script src="anim.js"></script>
 <script src="fx.js"></script>
 <script src="sfx.js"></script>
@@ -1616,7 +1617,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'editor.js': 'masks-fx', 'project.js': 'masks-fx', 'plan.js': 'masks-fx', 'anim.js': 'overlay-kf', 'fx.js': 'masks-fx', 'sfx.js': 'sound', 'captions.js': 'sound', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
+  var want = { 'editor.js': 'masks-fx', 'project.js': 'masks-fx', 'plan.js': 'masks-fx', 'anim.js': 'overlay-kf', 'fx.js': 'masks-fx', 'sfx.js': 'sound', 'captions.js': 'sound', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'motion.js': 'motion', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';

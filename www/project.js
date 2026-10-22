@@ -15,6 +15,7 @@ var _C = (typeof module !== 'undefined' && module.exports) ? require('./core.js'
 var _FM = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
 var _AN = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
 var _FX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
+var _MO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
 var _idn = 0;
 function newId(p){ _idn++; return p + _idn.toString(36) + Math.random().toString(36).slice(2, 6); }
 function r3(x){ return Math.round(x * 1000) / 1000; }
@@ -71,8 +72,8 @@ function sliceClip(c, from, to){   // the part of clip c covering timeline [from
   if (c.gain && c.gain.length) n.gain = gainSlice(c.gain, from - c.start, to - c.start);
   if (c.kf && _AN) n.kf = kfSlice(c.kf, from - c.start, to - c.start);
   // fades belong to the original clip's ends: remember how much of each fade a piece has already used up
-  if (from > c.start){ n.fadeInOff = (c.fadeInOff || 0) + (from - c.start); if (n.fadeInOff >= (c.fadeIn || 0)){ n.fadeIn = 0; n.fadeInOff = 0; } delete n.vFadeIn; delete n.transition; }
-  if (to < clipEnd(c)){ n.fadeOutOff = (c.fadeOutOff || 0) + (clipEnd(c) - to); if (n.fadeOutOff >= (c.fadeOut || 0)){ n.fadeOut = 0; n.fadeOutOff = 0; } delete n.vFadeOut; }
+  if (from > c.start){ n.fadeInOff = (c.fadeInOff || 0) + (from - c.start); if (n.fadeInOff >= (c.fadeIn || 0)){ n.fadeIn = 0; n.fadeInOff = 0; } delete n.vFadeIn; delete n.transition; dropTextAnimEdge(n, 'in'); }
+  if (to < clipEnd(c)){ n.fadeOutOff = (c.fadeOutOff || 0) + (clipEnd(c) - to); if (n.fadeOutOff >= (c.fadeOut || 0)){ n.fadeOut = 0; n.fadeOutOff = 0; } delete n.vFadeOut; dropTextAnimEdge(n, 'out'); }
   return n;
 }
 
@@ -1051,6 +1052,54 @@ function setOverlayFx(p, id, patch){
   return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
 }
 
+// ---------- text animation and motion presets ----------
+// A title (or caption) can have clip.anim = { in, out, loop, inMs, outMs } (see motion.js). Nothing is stored for a title that does not animate.
+function cleanTextAnim(cur, patch){
+  var out = Object.assign({}, cur || {});
+  [['in', _MO.TEXT_IN], ['out', _MO.TEXT_OUT], ['loop', _MO.TEXT_LOOP]].forEach(function (x){
+    var k = x[0], v = patch[k];
+    if (v === undefined) return;
+    if (v && v !== 'none' && _MO.has(x[1], v)) out[k] = v; else { delete out[k]; delete out[k + 'Ms']; }
+  });
+  ['inMs', 'outMs'].forEach(function (k){ if (patch[k] !== undefined){ var v = Math.round(+patch[k]); if (v > 0) out[k] = Math.max(100, Math.min(2000, v)); } });
+  if (!out.in) delete out.inMs;
+  if (!out.out) delete out.outMs;
+  return Object.keys(out).length ? out : null;
+}
+// A piece cut off the start of a title has no "in" of its own, a piece cut off the end has no "out" (loops stay on every piece).
+function dropTextAnimEdge(n, edge){
+  if (!n.anim) return;
+  if (edge === 'in'){ delete n.anim.in; delete n.anim.inMs; } else { delete n.anim.out; delete n.anim.outMs; }
+  if (!Object.keys(n.anim).length) delete n.anim;
+}
+// patch = { in, out, loop: a name from motion.js or 'none', inMs, outMs: 100 to 2000 }; only what is mentioned changes.
+function setTextAnim(p, id, patch){
+  if (!_MO) return p;
+  var q = cloneProject(p), f = findClip(q, id);
+  if (!f || f.clip.type !== 'text' || f.clip.sticker) return p;
+  var a = cleanTextAnim(f.clip.anim, patch || {});
+  if (a) f.clip.anim = a; else delete f.clip.anim;
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+// Gives every caption the same animation (an empty patch takes the animation away from all of them).
+function setCaptionAnim(p, patch){
+  var tr = captionTrackOf(p); if (!tr || !tr.clips.length || !_MO) return p;
+  var q = cloneProject(p), a = cleanTextAnim({}, patch || {});
+  captionTrackOf(q).clips.forEach(function (c){ if (a) c.anim = JSON.parse(JSON.stringify(a)); else delete c.anim; });
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+// A ready-made movement for a picture clip (zoom, pan) or an overlay (slide, pop, spin, fade), made of keyframes (see anim.js).
+// It replaces the clip's other keyframes. 'none' takes them all away; the clip keeps its fixed look.
+function setMotionPreset(p, id, key){
+  var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !_MO) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip;
+  if (!key || key === 'none'){ if (!c.kf) return p; delete c.kf; return finish(q); }
+  var base = kind === 'overlay' ? { x: c.x, y: c.y, size: c.size, rot: c.rot || 0, opacity: c.opacity != null ? c.opacity : 1 } : {};
+  var kf = _MO.clipPreset(kind, key, c.dur, base); if (!kf) return p;
+  c.kf = kf;
+  return finish(q);
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -1083,7 +1132,8 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
   addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
-  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip };
+  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip,
+  setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 

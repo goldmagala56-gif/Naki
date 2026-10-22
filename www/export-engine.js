@@ -19,6 +19,7 @@ var _RV = (typeof module !== 'undefined' && module.exports) ? require('./reverse
 var _FMT = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
 var _NA = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
 var _FX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
+var _MO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
 var FPS = 30;
 var SR = 48000;
 var GAIN_HZ = 1000;
@@ -136,7 +137,12 @@ function planToJobs(plan, movieInfo, opts) {
 
   // Titles are drawn by the page as transparent full-size pictures (textFiles) and laid over the video
   // with ffmpeg's overlay, so ffmpeg never needs a font file.
-  var texts = plan.texts || [], textFiles = texts.map(function (t, i) { return { name: 'txt' + String(i).padStart(3, '0') + '.png', clip: t, width: width, height: height }; });
+  var texts = plan.texts || [], textFiles = [];
+  texts.forEach(function (t, i) {   // a title with an animation becomes a few still pictures, each shown for its own stretch of time (see motion.js)
+    var segs = (_MO && t.anim) ? _MO.textTimeline(t.anim, t.durMs, Array.from(String(t.text || '')).length) : null, nm = 'txt' + String(i).padStart(3, '0');
+    if (!segs) { textFiles.push({ name: nm + '.png', clip: t, width: width, height: height }); return; }
+    segs.forEach(function (sg, k) { textFiles.push({ name: nm + '_' + String(k).padStart(2, '0') + '.png', clip: Object.assign({}, t, { startMs: t.startMs + sg.a, durMs: sg.b - sg.a }), state: sg.st, width: width, height: height }); });
+  });
 
   textFiles = (plan.stickers || []).map(function (s, i) { return { name: 'stk' + String(i).padStart(3, '0') + '.png', clip: s, sticker: true, width: width, height: height }; }).concat(textFiles);   // stickers go under the titles
 
@@ -473,7 +479,8 @@ async function renderTitlePng(tf) {
   var W = tf.width, H = tf.height, cv;
   if (typeof OffscreenCanvas !== 'undefined') cv = new OffscreenCanvas(W, H);
   else { cv = document.createElement('canvas'); cv.width = W; cv.height = H; }
-  (tf.sticker && typeof NakiStickers !== 'undefined' ? NakiStickers.drawSticker : drawTitle)(cv.getContext('2d'), tf.clip, W, H);
+  if (tf.state && typeof NakiMotion !== 'undefined') NakiMotion.drawTitleState(cv.getContext('2d'), tf.clip, tf.state, W, H, { drawFn: drawTitle, cache: {}, makeCanvas: function (w, h) { var c2; if (typeof OffscreenCanvas !== 'undefined') c2 = new OffscreenCanvas(w, h); else { c2 = document.createElement('canvas'); c2.width = w; c2.height = h; } return c2; } });
+  else (tf.sticker && typeof NakiStickers !== 'undefined' ? NakiStickers.drawSticker : drawTitle)(cv.getContext('2d'), tf.clip, W, H);
   var blob = cv.convertToBlob ? await cv.convertToBlob({ type: 'image/png' }) : await new Promise(function (r) { cv.toBlob(r, 'image/png'); });
   return new Uint8Array(await blob.arrayBuffer());
 }

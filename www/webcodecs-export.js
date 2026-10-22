@@ -55,6 +55,7 @@ var WebCodecsExport = (function () {
   }
   var NSTK = (typeof module !== 'undefined' && module.exports) ? require('./stickers.js') : (typeof window !== 'undefined' ? window.NakiStickers : null);
   var NA = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
+  var NMO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
   var NFX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
   var NAVY = '#111b24';
   var TITLE_POS = { top: 0.07, center: 0.40, bottom: 0.76 };   // same numbers as plan.js / the editor preview
@@ -397,7 +398,7 @@ var WebCodecsExport = (function () {
     // each title is drawn once onto its own transparent picture, then laid over the frames it shows in
     var titles = (plan.texts || []).filter(function (t) { return t && String(t.text || '').trim(); }).map(function (t) {
       var c = makeCanvas(W, H); drawTitle(c.getContext('2d'), t, W, H);
-      return { c: c, a: t.startMs, b: t.startMs + t.durMs };
+      return { c: c, a: t.startMs, b: t.startMs + t.durMs, t: t };
     });
 
     // the background of each frame: navy for the original shape; for other shapes the chosen colour or a blurred copy of the picture
@@ -453,7 +454,15 @@ var WebCodecsExport = (function () {
       }
     }
     
-// puts one finished frame on the encoder's canvas: picture, fade to black, overlays, logo, stickers, titles
+// a title with an animation is moved, grown, turned and faded as it is laid on each frame (see motion.js)
+    function drawTitleAnim(ti, tMs) {
+      var an = ti.t.anim, st = (NMO && an) ? NMO.textState(an, tMs - ti.a, ti.b - ti.a) : null;
+      if (!st) { ctx.drawImage(ti.c, 0, 0); return; }
+      if (!ti.mo) ti.mo = { drawFn: drawTitle, makeCanvas: makeCanvas, cache: {} };
+      NMO.drawTitleState(ctx, ti.t, st, W, H, ti.mo);
+    }
+    // puts one finished frame on the encoder's canvas: picture, fade to black, overlays, logo, stickers, titles
+
     function compose(sp, tMs) {
       ctx.globalAlpha = 1;
       ctx.drawImage(layer, 0, 0);
@@ -462,7 +471,7 @@ var WebCodecsExport = (function () {
       drawOverlays(tMs);
       if (logoImg) drawWatermark(ctx, logoImg, W, H, opts.logoCorner);
       for (var ks = 0; ks < stickers.length; ks++) if (tMs >= stickers[ks].a && tMs < stickers[ks].b) ctx.drawImage(stickers[ks].c, 0, 0);
-      for (var k = 0; k < titles.length; k++) if (tMs >= titles[k].a && tMs < titles[k].b) ctx.drawImage(titles[k].c, 0, 0);
+      for (var k = 0; k < titles.length; k++) if (tMs >= titles[k].a && tMs < titles[k].b) drawTitleAnim(titles[k], tMs);
     }
 
     var output = new M.Output({ format: new M.Mp4OutputFormat(), target: new M.BufferTarget() });
