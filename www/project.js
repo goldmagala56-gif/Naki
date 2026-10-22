@@ -54,7 +54,7 @@ function finish(p){
     tr.clips.forEach(function (c){ d = Math.max(d, clipEnd(c)); });
   });
   p.durationMs = d;
-  p.tracks = p.tracks.filter(function (t){ return (t.kind !== 'sticker' && t.kind !== 'overlay' && t.role !== 'sfx') || t.clips.length; });   // an empty sticker row goes away
+  p.tracks = p.tracks.filter(function (t){ return (t.kind !== 'sticker' && t.kind !== 'overlay' && t.role !== 'sfx' && t.kind !== 'fx') || t.clips.length; });   // an empty sticker row goes away
   return p;
 }
 function findClip(p, id){
@@ -394,9 +394,10 @@ function setFilter(p, id, patch){
     var f = Object.assign({ brightness: 1, contrast: 1, saturate: 1 }, c.filter || {}, patch || {});
     f.brightness = Math.max(0.4, Math.min(1.6, +f.brightness || 1)); f.contrast = Math.max(0.4, Math.min(1.6, +f.contrast || 1)); f.saturate = Math.max(0, Math.min(2, f.saturate == null ? 1 : +f.saturate));
     var neutral = Math.abs(f.brightness - 1) < 0.001 && Math.abs(f.contrast - 1) < 0.001 && Math.abs(f.saturate - 1) < 0.001;
-    ['warmth', 'sharpen', 'vignette', 'matte'].forEach(function (k){
+    var EXTRA_RANGE = { warmth: [-1, 1], sharpen: [0, 1], vignette: [0, 1], matte: [0, 1], highlights: [-1, 1], shadows: [-1, 1], tint: [-1, 1], hue: [-1, 1], grain: [0, 1] };
+    Object.keys(EXTRA_RANGE).forEach(function (k){
       var v = +f[k]; if (isNaN(v)) v = 0;
-      v = r3(Math.max(k === 'warmth' ? -1 : 0, Math.min(1, v)));
+      v = r3(Math.max(EXTRA_RANGE[k][0], Math.min(EXTRA_RANGE[k][1], v)));
       if (Math.abs(v) < 0.001) delete f[k]; else { f[k] = v; neutral = false; }
     });
     if (neutral) delete c.filter; else c.filter = f;
@@ -420,7 +421,7 @@ function insertFreeze(p, t, dur){
     var out = [];
     tr.clips.forEach(function (c){
       var e = clipEnd(c);
-      if (tr.kind === 'text' || tr.kind === 'sticker'){ if (c.start >= t) c.start += dur; else if (e > t) c.dur += dur; out.push(c); return; }
+      if (tr.kind === 'text' || tr.kind === 'sticker' || tr.kind === 'fx'){ if (c.start >= t) c.start += dur; else if (e > t) c.dur += dur; out.push(c); return; }
       if (inFreeze && tr.role === 'movie' && c.start <= t && t < e){ c.dur += dur; out.push(c); return; }
       if (c.start >= t){ c.start += dur; out.push(c); return; }
       if (e <= t){ out.push(c); return; }
@@ -1076,7 +1077,7 @@ function dropTextAnimEdge(n, edge){
 function setTextAnim(p, id, patch){
   if (!_MO) return p;
   var q = cloneProject(p), f = findClip(q, id);
-  if (!f || f.clip.type !== 'text' || f.clip.sticker) return p;
+  if (!f || f.clip.type !== 'text' || f.clip.sticker || f.clip.fx) return p;
   var a = cleanTextAnim(f.clip.anim, patch || {});
   if (a) f.clip.anim = a; else delete f.clip.anim;
   return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
@@ -1098,6 +1099,36 @@ function setMotionPreset(p, id, key){
   var kf = _MO.clipPreset(kind, key, c.dur, base); if (!kf) return p;
   c.kf = kf;
   return finish(q);
+}
+
+// ---------- video effects over a stretch of time ----------
+// An effect is a clip on a "video effects" row: shake, glitch, blur, flash, RGB split or film grain, with a strength from 0 to 1. Effects that overlap in
+// time go on separate rows (and add up).
+var FX_KEYS = ['shake', 'glitch', 'blur', 'flash', 'rgbsplit', 'grain'];
+function addFx(p, t, key, out){
+  var total = p.durationMs; if (!(total > 0) || FX_KEYS.indexOf(key) < 0) return p;
+  var start = Math.max(0, Math.min(Math.round(t), total - 200)), d = Math.min(key === 'flash' ? 500 : 2000, total - start); if (d < 200) return p;
+  var q = cloneProject(p), rows = q.tracks.filter(function (x){ return x.kind === 'fx'; }), tr = null;
+  for (var i = 0; i < rows.length && !tr; i++) if (!rows[i].clips.some(function (c){ return start < clipEnd(c) && start + d > c.start; })) tr = rows[i];
+  if (!tr){
+    var k = 1; while (q.tracks.some(function (x){ return x.id === 't-fx' + k + 'v'; })) k++;
+    tr = { id: 't-fx' + k + 'v', kind: 'fx', role: 'fx', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr);
+  }
+  var clip = { id: newId('c'), type: 'text', asset: null, start: start, dur: d, in: 0, speed: 1, fx: key, strength: 0.5 };
+  tr.clips.push(clip); if (out) out.id = clip.id;
+  return finish(q);
+}
+function setFxProps(p, id, patch){
+  patch = patch || {};
+  var q = cloneProject(p), f = findClip(q, id); if (!f || !f.clip.fx) return p;
+  if (patch.fx && FX_KEYS.indexOf(patch.fx) >= 0) f.clip.fx = patch.fx;
+  if (patch.strength !== undefined){ var v = +patch.strength; if (!isNaN(v)) f.clip.strength = r3(Math.max(0, Math.min(1, v))); }
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+function fxAt(p, t){
+  var out = [];
+  p.tracks.forEach(function (tr){ if (tr.kind !== 'fx' || tr.hidden) return; tr.clips.forEach(function (c){ if (c.start <= t && t < clipEnd(c)) out.push({ fx: c.fx, strength: c.strength, start: c.start, dur: c.dur }); }); });
+  return out;
 }
 
 // ---------- undo / redo ----------
@@ -1133,9 +1164,10 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
   addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip,
-  setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset };
+  setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
+  addFx: addFx, setFxProps: setFxProps, fxAt: fxAt };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'masks-fx'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['project.js'] = 'look2'; }

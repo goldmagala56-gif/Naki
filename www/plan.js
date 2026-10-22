@@ -23,7 +23,7 @@ var NakiPlan = (function () {
       if (c.asset && c.asset !== 'movie') sp.asset = c.asset;   // a picture from a video added with Add video
       if (c.filter){
         sp.filter = { brightness: c.filter.brightness, contrast: c.filter.contrast, saturate: c.filter.saturate };
-        ['warmth', 'sharpen', 'vignette', 'matte'].forEach(function (k) { if (c.filter[k]) sp.filter[k] = c.filter[k]; });
+        ['warmth', 'sharpen', 'vignette', 'matte', 'highlights', 'shadows', 'tint', 'hue', 'grain'].forEach(function (k) { if (c.filter[k]) sp.filter[k] = c.filter[k]; });
       }
       if (c.opacity != null && c.opacity < 1) sp.opacity = c.opacity;
       if (c.transform) sp.transform = { zoom: c.transform.zoom, x: c.transform.x, y: c.transform.y, rot: c.transform.rot, flipH: !!c.transform.flipH };
@@ -102,6 +102,15 @@ var NakiPlan = (function () {
       });
     });
     overlays.sort(function (a, b) { return a.startMs - b.startMs; });
+    var fx = [];
+    p.tracks.forEach(function (tr) {
+      if (tr.kind !== 'fx' || tr.hidden) return;
+      tr.clips.forEach(function (c) {
+        var s = Math.max(0, Math.round(c.start)), e = Math.min(total, Math.round(c.start + c.dur));
+        if (c.fx && e > s) fx.push({ startMs: s, durMs: e - s, fx: c.fx, strength: c.strength == null ? 0.5 : c.strength });
+      });
+    });
+    fx.sort(function (a, b) { return a.startMs - b.startMs; });
 
     var mv = p.assets && p.assets.movie;
     var plan = { naki: 'export-plan', version: 2, durationMs: total,
@@ -109,6 +118,7 @@ var NakiPlan = (function () {
     if (texts.length) plan.texts = texts;
     if (stickers.length) plan.stickers = stickers;
     if (overlays.length) plan.overlays = overlays;
+    if (fx.length) plan.fx = fx;
     if (p.format && p.format.ratio) plan.format = { ratio: p.format.ratio, bg: p.format.bg ? { type: p.format.bg.type, color: p.format.bg.color } : { type: 'navy' } };
     return plan;
   }
@@ -120,4 +130,4 @@ var NakiPlan = (function () {
 })();
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'masks-fx'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['plan.js'] = 'look2'; }

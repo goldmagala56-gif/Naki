@@ -20,6 +20,7 @@ var _FMT = (typeof module !== 'undefined' && module.exports) ? require('./format
 var _NA = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
 var _FX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
 var _MO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
+var _L2 = (typeof module !== 'undefined' && module.exports) ? require('./look2.js') : (typeof window !== 'undefined' ? window.NakiLook2 : null);
 var FPS = 30;
 var SR = 48000;
 var GAIN_HZ = 1000;
@@ -158,6 +159,7 @@ function planToJobs(plan, movieInfo, opts) {
       parts.push("lutyuv=y='val*" + o.toFixed(3) + '+' + (bgYUV[0] * k).toFixed(2) + "':u='val*" + o.toFixed(3) + '+' + (bgYUV[1] * k).toFixed(2) + "':v='val*" + o.toFixed(3) + '+' + (bgYUV[2] * k).toFixed(2) + "'");
     }
     (_LK.ffmpegExtras(f) || []).forEach(function (x) { parts.push(x); });
+    if (_L2 && f) _L2.ffmpegAdjust(f).forEach(function (x) { parts.push(x); });
     if (sp.vFadeIn) parts.push('fade=t=in:st=0:d=' + (sp.vFadeIn / 1000).toFixed(3));
     if (sp.vFadeOut) parts.push('fade=t=out:st=' + Math.max(0, spanSec - sp.vFadeOut / 1000).toFixed(3) + ':d=' + (sp.vFadeOut / 1000).toFixed(3));
     return parts.join(',');
@@ -171,8 +173,9 @@ function planToJobs(plan, movieInfo, opts) {
     var over = textFiles.filter(function (t) { return t.clip.startMs < sp.sessionEnd && t.clip.startMs + t.clip.durMs > sp.sessionStart; });
     var tpad = (padStart || tpadSec) ? 'tpad=' + (padStart ? 'start_mode=clone:start_duration=' + padStart.toFixed(3) + (tpadSec ? ':' : '') : '') + (tpadSec ? 'stop_mode=clone:stop_duration=' + tpadSec : '') : '';
     var isGraph = !!fitChain && typeof fitChain === 'object';
-    var ovs = _NA ? overlayList.filter(function (o) { return o.startMs < sp.sessionEnd && o.startMs + o.durMs > sp.sessionStart; }) : [];   // a blurred background is a whole filter graph, not a chain
-    if (!isGraph && !ovs.length && !wm && !over.length && !look && !(speed && speed !== 1)) {
+    var ovs = _NA ? overlayList.filter(function (o) { return o.startMs < sp.sessionEnd && o.startMs + o.durMs > sp.sessionStart; }) : [];
+    var fxs = _L2 ? fxList.filter(function (x) { return x.startMs < sp.sessionEnd && x.startMs + x.durMs > sp.sessionStart; }) : [];   // a blurred background is a whole filter graph, not a chain
+    if (!isGraph && !ovs.length && !fxs.length && !wm && !over.length && !look && !(speed && speed !== 1)) {
       // a plain clip: exactly the chain the earlier versions used
       return sourceArgs.concat(['-an', '-vf', fitChain + (tpad ? ',' + tpad : '') + ',setsar=1,fps=' + FPS + ',format=yuv420p', '-frames:v', String(nFrames)], tailEnc);
     }
@@ -181,6 +184,10 @@ function planToJobs(plan, movieInfo, opts) {
       (tpad ? ',' + tpad : '') + ',format=yuv420p' + (look ? ',' + look : '');
     fc.push(isGraph ? fitChain.graph('[0:v]', '[f0]') + ';[f0]' + head + '[v0]' : '[0:v]' + head + '[v0]');
     var cur = 'v0';
+    fxs.forEach(function (x) {
+      var a0 = Math.max(0, (x.startMs - sp.sessionStart) / 1000), b0 = (Math.min(sp.sessionEnd, x.startMs + x.durMs) - sp.sessionStart) / 1000, out = 'v' + (++n);
+      fc.push(_L2.ffmpegFx(x, a0, b0, cur, out, width, height)); cur = out;
+    });
     ovs.forEach(function (o) {
       var op = overlayParts(o, sp), bm = _FX && op.blend ? _FX.ffBlend(op.blend) : null;
       if (!bm) {   // the normal way: laid over the picture
@@ -333,6 +340,9 @@ function planToJobs(plan, movieInfo, opts) {
     return { blend: o.blend, inputs: src, chain: f.join(','), x: 'main_w*(' + (x || o.x) + ')-overlay_w/2', y: 'main_h*(' + (y || o.y) + ')-overlay_h/2', a: a, b: b };
   }
 
+  
+// ---- video effects ----
+  var fxList = plan.fx || [];
   
 /* --- picture --- */
   vspans.forEach(function (sp, i) {

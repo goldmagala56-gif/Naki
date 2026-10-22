@@ -7,8 +7,9 @@ let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ok  ' + name); }
 const okAsync = []; const later = (name, fn) => okAsync.push([name, fn]);
 
 // ---------- sound effects made by code ----------
-ok('effects: ten of them, each the right length, loud but not clipping, starting and ending in silence, and always the same', () => {
-  assert.strictEqual(S.LIST.length, 10);
+ok('effects: every one of them, each the right length, loud but not clipping, starting and ending in silence, and always the same', () => {
+    assert(S.LIST.length >= 10, 'at least the original ten');
+  ['whoosh', 'swipe', 'pop', 'click', 'ding', 'coin', 'laser', 'boom', 'riser', 'drop'].forEach((k, i) => assert.strictEqual(S.LIST[i].key, k, 'the original ten stay first'));
   S.LIST.forEach(x => {
     const a = S.render(x.key, 48000), b = S.render(x.key, 48000); assert.strictEqual(a.length, Math.round(x.durMs * 48) , x.key + ' length');
     let pk = 0; a.forEach(v => { pk = Math.max(pk, Math.abs(v)); }); assert(Math.abs(pk - 0.85) < 0.001, x.key + ' peak ' + pk);

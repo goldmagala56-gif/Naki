@@ -1,0 +1,51 @@
+﻿
+  www\index.html:1452:    });
+  www\index.html:1453:  }
+  www\index.html:1454:  return loadWebCodecsEngine().then(function(){
+> www\index.html:1455:    if (!WebCodecsExport.canRender(plan)) throw 
+new Error('your edits need the compatible engine');
+  www\index.html:1456:    return WebCodecsExport.isSupported();
+  www\index.html:1457:  }).then(function(supported){
+  www\index.html:1458:    if (!supported) throw new Error('fast export 
+is not available on this device');
+  www\index.html:1520:    plan.overlays = 
+plan.overlays.filter(function(o){ return ovFiles[o.asset]; }); if 
+(!plan.overlays.length) delete plan.overlays;
+  www\index.html:1521:    toast('An overlay file is missing, so it was 
+left out. Open Edit, Overlay and add it again.', 9000);
+  www\index.html:1522:  }
+> www\index.html:1523:  ffmpegOpts.overlayFiles = 
+webcodecsOpts.overlayFiles = ovFiles;
+  www\index.html:1524:  // The sound files behind the effects. An 
+effect whose file is missing is left out, and you are told.
+> www\index.html:1525:  var sfxFiles = {}, lostFx = false;
+  www\index.html:1526:  plan.audio = (plan.audio || 
+[]).filter(function(a){
+  www\index.html:1527:    if (!a.file) return true;
+  www\index.html:1528:    var f = S.sfx[a.file.replace(/\.in$/, '')];
+> www\index.html:1529:    if (f && f.file){ sfxFiles[a.file] = f.file; 
+return true; }
+  www\index.html:1530:    lostFx = true; return false;
+  www\index.html:1531:  });
+  www\index.html:1532:  if (lostFx) toast('A sound effect file is 
+missing, so it was left out.', 9000);
+> www\index.html:1533:  ffmpegOpts.sfxFiles = webcodecsOpts.sfxFiles = 
+sfxFiles;
+  www\index.html:1534:
+  www\index.html:1535:  // The files behind the videos added to the 
+picture line. A part whose file is missing is left blank, and you are 
+told.
+  www\index.html:1536:  var vidFiles = {}, lostVid = false;
+  www\index.html:1543:  });
+  www\index.html:1544:  plan.audio = plan.audio.filter(function(a){ 
+return !a.asset || vidFiles[a.asset]; });
+  www\index.html:1545:  if (lostVid) toast('A video you added is 
+missing, so that part is blank. Open Edit and use Add video to add it 
+again.', 9000);
+> www\index.html:1546:  ffmpegOpts.videoFiles = 
+webcodecsOpts.videoFiles = vidFiles;
+  www\index.html:1547:
+  www\index.html:1548:
+  www\index.html:1549:
+
+
