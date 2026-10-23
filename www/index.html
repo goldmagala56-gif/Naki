@@ -368,6 +368,8 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="motion.js"></script>
 <script src="anim.js"></script>
 <script src="fx.js"></script>
+<script src="thumbs.js"></script>
+<script src="peaks.js"></script>
 <script src="sfx.js"></script>
 <script src="captions.js"></script>
 <script src="look2.js"></script>
@@ -1619,7 +1621,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'editor.js': 'look2', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'overlay-kf', 'fx.js': 'masks-fx', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
+  var want = { 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'overlay-kf', 'fx.js': 'masks-fx2', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'titles-more-adjust', 'reverse.js': 'reverse' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';
@@ -1837,6 +1839,7 @@ NakiEditor.init({
   music: $('music'),
   overlayUrl: overlayUrl, pickOverlay: pickOverlay, setOverlayFile: setOverlayFile,
   sfxUrl: sfxUrl, pickSfx: pickSfx, setSfxFile: setSfxFile, getVoiceBlob: getVoiceBlob,
+  getAssetFile: function(id){ if (id === 'movie') return S.movieFile; if (id === 'music') return S.sess ? S.sess.musicFile : null; var o = S.sfx[id] || S.videos[id] || S.overlays[id]; return o ? o.file : null; },
   videoUrl: videoUrl, pickVideo: pickVideo, setVideoFile: setVideoFile, movieUrl: function(){ return S.movieUrl; },
   saveProject: function(sid, rec){ return DB.saveProject(sid, rec); },
   setMusicFile: function(f){ setMusicFile(f); },

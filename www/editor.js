@@ -11,6 +11,8 @@ var NakiEditor = (function () {
   var NPR = (typeof module !== 'undefined' && module.exports) ? require('./presets.js') : (typeof window !== 'undefined' ? window.NakiPresets : null);
   var NANIM = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
   var NFX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
+var NTH = (typeof module !== 'undefined' && module.exports) ? require('./thumbs.js') : (typeof window !== 'undefined' ? window.NakiThumbs : null);
+var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.js') : (typeof window !== 'undefined' ? window.NakiPeaks : null);
   var NSFX = (typeof module !== 'undefined' && module.exports) ? require('./sfx.js') : (typeof window !== 'undefined' ? window.NakiSfx : null);
   var NCAP = (typeof module !== 'undefined' && module.exports) ? require('./captions.js') : (typeof window !== 'undefined' ? window.NakiCaptions : null);
   var NL2 = (typeof module !== 'undefined' && module.exports) ? require('./look2.js') : (typeof window !== 'undefined' ? window.NakiLook2 : null);
@@ -138,6 +140,7 @@ var NakiEditor = (function () {
     u.zin.onclick = function (){ setZoom(E.ppm * 1.4); }; u.zout.onclick = function (){ setZoom(E.ppm / 1.4); };
     u.scrub.addEventListener('input', function (){ seek(+u.scrub.value / 1000 * E.proj.durationMs); });
     u.scroll.addEventListener('pointerdown', onDown);
+    u.scroll.addEventListener('scroll', scheduleRepaint);
     u.scroll.addEventListener('wheel', function (ev){
       if (ev.ctrlKey || ev.metaKey){ ev.preventDefault(); setZoom(E.ppm * (ev.deltaY < 0 ? 1.15 : 1 / 1.15), ev.clientX); }
       else if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)){ u.scroll.scrollLeft += ev.deltaY; ev.preventDefault(); }
@@ -162,7 +165,7 @@ var NakiEditor = (function () {
     }
     u.inner.appendChild(ruler);
     p.tracks.forEach(function (tr){
-      var row = mk('div', 'ed-row k-' + tr.role); row.style.height = rowH(tr) + 'px'; row.dataset.track = tr.id;
+      var row = mk('div', 'ed-row k-' + tr.role + (tr.hidden ? ' off' : '') + (tr.locked ? ' locked' : '')); row.style.height = rowH(tr) + 'px'; row.dataset.track = tr.id;
       tr.clips.forEach(function (c){ row.appendChild(clipEl(tr, c)); });
       if (tr.role === 'movie' && E.hooks && E.hooks.pickVideo){   // CapCut style: a + after the last picture clip adds a video there
         var endT = 0; tr.clips.forEach(function (c){ endT = Math.max(endT, c.start + c.dur); });
@@ -175,11 +178,65 @@ var NakiEditor = (function () {
     placeHead(); renderLabels(); renderMix(); renderSelected(); updateButtons();
   }
   function clipKind(tr, c){ return tr.kind === 'text' ? 'k-text' : tr.kind === 'video' ? (c.type === 'freeze' ? 'k-freeze' : 'k-video') : 'k-' + tr.role; }
+    // ----- thumbnails and waveforms on the clips, hide / lock / mute on the rows -----
+  var TS = null, PS = null, repaintRaf = 0;
+  function tlStores(){
+    if (!TS && NTH) TS = new NTH.Store({ onReady: function (){ scheduleRepaint(); } });
+    if (!PS && NPK) PS = new NPK.Store({ getFile: function (id){ return E.hooks && E.hooks.getAssetFile ? E.hooks.getAssetFile(id) : null; }, onReady: function (){ scheduleRepaint(); } });
+  }
+  // Pictures and sound arrive a little at a time. Only the clips that were still missing something are painted again.
+  function scheduleRepaint(){
+    if (repaintRaf || !E.isOpen || typeof requestAnimationFrame !== 'function') return;
+    repaintRaf = requestAnimationFrame(function (){
+      repaintRaf = 0; if (!E.ui.inner) return;
+      var list = E.ui.inner.querySelectorAll('canvas.ed-thumbcv, canvas.ed-wavecv');
+      for (var i = 0; i < list.length; i++){ var cv = list[i]; if (cv._pending) (cv.className.indexOf('thumbcv') >= 0 ? paintClipThumbs : paintClipWave)(cv); }
+    });
+  }
+  function clipUrl(tr, c){
+    var h = E.hooks || {};
+    if (tr.kind === 'overlay') return h.overlayUrl ? h.overlayUrl(c.asset) : '';
+    return c.asset && c.asset !== 'movie' ? (h.videoUrl ? h.videoUrl(c.asset) : '') : (h.movieUrl ? h.movieUrl() : '');
+  }
+  function paintClipThumbs(cv){
+    var c = cv._c, tr = cv._tr, css = Math.max(1, c.dur * E.ppm), W = Math.min(8000, Math.round(css)), H = rowH(tr) - 4, k = W / css;
+    if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
+    var sc = E.ui.scroll, left = tx(c.start), asp = (E.frameDims && E.frameDims.h) ? E.frameDims.w / E.frameDims.h : 16 / 9;
+    var miss = NTH.paint(cv.getContext('2d'), W, H, c, E.ppm, { url: clipUrl(tr, c), image: tr.kind === 'overlay' && c.type === 'freeze', store: TS,
+      tileW: Math.max(24, Math.round(H * asp)), k: k, visible: [sc.scrollLeft - sc.clientWidth - left, sc.scrollLeft + 2 * sc.clientWidth - left], bg: tr.kind === 'overlay' ? '#0f5c66' : '#1f4e7d' });
+    cv._pending = miss > 0;
+  }
+  function paintClipWave(cv){
+    var c = cv._c, css = Math.max(1, c.dur * E.ppm), W = Math.min(4000, Math.max(1, Math.round(css))), H = 34;
+    if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
+    var g = cv.getContext('2d'), v = PS ? PS.view(c.asset, c.in || 0, c.dur * (c.speed || 1), W, !!c.reverse) : null;
+    g.clearRect(0, 0, W, H);
+    if (!v){ g.fillStyle = 'rgba(255,255,255,.25)'; g.fillRect(0, H / 2 - 1, W, 2); cv._pending = false; return; }   // no file, or it cannot be read: a thin line
+    g.fillStyle = 'rgba(255,255,255,.65)'; NPK.drawBars(g, v.vals, W, H, v.norm); cv._pending = !v.done;
+  }
+  function decorateClip(e, tr, c){
+    if (c.dur * E.ppm < 6) return;
+    tlStores();
+    if ((tr.kind === 'video' || tr.kind === 'overlay') && TS){ var cv = mk('canvas', 'ed-thumbcv'); cv._tr = tr; cv._c = c; e.insertBefore(cv, e.firstChild); paintClipThumbs(cv); }
+    else if (tr.kind === 'audio' && PS){ var wv = mk('canvas', 'ed-wavecv'); wv._c = c; e.appendChild(wv); paintClipWave(wv); }
+  }
+  // While a clip is dragged and one of its edges lands on another clip, the playhead or a beat, a white line shows where, and the phone gives a tiny tap.
+  function showSnapGuide(d, raw){
+    var g = E.ui.snapline, snapped = Math.abs(d.newStart - raw) >= 1;
+    if (!snapped){ if (g) g.style.display = 'none'; d.wasSnapped = false; return; }
+    var skip = P.linkedClips(E.hist.cur, d.id).map(function (x){ return x.clip.id; }), len = d.e0 - d.s0, th = 8 / E.ppm;
+    var a = P.snapTime(E.proj, raw, th, [E.t], skip), b = P.snapTime(E.proj, raw + len, th, [E.t], skip) - len;
+    var atStart = a !== raw && (b === raw || Math.abs(a - raw) <= Math.abs(b - raw));
+    if (!g || !g.parentNode){ g = E.ui.snapline = mk('div', 'ed-snapline'); E.ui.inner.appendChild(g); }
+    g.style.display = 'block'; g.style.left = tx(atStart ? d.newStart : d.newStart + len) + 'px';
+    if (!d.wasSnapped){ try { if (navigator.vibrate) navigator.vibrate(6); } catch (e) {} }
+    d.wasSnapped = true;
+  }
   function clipEl(tr, c){
     var e = mk('div', 'ed-clip ' + clipKind(tr, c) + (c.id === E.sel ? ' sel' : ''));
     e.dataset.id = c.id; e.style.left = tx(c.start) + 'px'; e.style.width = Math.max(3, c.dur * E.ppm) + 'px';
     if (c.dur * E.ppm > 46) e.appendChild(mk('span', 'ed-cl', clipTitle(tr, c)));
-    if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); }
+    if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); } else decorateClip(e, tr, c);
     if (c.kf){ var kts = {}; Object.keys(c.kf).forEach(function (k){ c.kf[k].forEach(function (pt){ kts[pt[0]] = 1; }); }); Object.keys(kts).forEach(function (t0){ var kd = mk('i', 'ed-kf'); kd.style.left = (t0 * E.ppm) + 'px'; e.appendChild(kd); }); }
     add(e, mk('i', 'ed-h ed-hl'), mk('i', 'ed-h ed-hr'));
     return e;
@@ -202,19 +259,32 @@ var NakiEditor = (function () {
       var a = Math.max(1, Math.pow(b / 255, 2.2) * hh); g.fillRect(x, (hh - a) / 2, 1.5, a);
     }
   }
+    var LB = {
+    lock: svg('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/>'),
+    eye: svg('<path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>'),
+    eyeoff: svg('<path d="M3 3l18 18M10.6 6.2A9.8 9.8 0 0112 6c6 0 10 6 10 6a17 17 0 01-3.2 3.7M6.5 7.6A17 17 0 002 12s4 7 10 7a9.6 9.6 0 004.2-1"/>'),
+    sound: svg('<path d="M5 9v6h3l5 4V5L8 9z"/><path d="M16.5 9a4 4 0 010 6"/>'),
+    mute: svg('<path d="M5 9v6h3l5 4V5L8 9z"/><path d="M17 9.5l4 5M21 9.5l-4 5"/>')
+  };
+  // The name of each row, with its buttons: Hide (picture, titles, stickers, overlays, effects) or Mute (sound), and Lock for every row.
   function renderLabels(){
     var u = E.ui; u.labels.textContent = ''; u.labels.appendChild(mk('div', 'ed-spacer'));
     E.proj.tracks.forEach(function (tr){
-      var l = mk('div', 'ed-label' + (tr.muted ? ' muted' : '')); l.style.height = rowH(tr) + 'px';
-      l.appendChild(mk('span', null, ROLE_NAME[tr.role] || tr.role));
-      if (tr.kind === 'audio'){
-        var m = btn(null, tr.muted ? 'Off' : 'On', null, (tr.muted ? 'Unmute ' : 'Mute ') + (ROLE_NAME[tr.role] || tr.role));
-        m.onclick = function (){ commit(P.setTrackProps(E.hist.cur, tr.id, { muted: !tr.muted })); };
-        l.appendChild(m);
-      }
-      u.labels.appendChild(l);
+      var nm = ROLE_NAME[tr.role] || tr.role, l = mk('div', 'ed-label' + (tr.muted ? ' muted' : '') + (tr.hidden ? ' off' : '') + (tr.locked ? ' locked' : '')), box = mk('div', 'ed-lbtns');
+      l.style.height = rowH(tr) + 'px'; l.appendChild(mk('span', null, nm));
+      var tog = function (icon, on, label, key){
+        var b = iconBtn(null, icon, label, 'ed-lb' + (on ? ' on' : '')); b.setAttribute('aria-pressed', String(!!on));
+        b.addEventListener('pointerdown', function (ev){ ev.stopPropagation(); });
+        b.onclick = function (ev){ ev.stopPropagation(); var o = {}; o[key] = !tr[key]; commit(P.setTrackProps(E.hist.cur, tr.id, o)); };
+        box.appendChild(b);
+      };
+      if (tr.kind === 'audio') tog(tr.muted ? LB.mute : LB.sound, tr.muted, (tr.muted ? 'Unmute ' : 'Mute ') + nm, 'muted');
+      else tog(tr.hidden ? LB.eyeoff : LB.eye, tr.hidden, (tr.hidden ? 'Show ' : 'Hide ') + nm, 'hidden');
+      tog(LB.lock, tr.locked, (tr.locked ? 'Unlock ' : 'Lock ') + nm, 'locked');
+      l.appendChild(box); u.labels.appendChild(l);
     });
   }
+  
   function placeHead(){ if (E.ui.head) E.ui.head.style.left = tx(E.t) + 'px'; }
   function readout(){
     E.ui.time.textContent = fmtP(E.t) + ' / ' + fmtP(E.proj.durationMs);
@@ -306,6 +376,7 @@ var NakiEditor = (function () {
   }
   function deleteSel(){
     if (!E.sel){ toast('Tap a clip first.'); return; }
+    var lk = P.findClip(E.proj, E.sel); if (lk && lk.track.locked){ toast('This row is locked. Tap its lock to edit it.'); return; }
     var id = E.sel, f0 = P.findClip(E.proj, id), pic = !!(f0 && (f0.track.role === 'movie' || f0.track.role === 'movieSound')); E.sel = null;
     var q0 = P.deleteClip(E.hist.cur, id); commit(pic ? tidy(q0) : q0);
   }
@@ -355,7 +426,7 @@ var NakiEditor = (function () {
   }
   function moveTo(d){
     var dt = ((d.lastX - d.x0) + (E.ui.scroll.scrollLeft - d.sl0)) / E.ppm;
-    d.newStart = snapMove(Math.max(0, d.s0 + dt), d.e0 - d.s0, d.id);
+    var raw = Math.max(0, d.s0 + dt); d.newStart = snapMove(raw, d.e0 - d.s0, d.id); showSnapGuide(d, raw);
     d.el.classList.add('dragging'); d.el.style.left = tx(d.newStart) + 'px'; showDrop(d);
   }
   // A dashed outline shows where the clip will really land when you let go (solid when it pushes other clips later).
@@ -963,11 +1034,24 @@ opacity: { title: 'Opacity', build: function (body){
       body.appendChild(chips(keys, cur, pickChip('overlayfx')));
       if (cur === 'blend'){
         body.appendChild(chips(NFX.BLEND, c.blend || 'normal', function (k){ commit(fx({ blend: k })); }));
-        body.appendChild(mk('div', 'ed-hint', 'Mixes the overlay with the picture under it. Multiply darkens (shadows, textures); Screen and Add lighten (glows, light leaks).'));
+        body.appendChild(mk('div', 'ed-hint', 'Mixes the overlay with the picture under it. Multiply darkens (shadows, textures); Screen and Add lighten (glows, light leaks); Overlay and Soft light add contrast; Colour and Brightness take only the colours or only the light from the overlay. Use Opacity under Edit to make it weaker.'));
       } else if (cur === 'mask'){
-        body.appendChild(chips(NFX.MASKS, (c.mask && c.mask.shape) || 'none', function (k){ commit(fx({ mask: { shape: k } })); }));
-        if (c.mask && c.mask.shape === 'rounded') body.appendChild(sliderRow('Corners', 0, 100, 5, Math.round(c.mask.amount * 100), pct, function (v){ live(fx({ mask: { amount: v / 100 } })); }, function (v){ commit(fx({ mask: { amount: v / 100 } })); }));
-        body.appendChild(mk('div', 'ed-hint', 'Cuts the overlay to a shape.'));
+        var m0 = NFX.cleanMask(c.mask), shape = m0 ? m0.shape : 'none';
+        body.appendChild(chips(NFX.MASKS, shape, function (k){ commit(fx({ mask: { shape: k } })); }));
+        if (m0){
+          var props = [];
+          if (m0.shape !== 'line' && m0.shape !== 'mirror') props.push({ key: 'w', label: 'Width' });
+          if (m0.shape !== 'line') props.push({ key: 'h', label: m0.shape === 'mirror' ? 'Band' : 'Height' });
+          props.push({ key: 'x', label: 'Left / right' }, { key: 'y', label: 'Up / down' }, { key: 'rot', label: 'Turn' }, { key: 'feather', label: 'Feather' });
+          if (m0.shape === 'rect') props.push({ key: 'corner', label: 'Corners' });
+          var pk = chipKey('maskprop', props, props[0].key), val = m0[pk], put = function (v){ var o = {}; o[pk] = v; return fx({ mask: o }); };
+          body.appendChild(chips(props, pk, pickChip('maskprop')));
+          if (pk === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(val), function (v){ return v + '\u00b0'; }, function (v){ live(put(v)); }, function (v){ commit(put(v)); }));
+          else if (pk === 'w' || pk === 'h') body.appendChild(sliderRow('Size', 5, 200, 5, Math.round(val * 100), pct, function (v){ live(put(v / 100)); }, function (v){ commit(put(v / 100)); }));
+          else body.appendChild(sliderRow('Amount', 0, 100, 1, Math.round(val * 100), pct, function (v){ live(put(v / 100)); }, function (v){ commit(put(v / 100)); }));
+          body.appendChild(actions([{ id: 'edMaskInvert', label: m0.invert ? 'Invert: on' : 'Invert: off', on: !!m0.invert, run: function (){ commit(fx({ mask: { invert: !m0.invert } })); } }]));
+        }
+        body.appendChild(mk('div', 'ed-hint', 'Cuts the overlay to a shape: Line shows one side of a line, Mirror a band across the middle. Feather softens the edge, Invert shows the outside instead.'));
       } else {
         var ch = c.chroma;
         body.appendChild(actions([{ id: 'edChromaOn', label: ch ? 'Chroma key: on' : 'Chroma key: off', on: !!ch, run: function (){ commit(fx({ chroma: ch ? null : {} })); } }]));
@@ -982,23 +1066,6 @@ opacity: { title: 'Opacity', build: function (body){
         }
         body.appendChild(mk('div', 'ed-hint', 'Makes one colour see-through, such as a green screen. Raise Similarity until the colour is gone, then add a little softness. The exported video can differ slightly from this preview.'));
       }
-    } },
-    templates: { title: 'Text templates', build: function (body){
-      body.appendChild(chips(NTPL ? NTPL.LIST : [], null, function (k){ applyTemplate(k); }));
-      body.appendChild(mk('div', 'ed-hint', selText() ? 'Tap one to give the selected text that look.' : 'Tap one to add a text with that look at the playhead. Select a text first to change it instead.'));
-    } },
-    fxpick: { title: 'Effects', build: function (body){
-      var g = mk('div', 'ed-chips wrap');
-      (NL2 ? NL2.FX : []).forEach(function (x){ var b = btn(null, x.label, 'ed-chip'); b.onclick = function (){ addFxHere(x.key); }; g.appendChild(b); });
-      body.appendChild(g);
-      body.appendChild(mk('div', 'ed-hint', 'Tap one to put it on the picture at the playhead. Drag its ends on the timeline to change how long it lasts. Videos with effects export with the compatible engine, which takes longer.'));
-    } },
-    fxedit: { title: 'Effect', build: function (body){
-      var c = selFx(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap an effect on the timeline first.')); return; }
-      body.appendChild(chips(NL2.FX, c.fx, function (k){ commit(P.setFxProps(E.hist.cur, c.id, { fx: k })); }));
-      body.appendChild(sliderRow('Strength', 0, 100, 5, Math.round((c.strength == null ? 0.5 : c.strength) * 100), pct,
-        function (v){ live(P.setFxProps(E.hist.cur, c.id, { strength: v / 100 })); }, function (v){ commit(P.setFxProps(E.hist.cur, c.id, { strength: v / 100 })); }));
-      body.appendChild(mk('div', 'ed-hint', 'The preview is a close imitation. The exported video has the real effect.'));
     } },
     texts: { title: 'Your texts', build: function (body){
       var list = allTexts();
@@ -1209,34 +1276,34 @@ opacity: { title: 'Opacity', build: function (body){
       if (!want[id]){ var d = E.overlayEls[id]; try { if (d.pause) d.pause(); } catch (e) {} if (d._cv) d._cv.remove(); d.remove(); delete E.overlayEls[id]; }
     });
   }
-  // The blend mode, the mask shape and the chroma key of an overlay, on the preview. A chroma key is drawn on a canvas laid exactly where the
-  // picture or video is (the picture itself is hidden); it is keyed with the same maths as the fast export.
+  // The blend mode, the mask and the chroma key of an overlay, on the preview. With a mask or a key, the picture or video is drawn on a canvas laid exactly
+  // where it is (the picture itself is hidden); it is keyed and cut with the same maths as the fast export.
   function keyOverlayFrame(d){
-    var cv = d._cv, ch = d._ch; if (!cv || !ch || !NFX) return;
+    var cv = d._cv; if (!cv || !NFX || !(d._ch || d._mk)) return;
     var w = d.videoWidth || d.naturalWidth, h = d.videoHeight || d.naturalHeight; if (!w || !h) return;
     var sc = Math.min(1, 480 / w), cw = Math.max(1, Math.round(w * sc)), chh = Math.max(1, Math.round(h * sc));
     if (cv.width !== cw) cv.width = cw;
     if (cv.height !== chh) cv.height = chh;
-    try { NFX.chromaInto(cv, d, ch); } catch (e) {}
+    try { NFX.fxInto(cv, d, { chroma: d._ch, mask: d._mk }); } catch (e) {}
   }
   function applyOverlayFx(d, c){
-    var show = d;
-    if (c.chroma && NFX){
+    var show = d, ch = NFX && c.chroma ? NFX.cleanChroma(c.chroma) : null, mk = NFX && c.mask ? NFX.cleanMask(c.mask) : null;
+    if (ch || mk){
       var cv = d._cv;
       if (!cv){
         cv = d._cv = mk('canvas', 'ed-ovl'); cv.dataset.id = c.id; cv.addEventListener('pointerdown', overlayDown);
         ['load', 'loadeddata', 'seeked'].forEach(function (ev){ d.addEventListener(ev, function (){ if (d._cv) keyOverlayFrame(d); }); });
         d.parentNode.appendChild(cv);
       }
-      d._ch = NFX.cleanChroma(c.chroma); keyOverlayFrame(d);
+      d._ch = ch; d._mk = mk; keyOverlayFrame(d);
       ['left', 'top', 'width', 'transform', 'opacity'].forEach(function (k){ cv.style[k] = d.style[k]; });
       d.style.visibility = 'hidden'; d.style.pointerEvents = 'none'; show = cv;
     } else if (d._cv){
-      d._cv.remove(); d._cv = null; d._ch = null; d.style.visibility = ''; d.style.pointerEvents = '';
+      d._cv.remove(); d._cv = null; d._ch = null; d._mk = null; d.style.visibility = ''; d.style.pointerEvents = '';
     }
     if (show !== d) show.classList.toggle('sel', c.id === E.sel);
-    var bl = NFX ? NFX.cssBlend(c.blend) : 'normal', clip = NFX && c.mask ? NFX.maskCss(c.mask, show.offsetWidth, show.offsetHeight) : '';
-    show.style.mixBlendMode = bl === 'normal' ? '' : bl; show.style.clipPath = clip;
+    var bl = NFX ? NFX.cssBlend(c.blend) : 'normal';
+    show.style.mixBlendMode = bl === 'normal' ? '' : bl; show.style.clipPath = '';
   }
   function pauseOverlays(){ Object.keys(E.overlayEls || {}).forEach(function (id){ try { if (E.overlayEls[id].pause) E.overlayEls[id].pause(); } catch (e) {} }); }
   function removeOverlays(){ Object.keys(E.overlayEls || {}).forEach(function (id){ try { if (E.overlayEls[id].pause) E.overlayEls[id].pause(); } catch (e) {} if (E.overlayEls[id]._cv) E.overlayEls[id]._cv.remove(); E.overlayEls[id].remove(); }); E.overlayEls = {}; }
@@ -1548,6 +1615,7 @@ opacity: { title: 'Opacity', build: function (body){
     if (clipE){
       var id = clipE.dataset.id, f = P.findClip(E.proj, id); if (!f) return;
       var wasSel = E.sel === id; E.sel = id; var tr = f.track, c = f.clip;
+      if (tr.locked){ renderSelectionOnly(); toast('This row is locked. Tap its lock to edit it.'); return; }
       E.drag = { mode: handle ? (handle.classList.contains('ed-hl') ? 'trimL' : 'trimR') : 'pending', id: id, x0: ev.clientX, el: clipE, tr: tr,
         s0: c.start, e0: c.start + c.dur, touch: ev.pointerType === 'touch', moved: false, press: 0, timer: 0, wasSel: wasSel, sl0: E.ui.scroll.scrollLeft, lastX: ev.clientX };
       if (E.drag.mode === 'pending' && E.drag.touch) E.drag.press = setTimeout(function (){
@@ -1585,6 +1653,7 @@ opacity: { title: 'Opacity', build: function (body){
   function onCancel(){ endDrag(true); }
   function endDrag(cancel){
     var d = E.drag; E.drag = null;
+    if (E.ui.snapline) E.ui.snapline.style.display = 'none';
     window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', onCancel);
     E.pointers = {}; E.pinch = null;
     if (!d) return; clearTimeout(d.press); clearInterval(d.timer);
@@ -1689,6 +1758,7 @@ opacity: { title: 'Opacity', build: function (body){
     renderTexts([]);
     E.xOn = false; try { E.ui.xvid.pause(); E.ui.xvid.style.display = 'none'; } catch (e) {}
     removeOverlays(); removeSfx();
+    if (TS) TS.release(); if (PS) PS.release();
     Object.keys(E.stickerEls || {}).forEach(function (id){ E.stickerEls[id].remove(); }); E.stickerEls = {};
     if (E.curAsset && E.curAsset !== 'movie'){ var mu = h.movieUrl && h.movieUrl(); if (mu){ h.movie.style.objectFit = ''; h.movie.src = mu; h.movie.load(); } }   // the preview screen needs the original movie again
     E.curAsset = 'movie'; E.swapping = false;
@@ -1706,4 +1776,4 @@ opacity: { title: 'Opacity', build: function (body){
 if (typeof module !== 'undefined' && module.exports) module.exports = NakiEditor;
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'look2'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['editor.js'] = 'timeline'; }

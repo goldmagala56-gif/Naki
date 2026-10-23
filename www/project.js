@@ -123,7 +123,7 @@ function splitAt(p, t){
   q.tracks.forEach(function (tr){
     var out = [];
     tr.clips.forEach(function (c){
-      if (!(c.start < t && t < clipEnd(c))) { out.push(c); return; }
+      if (tr.locked || !(c.start < t && t < clipEnd(c))) { out.push(c); return; }
       var left = sliceClip(c, c.start, t), right = sliceClip(c, t, clipEnd(c));
       left.id = c.id;
       if (c.link){ rightLink[c.link] = rightLink[c.link] || newId('l'); right.link = rightLink[c.link]; }

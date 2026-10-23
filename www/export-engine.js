@@ -207,9 +207,9 @@ function planToJobs(plan, movieInfo, opts) {
       fc.push('[' + cur + ']split[' + L + 's0][' + L + 's1]');
       fc.push('[' + L + 'g]split[' + L + 'ga][' + L + 'gb]');
       fc.push('[' + L + 'gb]alphaextract[' + L + 'al]');
-      fc.push('[' + L + 'ga]format=gbrp[' + L + 'gf]');
-      fc.push('[' + L + 's1]format=gbrp[' + L + 'bf]');
-      fc.push('[' + L + 'bf][' + L + 'gf]blend=all_mode=' + bm + '[' + L + 'bl]');
+      fc.push('[' + L + "ga]format=" + _FX.ffBlendFormat(op.blend) + '[' + L + 'gf]');
+      fc.push('[' + L + "s1]format=" + _FX.ffBlendFormat(op.blend) + '[' + L + 'bf]');
+      fc.push('[' + L + 'bf][' + L + 'gf]blend=' + bm + '[' + L + 'bl]');
       fc.push('[' + L + 'bl][' + L + 'al]alphamerge[' + L + 'ba]');
       fc.push('[' + L + 's0][' + L + "ba]overlay=eof_action=pass:enable='between(t," + op.a.toFixed(3) + ',' + op.b.toFixed(3) + ")'[v" + (++n) + ']');
       cur = 'v' + n; next += 2;
