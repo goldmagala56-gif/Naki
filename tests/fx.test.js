@@ -182,8 +182,3 @@ if (ffmpegOk()) {
   });
 } else console.log('  --  real-file checks skipped (need ffmpeg 5 or newer on this computer)');
 console.log('\n' + n + ' checks passed');
-
-
-git add .
-git commit -m "reforms"
-git push
