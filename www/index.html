@@ -1666,8 +1666,10 @@ function setOverlayFile(id, file){
   });
 }
 function loadOverlays(s){
+  var keepOverlays = (S.overlaysSid === s.id) ? S.overlays : {}; S.overlaysSid = s.id;   // the same session: keep the files already held
   Object.keys(S.overlays).forEach(function(k){ try { if (S.overlays[k].url) URL.revokeObjectURL(S.overlays[k].url); } catch (e) {} });
   S.overlays = {};
+  Object.keys(keepOverlays).forEach(function(k){ var o = keepOverlays[k]; if (o && o.file) S.overlays[k] = Object.assign({}, o, { url: URL.createObjectURL(o.file) }); });
   if (!DB.ok) return;
   DB.range('overlays', s.id).then(function(list){
     list.forEach(function(r){
@@ -1716,8 +1718,10 @@ function setSfxFile(id, file){
   });
 }
 function loadSfx(s){
+  var keepSfx = (S.sfxSid === s.id) ? S.sfx : {}; S.sfxSid = s.id;   // the same session: keep the files already held
   Object.keys(S.sfx).forEach(function(k){ try { if (S.sfx[k].url) URL.revokeObjectURL(S.sfx[k].url); } catch (e) {} });
   S.sfx = {};
+  Object.keys(keepSfx).forEach(function(k){ var o = keepSfx[k]; if (o && o.file) S.sfx[k] = Object.assign({}, o, { url: URL.createObjectURL(o.file) }); });
   if (!DB.ok) return;
   DB.range('sfx', s.id).then(function(list){
     list.forEach(function(r){
@@ -1753,8 +1757,10 @@ function setVideoFile(id, file){
   });
 }
 function loadVideos(s){
+  var keepVideos = (S.videosSid === s.id) ? S.videos : {}; S.videosSid = s.id;   // the same session: keep the files already held
   Object.keys(S.videos).forEach(function(k){ try { if (S.videos[k].url) URL.revokeObjectURL(S.videos[k].url); } catch (e) {} });
   S.videos = {};
+  Object.keys(keepVideos).forEach(function(k){ var o = keepVideos[k]; if (o && o.file) S.videos[k] = Object.assign({}, o, { url: URL.createObjectURL(o.file) }); });
   if (!DB.ok) return;
   DB.range('videos', s.id).then(function(list){
     list.forEach(function(r){
