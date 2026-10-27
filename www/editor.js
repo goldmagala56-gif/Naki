@@ -190,7 +190,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     repaintRaf = requestAnimationFrame(function (){
       repaintRaf = 0; if (!E.ui.inner) return;
       var list = E.ui.inner.querySelectorAll('canvas.ed-thumbcv, canvas.ed-wavecv');
-      for (var i = 0; i < list.length; i++){ var cv = list[i]; if (cv._pending) (cv.className.indexOf('thumbcv') >= 0 ? paintClipThumbs : paintClipWave)(cv); }
+      for (var i = 0; i < list.length; i++){ var cv = list[i]; if (cv._pending){ try { (cv.className.indexOf('thumbcv') >= 0 ? paintClipThumbs : paintClipWave)(cv); } catch (err){ cv._pending = false; } } }
     });
   }
   function clipUrl(tr, c){
@@ -221,6 +221,34 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     else if (tr.kind === 'audio' && PS){ var wv = mk('canvas', 'ed-wavecv'); wv._c = c; e.appendChild(wv); paintClipWave(wv); }
   }
   // While a clip is dragged and one of its edges lands on another clip, the playhead or a beat, a white line shows where, and the phone gives a tiny tap.
+    // ----- dragging a clip to another row -----
+  function clearTargets(){
+    var r = E.ui.inner && E.ui.inner.querySelectorAll('.ed-row.drop-target'); if (r) for (var i = 0; i < r.length; i++) r[i].classList.remove('drop-target');
+    if (E.ui.newrow) E.ui.newrow.style.display = 'none';
+  }
+  // Where the clip would land if it were let go now: on its own row (the usual), on another row of its kind (that row lights up), or on a new row of its own
+  // (a line shows where). Only overlays, stickers, titles, effects and sound effects can change rows.
+  function pickRow(d){
+    clearTargets(); d.target = null;
+    var fam = P.rowFamily(d.tr), el = d.el, y = d.lastY, dy = y - d.y0;
+    if (!fam || d.tr.locked || y == null || isNaN(dy)){ el.style.transform = ''; return; }
+    var src = el.parentNode, sr = src.getBoundingClientRect();
+    if (Math.abs(dy) < 8 || (y >= sr.top - 4 && y <= sr.bottom + 4)){ el.style.transform = ''; return; }   // still on its own row
+    el.style.transform = 'translateY(' + dy + 'px)';
+    var rows = E.ui.inner.querySelectorAll('.ed-row'), famRows = [], hit = null;
+    for (var i = 0; i < rows.length; i++){
+      var tr = E.proj.tracks[i]; if (!tr) continue;
+      var rc = rows[i].getBoundingClientRect();
+      if (y >= rc.top - 1 && y <= rc.bottom + 1) hit = { row: rows[i], tr: tr };
+      if (P.rowFamily(tr) === fam) famRows.push({ rc: rc });
+    }
+    if (hit && hit.tr.id !== d.tr.id && P.rowFamily(hit.tr) === fam && !hit.tr.locked){ d.target = { track: hit.tr.id }; hit.row.classList.add('drop-target'); return; }
+    if (!famRows.length) return;
+    var first = famRows[0].rc, last = famRows[famRows.length - 1].rc, above = y < first.top, ir = E.ui.inner.getBoundingClientRect(), nr = E.ui.newrow;
+    d.target = { track: 'new', pos: above ? 'above' : 'below' };
+    if (!nr || !nr.parentNode){ nr = E.ui.newrow = mk('div', 'ed-newrow'); E.ui.inner.appendChild(nr); }
+    nr.style.display = 'block'; nr.style.top = ((above ? first.top : last.bottom) - ir.top - 1) + 'px';
+  }
   function showSnapGuide(d, raw){
     var g = E.ui.snapline, snapped = Math.abs(d.newStart - raw) >= 1;
     if (!snapped){ if (g) g.style.display = 'none'; d.wasSnapped = false; return; }
@@ -236,7 +264,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     var e = mk('div', 'ed-clip ' + clipKind(tr, c) + (c.id === E.sel ? ' sel' : ''));
     e.dataset.id = c.id; e.style.left = tx(c.start) + 'px'; e.style.width = Math.max(3, c.dur * E.ppm) + 'px';
     if (c.dur * E.ppm > 46) e.appendChild(mk('span', 'ed-cl', clipTitle(tr, c)));
-    if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); } else decorateClip(e, tr, c);
+    if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); } else { try { decorateClip(e, tr, c); } catch (err){ console.warn('clip picture/waveform failed', err); } }
     if (c.kf){ var kts = {}; Object.keys(c.kf).forEach(function (k){ c.kf[k].forEach(function (pt){ kts[pt[0]] = 1; }); }); Object.keys(kts).forEach(function (t0){ var kd = mk('i', 'ed-kf'); kd.style.left = (t0 * E.ppm) + 'px'; e.appendChild(kd); }); }
     add(e, mk('i', 'ed-h ed-hl'), mk('i', 'ed-h ed-hr'));
     return e;
@@ -427,10 +455,11 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   function moveTo(d){
     var dt = ((d.lastX - d.x0) + (E.ui.scroll.scrollLeft - d.sl0)) / E.ppm;
     var raw = Math.max(0, d.s0 + dt); d.newStart = snapMove(raw, d.e0 - d.s0, d.id); showSnapGuide(d, raw);
-    d.el.classList.add('dragging'); d.el.style.left = tx(d.newStart) + 'px'; showDrop(d);
+    d.el.classList.add('dragging'); d.el.style.left = tx(d.newStart) + 'px'; pickRow(d); showDrop(d);
   }
   // A dashed outline shows where the clip will really land when you let go (solid when it pushes other clips later).
   function showDrop(d){
+    if (d.target){ if (d.drop) d.drop.style.display = 'none'; return; }
     var pl = P.planPlace(E.hist.cur, d.id, d.newStart), row = d.el.parentNode;
     if (!d.drop){ d.drop = mk('div', 'ed-drop'); row.appendChild(d.drop); }
     if (!pl){ d.drop.style.display = 'none'; return; }
@@ -1616,7 +1645,7 @@ opacity: { title: 'Opacity', build: function (body){
       var id = clipE.dataset.id, f = P.findClip(E.proj, id); if (!f) return;
       var wasSel = E.sel === id; E.sel = id; var tr = f.track, c = f.clip;
       if (tr.locked){ renderSelectionOnly(); toast('This row is locked. Tap its lock to edit it.'); return; }
-      E.drag = { mode: handle ? (handle.classList.contains('ed-hl') ? 'trimL' : 'trimR') : 'pending', id: id, x0: ev.clientX, el: clipE, tr: tr,
+      E.drag = { mode: handle ? (handle.classList.contains('ed-hl') ? 'trimL' : 'trimR') : 'pending', id: id, x0: ev.clientX, y0: ev.clientY, el: clipE, tr: tr,
         s0: c.start, e0: c.start + c.dur, touch: ev.pointerType === 'touch', moved: false, press: 0, timer: 0, wasSel: wasSel, sl0: E.ui.scroll.scrollLeft, lastX: ev.clientX };
       if (E.drag.mode === 'pending' && E.drag.touch) E.drag.press = setTimeout(function (){
         if (E.drag && E.drag.mode === 'pending'){ E.drag.mode = 'move'; try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }
@@ -1641,26 +1670,29 @@ opacity: { title: 'Opacity', build: function (body){
     var dx = ev.clientX - d.x0;
     if (d.mode === 'scrub'){ seek(xToT(ev.clientX)); return; }
     if (d.mode === 'pending'){
-      if (d.touch){ if (Math.abs(dx) > 10){ clearTimeout(d.press); E.drag = null; } return; }
-      if (Math.abs(dx) > 4 && !d.noMove) d.mode = 'move'; else return;
+      if (d.touch){ if (Math.abs(dx) > 10 || Math.abs(ev.clientY - d.y0) > 10){ clearTimeout(d.press); E.drag = null; } return; }
+      if ((Math.abs(dx) > 4 || Math.abs(ev.clientY - d.y0) > 4) && !d.noMove) d.mode = 'move'; else return;
     }
     d.moved = true; var dt = dx / E.ppm;
     if (d.mode === 'trimL'){ d.newStart = clamp(snapped(d.s0 + dt), 0, d.e0 - 100); d.el.style.left = tx(d.newStart) + 'px'; d.el.style.width = Math.max(3, (d.e0 - d.newStart) * E.ppm) + 'px'; }
     else if (d.mode === 'trimR'){ d.newEnd = Math.max(d.s0 + 100, snapped(d.e0 + dt)); d.el.style.width = Math.max(3, (d.newEnd - d.s0) * E.ppm) + 'px'; }
-    else if (d.mode === 'move'){ d.lastX = ev.clientX; if (!d.timer) d.timer = setInterval(autoScrollTick, 30); moveTo(d); }
+    else if (d.mode === 'move'){ d.lastX = ev.clientX; d.lastY = ev.clientY; if (!d.timer) d.timer = setInterval(autoScrollTick, 30); moveTo(d); }
   }
   function onUp(){ endDrag(false); }
   function onCancel(){ endDrag(true); }
   function endDrag(cancel){
     var d = E.drag; E.drag = null;
     if (E.ui.snapline) E.ui.snapline.style.display = 'none';
+    clearTargets();
     window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', onCancel);
     E.pointers = {}; E.pinch = null;
     if (!d) return; clearTimeout(d.press); clearInterval(d.timer);
     if (cancel){ renderTimeline(); return; }
     if (d.mode === 'trimL' || d.mode === 'trimR') finishTrim(d);
     else if (d.mode === 'move' && d.moved){
-      var cur0 = E.hist.cur, q = P.placeClip(cur0, d.id, d.newStart), pic0 = d.tr.role === 'movie' || d.tr.role === 'movieSound';
+      var cur0 = E.hist.cur, rowMove = d.target ? P.moveClipToRow(cur0, d.id, d.target.track, d.newStart, d.target.pos) : cur0;
+      if (rowMove !== cur0){ commit(rowMove); return; }
+      var q = P.placeClip(cur0, d.id, d.newStart), pic0 = d.tr.role === 'movie' || d.tr.role === 'movieSound';
       if (q === cur0){ renderTimeline(); var pl0 = P.planPlace(cur0, d.id, d.newStart); if (pl0 && (pl0.start !== d.s0 || pl0.pushed)) toast('There is no room for it there.'); } else commit(pic0 ? tidy(q) : q);
     }
     else if (!d.moved && d.wasSel && (d.mode === 'pending' || d.mode === 'move')){ E.sel = null; renderSelectionOnly(); }   // a tap on the clip that is already selected lets go of it

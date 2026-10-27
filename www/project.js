@@ -1131,6 +1131,43 @@ function fxAt(p, t){
   return out;
 }
 
+// ---------- rows (layers): moving a clip to another row, or onto a row of its own ----------
+// Overlays, stickers, titles, effects and sound effects can sit on several rows, one above the other, like CapCut's layers. A clip can be dragged to
+// another row of its own kind, or to a new row above or below them. Picture, voice, music and captions each have a row that stays as it is.
+function rowFamily(tr){
+  if (!tr) return null;
+  if (tr.kind === 'sticker' || tr.kind === 'overlay' || tr.kind === 'effect') return tr.kind;
+  if (tr.kind === 'audio' && tr.role === 'sfx') return 'sfx';
+  if (tr.kind === 'text' && tr.role === 'text') return 'text';
+  return null;
+}
+// target = the id of another row of the same kind, or 'new' (pos 'above' or 'below' the rows of that kind). If something is already at that moment on
+// the row you drop it on, it goes onto a row of its own instead, on top of what is there. Nothing changes for a locked row or a clip that cannot change rows.
+function moveClipToRow(p, id, target, newStart, pos){
+  var f = findClip(p, id); if (!f) return p;
+  var fam = rowFamily(f.track); if (!fam || f.track.locked) return p;
+  var q = cloneProject(p), qf = findClip(q, id), src = qf.track, c = qf.clip;
+  var start = Math.max(0, Math.round(newStart)); if (start + c.dur > p.durationMs) start = Math.max(0, p.durationMs - c.dur);
+  var end = start + c.dur, dest = null;
+  if (target && target !== 'new'){
+    if (target === src.id) return p;
+    dest = q.tracks.filter(function (t){ return t.id === target; })[0];
+    if (!dest || rowFamily(dest) !== fam || dest.locked) return p;
+    if (dest.clips.some(function (x){ return start < clipEnd(x) && end > x.start; })) dest = null;
+  }
+  src.clips = src.clips.filter(function (x){ return x.id !== id; });
+  if (!dest){
+    var prefix = { sticker: 't-stk', overlay: 't-ov', effect: 't-vfx', sfx: 't-fx', text: 't-text' }[fam], k = 1;
+    while (q.tracks.some(function (x){ return x.id === prefix + k; })) k++;
+    dest = { id: prefix + k, kind: src.kind, role: src.role, muted: false, hidden: false, volume: src.volume != null ? src.volume : 1, locked: false, clips: [] };
+    var idx = []; q.tracks.forEach(function (t, i){ if (rowFamily(t) === fam) idx.push(i); });
+    q.tracks.splice(pos === 'above' ? Math.min.apply(null, idx) : Math.max.apply(null, idx) + 1, 0, dest);
+  }
+  c.start = start; dest.clips.push(c);
+  if (fam === 'text') q.tracks = q.tracks.filter(function (t){ return !(rowFamily(t) === 'text' && t.id !== 't-text' && !t.clips.length); });   // an extra title row with nothing on it goes away
+  return finish(q);
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -1163,7 +1200,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
   addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
-  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip,
+  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
   addFx: addFx, setFxProps: setFxProps, fxAt: fxAt };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;

@@ -43,12 +43,12 @@ var NakiThumbs = (function () {
   // ---------- the part that takes the pictures (browser only) ----------
   function Store(opts) {
     this.onReady = (opts && opts.onReady) || function () {};
-    this.cache = {}; this.order = []; this.pending = {}; this.queue = []; this.vids = {}; this.failed = {}; this.busy = false; this.dead = false;
+    this.cache = {}; this.order = []; this.pending = {}; this.queue = []; this.vids = {}; this.failed = {}; this.failedUrl = {}; this.busy = false; this.dead = false;
   }
   Store.prototype.k = function (url, key) { return url + '#' + key; };
   Store.prototype.get = function (url, key) { return this.cache[this.k(url, key)] || null; };
   Store.prototype.request = function (url, key, image) {
-    var k = this.k(url, key); if (this.cache[k] || this.pending[k] || this.failed[url] || this.dead) return;
+    var k = this.k(url, key); if (this.cache[k] || this.pending[k] || this.failed[k] || this.failedUrl[url] || this.dead) return;
     this.pending[k] = 1; this.queue.push({ url: url, key: key, image: !!image, k: k }); this.pump();
   };
   Store.prototype.put = function (k, cv) {
@@ -59,7 +59,7 @@ var NakiThumbs = (function () {
     var self = this; if (self.busy || self.dead) return;
     var job = self.queue.pop(); if (!job) return;   // the newest request first: it is what is on screen now
     self.busy = true;
-    self.shoot(job).then(function (cv) { if (cv) self.put(job.k, cv); }, function () { self.failed[job.url] = true; }).then(function () {
+    self.shoot(job).then(function (cv) { if (cv) self.put(job.k, cv); }, function (err) { if (err && err.message === 'video') self.failedUrl[job.url] = true; else self.failed[job.k] = true; }).then(function () {
       delete self.pending[job.k]; self.busy = false;
       if (!self.notify) self.notify = setTimeout(function () { self.notify = 0; if (!self.dead) self.onReady(); }, 60);
       self.pump();
@@ -72,21 +72,28 @@ var NakiThumbs = (function () {
   Store.prototype.shoot = function (job) {
     var self = this;
     if (job.image) return new Promise(function (res, rej) {
-      var im = new Image(); im.onload = function () { res(toCanvas(im, im.naturalWidth, im.naturalHeight)); }; im.onerror = function () { rej(new Error('image')); }; im.src = job.url;
+      var im = new Image(), to = setTimeout(function () { rej(new Error('image')); }, 8000);
+      im.onload = function () { clearTimeout(to); try { res(toCanvas(im, im.naturalWidth || 1, im.naturalHeight || 1)); } catch (e) { rej(e); } }; im.onerror = function () { clearTimeout(to); rej(new Error('image')); }; im.src = job.url;
     });
     return new Promise(function (res, rej) {
       var v = self.vids[job.url];
       if (!v) {
         v = self.vids[job.url] = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.setAttribute('playsinline', ''); v.src = job.url;
-        v._ready = new Promise(function (ok, bad) { v.addEventListener('loadedmetadata', function () { ok(); }); v.addEventListener('error', function () { bad(new Error('video')); }); });
+        v._ready = new Promise(function (ok, bad) {
+          var to = setTimeout(function () { bad(new Error('video')); }, 10000);
+          v.addEventListener('loadedmetadata', function () { clearTimeout(to); ok(); }); v.addEventListener('error', function () { clearTimeout(to); bad(new Error('video')); });
+        });
       }
       v._ready.then(function () {
         var t = Math.max(0, Math.min(job.key * BUCKET_MS / 1000, (v.duration || 1e9) - 0.05)), done = false;
-        function fin(ok) { if (done) return; done = true; v.removeEventListener('seeked', onSeek); clearTimeout(to); if (ok && v.videoWidth) { try { res(toCanvas(v, v.videoWidth, v.videoHeight)); } catch (e) { rej(e); } } else rej(new Error('seek')); }
-        function onSeek() { fin(true); }
-        var to = setTimeout(function () { fin(false); }, 5000);
-        v.addEventListener('seeked', onSeek);
-        if (Math.abs(v.currentTime - t) < 0.001) fin(true); else v.currentTime = t;
+        function fin(ok) {
+          if (done) return; done = true; v.removeEventListener('seeked', onSeek); v.removeEventListener('loadeddata', onSeek); clearTimeout(to);
+          if (ok && v.videoWidth) { try { res(toCanvas(v, v.videoWidth, v.videoHeight)); } catch (e) { rej(e); } } else rej(new Error('seek'));
+        }
+        function onSeek() { if (v.readyState >= 2) fin(true); }   // only when a picture is really there (not a black first frame)
+        var to = setTimeout(function () { fin(false); }, 6000);
+        v.addEventListener('seeked', onSeek); v.addEventListener('loadeddata', onSeek);
+        if (Math.abs(v.currentTime - t) < 0.001) onSeek(); else v.currentTime = t;
       }, rej);
     });
   };

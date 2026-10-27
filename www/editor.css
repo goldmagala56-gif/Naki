@@ -185,3 +185,14 @@
 .ed-row.locked .ed-clip{filter:saturate(.45)}
 .ed-row.locked .ed-h{display:none}
 .ed-snapline{position:absolute;top:0;bottom:0;width:2px;margin-left:-1px;background:#fff;opacity:.9;pointer-events:none;z-index:6;display:none}
+
+/* timeline: every row can be reached (scroll up and down), dragging between rows, a plain + button */
+.ed-tl{align-items:flex-start}
+.ed-labels,.ed-scroll{min-height:100%}
+.ed-scroll{touch-action:pan-x pan-y}
+@media (max-width:899px){ .ed{grid-template-rows:auto minmax(110px,1fr) auto auto minmax(190px,44vh) auto} }
+.ed-row.drop-target{outline:2px solid rgba(255,255,255,.75);outline-offset:-2px;background:rgba(255,255,255,.1)}
+.ed-newrow{position:absolute;left:0;right:0;height:3px;border-radius:2px;background:#fff;opacity:.9;pointer-events:none;z-index:7;display:none}
+.ed-clip.dragging{opacity:.9;box-shadow:0 6px 16px rgba(0,0,0,.55)}
+.ed-add{border:0;background:#f3eee3;color:#111b24;border-radius:10px;font-size:26px}
+.ed-add:active{background:#d9d3c6}
