@@ -1,0 +1,54 @@
+﻿
+  www\project.js:333:}
+> www\project.js:334:var TEXT_FONTS = ['sans', 'serif', 
+'mono', 'bold', 'script'];
+> www\project.js:335:// Changes the look of one text clip (in 
+place). size 3 to 16 (% of the picture height), font, outline 
+0 to 1 and shadow 0 to 1
+  www\project.js:336:// (shadow 1 is the look titles always 
+had, so it is not stored; outline 0 is not stored either).
+> www\project.js:337:function applyTextPatch(clip, patch){
+  www\project.js:338:  ['text', 'size', 'color', 'pos', 
+'weight', 'bg'].forEach(function (k){ if (patch[k] !== 
+undefined) clip[k] = patch[k]; });
+  www\project.js:339:  clip.size = Math.max(3, Math.min(16, 
++clip.size || 7));
+> www\project.js:340:  if (patch.font !== undefined){ if 
+(patch.font && patch.font !== 'sans' && 
+TEXT_FONTS.indexOf(patch.font) >= 0) clip.font = patch.font; 
+else delete clip.font; }
+  www\project.js:341:  if (patch.outline !== undefined){ var o 
+= r3(Math.max(0, Math.min(1, +patch.outline || 0))); if (o > 
+0) clip.outline = o; else delete clip.outline; }
+  www\project.js:342:  if (patch.shadow !== undefined){ var sh 
+= r3(Math.max(0, Math.min(1, isNaN(+patch.shadow) ? 1 : 
++patch.shadow))); if (sh < 1) clip.shadow = sh; else delete 
+clip.shadow; }
+  www\project.js:343:}
+  www\project.js:344:function setTextProps(p, id, patch){
+  www\project.js:345:  var q = cloneProject(p), f = 
+findClip(q, id);
+  www\project.js:346:  if (!f || f.clip.type !== 'text') 
+return p;
+  www\project.js:582:}
+> www\project.js:583:// Gives every caption the same look 
+(size, colour, position, weight, box, font, outline, shadow).
+  www\project.js:584:function setCaptionStyle(p, patch){
+  www\project.js:585:  var tr = captionTrackOf(p); if (!tr || 
+!tr.clips.length) return p;
+  www\project.js:586:  var q = cloneProject(p), style = {};
+> www\project.js:587:  ['size', 'color', 'pos', 'weight', 
+'bg', 'font', 'outline', 'shadow'].forEach(function (k){ if 
+(patch[k] !== undefined) style[k] = patch[k]; });
+  www\project.js:588:  
+captionTrackOf(q).clips.forEach(function (c){ 
+applyTextPatch(c, style); });
+  www\project.js:589:  return finish(q);
+  www\project.js:590:}
+  www\project.js:591:function removeCaptions(p){
+  www\project.js:592:  if (!captionTrackOf(p)) return p;
+  www\project.js:593:  var q = cloneProject(p); q.tracks = 
+q.tracks.filter(function (t){ return !(t.kind === 'text' && 
+t.role === 'captions'); });
+
+

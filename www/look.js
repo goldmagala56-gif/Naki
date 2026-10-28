@@ -66,10 +66,37 @@ var NakiLook = (function () {
     serif: { label: 'Serif', css: 'Georgia, "Times New Roman", "Noto Serif", serif' },
     mono: { label: 'Mono', css: 'ui-monospace, Menlo, Consolas, "Courier New", monospace' },
     bold: { label: 'Bold', css: 'Impact, "Arial Black", "Roboto Condensed", system-ui, sans-serif' },
-    script: { label: 'Script', css: '"Segoe Script", "Brush Script MT", "Comic Sans MS", cursive' }
+    script: { label: 'Script', css: '"Segoe Script", "Brush Script MT", "Comic Sans MS", cursive' },
+    inter: { label: 'Inter', css: '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+    montserrat: { label: 'Montserrat', css: '"Montserrat", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+    poppins: { label: 'Poppins', css: '"Poppins", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },
+    bebas: { label: 'Bebas Neue', css: '"Bebas Neue", Impact, "Arial Narrow", sans-serif' },
+    anton: { label: 'Anton', css: '"Anton", Impact, "Arial Narrow", sans-serif' },
+    oswald: { label: 'Oswald', css: '"Oswald", Impact, "Arial Narrow", sans-serif' },
+    archivo: { label: 'Archivo Black', css: '"Archivo Black", "Arial Black", Impact, sans-serif' },
+    bangers: { label: 'Bangers', css: '"Bangers", Impact, "Comic Sans MS", cursive' },
+    righteous: { label: 'Righteous', css: '"Righteous", system-ui, -apple-system, "Segoe UI", sans-serif' },
+    playfair: { label: 'Playfair', css: '"Playfair Display", Georgia, "Times New Roman", serif' },
+    pacifico: { label: 'Pacifico', css: '"Pacifico", "Brush Script MT", "Segoe Script", cursive' },
+    lobster: { label: 'Lobster', css: '"Lobster", "Brush Script MT", "Segoe Script", cursive' },
+    caveat: { label: 'Caveat', css: '"Caveat", "Segoe Script", "Comic Sans MS", cursive' },
+    dancing: { label: 'Dancing Script', css: '"Dancing Script", "Brush Script MT", "Segoe Script", cursive' }
   };
   function fontCss(k){ return (FONTS[k] || FONTS.sans).css; }
   function fontList(){ return Object.keys(FONTS).map(function (k){ return { key: k, label: FONTS[k].label }; }); }
+  // Loads the web fonts the titles use, so a canvas draws them and not a stand-in. items: { font, weight, text } (or just a font key). Only the parts of a font
+  // that the text needs are fetched. It never waits more than 8 seconds and never fails, so an export is not held up.
+  function loadFonts(items){
+    if (typeof document === 'undefined' || !document.fonts || !document.fonts.load) return Promise.resolve();
+    var seen = {}, jobs = [];
+    (items || []).forEach(function (it){
+      var o = typeof it === 'string' ? { font: it } : (it || {}), spec = (o.weight || 700) + ' 32px ' + fontCss(o.font), text = String(o.text || 'Aa'), id = spec + '|' + text;
+      if (seen[id]) return; seen[id] = 1;
+      try { jobs.push(document.fonts.load(spec, text)); } catch (e) {}
+    });
+    var all = Promise.all(jobs).catch(function (){}), timer, wait = new Promise(function (res){ timer = setTimeout(res, 8000); });
+    return Promise.race([all, wait]).then(function (){ clearTimeout(timer); });
+  }
   // Size in pixels, the visible width of the outline (up to 6% of the letter size), and the strength of the shadow (1 = the look titles always had).
   function titleLook(t, H){
     var px = Math.max(10, Math.round((t.size || 7) / 100 * H)), o = clamp(num(t.outline), 0, 1), sh = t.shadow == null ? 1 : clamp(num(t.shadow), 0, 1);
@@ -118,11 +145,11 @@ var NakiLook = (function () {
   var api = { KEYS: KEYS, extras: extras, hasExtras: hasExtras, tint: tint, tintCss: tintCss, matteAlpha: matteAlpha, matteCss: matteCss,
     vignetteAngle: vignetteAngle, vignetteLevel: vignetteLevel, vignetteStops: vignetteStops, vignetteCss: vignetteCss,
     sharpenKernel: sharpenKernel, ffmpegExtras: ffmpegExtras, MATTE_GRAY: MATTE_GRAY,
-    fontCss: fontCss, fontList: fontList, titleLook: titleLook, titleStyle: titleStyle, drawTitle: drawTitle, TITLE_POS: TITLE_POS };
+    fontCss: fontCss, fontList: fontList, loadFonts: loadFonts, titleLook: titleLook, titleStyle: titleStyle, drawTitle: drawTitle, TITLE_POS: TITLE_POS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.NakiLook = api;
   return api;
 })();
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['look.js'] = 'titles-more-adjust'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['look.js'] = 'fonts'; }

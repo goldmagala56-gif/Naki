@@ -1,0 +1,19 @@
+NAKI BUNDLED FONTS
+
+Every font here is licensed under the SIL Open Font License 1.1 (see LICENSES/). They may be used, copied and shipped with the app,
+also in videos you make and share. They may not be SOLD ON THEIR OWN. Keep this folder and the LICENSES folder together with the fonts.
+
+Inter              weights 400,700,800 sans     Copyright 2016 The Inter Project Authors (https://github.com/rsms/inter)
+Montserrat         weights 400,700,800 sans     Copyright 2011 The Montserrat Project Authors (https://github.com/JulietaUla/Montserrat)
+Poppins            weights 500,700     sans     Copyright 2020 The Poppins Project Authors (https://github.com/itfoundry/Poppins)
+Bebas Neue         weights 400         display  Copyright 2019 The Bebas Neue Project Authors (https://github.com/dharmatype/Bebas-Neue)
+Anton              weights 400         display  Copyright 2020 The Anton Project Authors (https://github.com/googlefonts/AntonFont.git)
+Oswald             weights 700         display  Copyright 2016 The Oswald Project Authors (https://github.com/googlefonts/OswaldFont)
+Archivo Black      weights 400         display  Copyright 2017 The Archivo Black Project Authors (https://github.com/Omnibus-Type/ArchivoBlack)
+Bangers            weights 400         display  Copyright 2010 The Bangers Project Authors (https://github.com/googlefonts/bangers)
+Righteous          weights 400         display  Copyright (c) 2011 by Brian J. Bonislawsky DBA Astigmatic (AOETI) (astigma@astigmatic.com), with Reserved Font Name "Righteous"
+Playfair Display   weights 700         serif    Copyright 2017 The Playfair Display Project Authors (https://github.com/clauseggers/Playfair-Display)
+Pacifico           weights 400         script   Copyright 2018 The Pacifico Project Authors (https://github.com/googlefonts/Pacifico)
+Lobster            weights 400         script   Copyright 2010 The Lobster Project Authors (https://github.com/impallari/The-Lobster-Font)
+Caveat             weights 700         script   Copyright 2014 The Caveat Project Authors (https://github.com/googlefonts/caveat)
+Dancing Script     weights 700         script   Copyright 2016 The Dancing Script Project Authors (https://github.com/googlefonts/DancingScript)

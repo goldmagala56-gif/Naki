@@ -15,6 +15,7 @@ var NTH = (typeof module !== 'undefined' && module.exports) ? require('./thumbs.
 var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.js') : (typeof window !== 'undefined' ? window.NakiPeaks : null);
   var NSFX = (typeof module !== 'undefined' && module.exports) ? require('./sfx.js') : (typeof window !== 'undefined' ? window.NakiSfx : null);
   var NCAP = (typeof module !== 'undefined' && module.exports) ? require('./captions.js') : (typeof window !== 'undefined' ? window.NakiCaptions : null);
+  var NSUBS = (typeof module !== 'undefined' && module.exports) ? require('./subtitles.js') : (typeof window !== 'undefined' ? window.NakiSubs : null);
   var NL2 = (typeof module !== 'undefined' && module.exports) ? require('./look2.js') : (typeof window !== 'undefined' ? window.NakiLook2 : null);
   var NTPL = (typeof module !== 'undefined' && module.exports) ? require('./templates.js') : (typeof window !== 'undefined' ? window.NakiTemplates : null);
   var NMO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
@@ -786,8 +787,8 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   }
   // text = the contents of an .srt file. Replaces the captions you have (after asking, when there are some).
   function importCaptions(text){
-    var items = P.parseSrt(text);
-    if (!items.length){ toast('No subtitle lines were found in that file. It should be an .srt file.'); return 0; }
+    var items = NSUBS ? NSUBS.parse(text).cues : P.parseSrt(text);   // .srt and .vtt
+    if (!items.length){ toast('No subtitle lines were found in that file. It should be an .srt or .vtt file.'); return 0; }
     var had = P.captionList(E.hist.cur).length;
     if (had && !confirm('Replace your ' + had + ' caption lines with the ' + items.length + ' lines in this file?')) return 0;
     var out = {}, q = P.addCaptions(E.hist.cur, items, { replace: true }, out);
@@ -797,7 +798,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     return out.added;
   }
   function importSrtFile(){
-    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.srt,text/plain,application/x-subrip';
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.srt,.vtt,text/plain,text/vtt,application/x-subrip';
     inp.onchange = function (){
       var f = inp.files && inp.files[0]; if (!f) return;
       (f.text ? f.text() : new Promise(function (res){ var r = new FileReader(); r.onload = function (){ res(r.result); }; r.readAsText(f); })).then(importCaptions);
@@ -812,6 +813,14 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     a.href = URL.createObjectURL(new Blob([txt], { type: 'application/x-subrip' })); a.download = name + '.srt';
     document.body.appendChild(a); a.click(); setTimeout(function (){ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
     toast('Saved ' + name + '.srt');
+  }
+  function exportVttFile(){
+    var srt = exportSrt(), txt = (srt && NSUBS) ? NSUBS.toVtt(NSUBS.parse(srt).cues) : '';
+    if (!txt || txt === 'WEBVTT\n\n'){ toast('There are no captions or titles to save yet.'); return; }
+    var a = document.createElement('a'), name = String((E.sess && E.sess.name) || 'naki').replace(/[^\w\-]+/g, '_').slice(0, 40) || 'naki';
+    a.href = URL.createObjectURL(new Blob([txt], { type: 'text/vtt' })); a.download = name + '.vtt';
+    document.body.appendChild(a); a.click(); setTimeout(function (){ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    toast('Saved ' + name + '.vtt');
   }
   function addMusic(){
     Promise.resolve(E.hooks.pickMusic()).then(function (m){
@@ -1105,7 +1114,7 @@ opacity: { title: 'Opacity', build: function (body){
     } },
     captions: { title: 'Captions', build: function (body){
       var list = P.captionList(E.hist.cur);
-      body.appendChild(actions([{ id: 'edCapAdd', label: 'Add line here', run: addCaptionHere }, { id: 'edCapImport', label: 'Import .srt', run: importSrtFile }, { id: 'edCapExport', label: 'Save .srt', run: exportSrtFile }]));
+      body.appendChild(actions([{ id: 'edCapAdd', label: 'Add line here', run: addCaptionHere }, { id: 'edCapImport', label: 'Import .srt / .vtt', run: importSrtFile }, { id: 'edCapExport', label: 'Save .srt', run: exportSrtFile }, { id: 'edCapExportVtt', label: 'Save .vtt', run: exportVttFile }]));
       body.appendChild(actions([{ id: 'edCapAuto', label: 'Auto captions', run: function (){ openPanel('autocaptions'); } }, { id: 'edCapMark', label: 'Mark speech', run: markSpeech }]));
       if (!list.length){ body.appendChild(mk('div', 'ed-hint', 'Type subtitle lines at the playhead, or import an .srt file. Times follow your edited video, so cuts move the captions with it.')); return; }
       body.appendChild(chips(list.map(function (c){ return { key: c.id, label: fmtP(c.start) + '  ' + (c.text.length > 22 ? c.text.slice(0, 21) + '…' : c.text) }; }), E.sel, function (id){

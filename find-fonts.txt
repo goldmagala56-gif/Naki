@@ -1,0 +1,217 @@
+﻿
+www\look.js:64:  var FONTS = {
+www\look.js:71:  function fontCss(k){ return (FONTS[k] || 
+FONTS.sans).css; }
+www\look.js:72:  function fontList(){ return 
+Object.keys(FONTS).map(function (k){ return { key: k, label: 
+FONTS[k].label }; }); }
+www\look.js:81:    return { px: L.px, fontFamily: 
+fontCss(t.font), stroke: L.outlinePx ? (L.outlinePx * 2) + 'px 
+#000' : '',
+www\look.js:87:    g.font = (t.weight || 700) + ' ' + px + 'px 
+' + fontCss(t.font);
+www\look.js:121:    fontCss: fontCss, fontList: fontList, 
+titleLook: titleLook, titleStyle: titleStyle, drawTitle: 
+drawTitle, TITLE_POS: TITLE_POS };
+
+
+
+www\project.js:319:function addTextClip(p, t, dur, out){
+www\project.js:344:function setTextProps(p, id, patch){
+www\project.js:533:// ---------- captions (subtitles) 
+----------
+www\project.js:534:// Captions are text clips on a track of 
+their own, so they cut, move and trim like any clip and your 
+titles stay separate.
+www\project.js:536:var CAPTION_STYLE = { size: 5, color: 
+'#ffffff', pos: 'bottom', weight: 700, bg: true };
+www\project.js:537:function captionTrackOf(p){ return 
+p.tracks.filter(function (t){ return t.kind === 'text' && 
+t.role === 'captions'; })[0] || null; }
+www\project.js:538:function ensureCaptionTrack(q){
+www\project.js:539:  var tr = captionTrackOf(q);
+www\project.js:540:  if (!tr){ tr = { id: 't-captions', kind: 
+'text', role: 'captions', muted: false, hidden: false, volume: 
+1, locked: false, clips: [] }; q.tracks.push(tr); }
+www\project.js:544:// start after the end of the video, are 
+shorter than 0.2 s, or land on an existing caption are skipped 
+(counted in out.skipped).
+www\project.js:545:// opts.replace = true removes the captions 
+you already have first.
+www\project.js:546:function addCaptions(p, items, opts, out){
+www\project.js:549:  var q = cloneProject(p), tr = 
+ensureCaptionTrack(q), added = 0, skipped = 0;
+www\project.js:558:    tr.clips.push(Object.assign({ id: 
+newId('c'), type: 'text', asset: null, start: s0, dur: e0 - 
+s0, in: 0, speed: 1, text: it.t, caption: true }, 
+CAPTION_STYLE));
+www\project.js:565:// One caption line at time t (it moves 
+past a caption that is already there, and stops where the next 
+one starts).
+www\project.js:566:function addCaptionLine(p, t, dur, out){
+www\project.js:569:  var q = cloneProject(p), tr = 
+ensureCaptionTrack(q), start = Math.max(0, Math.min(t, 
+total)), moved = true;
+www\project.js:575:  var clip = Object.assign({ id: 
+newId('c'), type: 'text', asset: null, start: start, dur: d, 
+in: 0, speed: 1, text: 'Caption', caption: true }, 
+CAPTION_STYLE);
+www\project.js:579:function captionList(p){
+www\project.js:580:  var tr = captionTrackOf(p);
+www\project.js:583:// Gives every caption the same look (size, 
+colour, position, weight, box, font, outline, shadow).
+www\project.js:584:function setCaptionStyle(p, patch){
+www\project.js:585:  var tr = captionTrackOf(p); if (!tr || 
+!tr.clips.length) return p;
+www\project.js:588:  captionTrackOf(q).clips.forEach(function 
+(c){ applyTextPatch(c, style); });
+www\project.js:591:function removeCaptions(p){
+www\project.js:592:  if (!captionTrackOf(p)) return p;
+www\project.js:593:  var q = cloneProject(p); q.tracks = 
+q.tracks.filter(function (t){ return !(t.kind === 'text' && 
+t.role === 'captions'); });
+www\project.js:616:// The captions as an .srt file. With no 
+captions, the titles are written instead, so something is 
+always saved.
+www\project.js:618:  var items = captionList(p);
+www\project.js:997:// ---------- auto captions ----------
+www\project.js:1009:function captionsFromVoice(p, segs){
+www\project.js:1057:// A title (or caption) can have clip.anim 
+= { in, out, loop, inMs, outMs } (see motion.js). Nothing is 
+stored for a title that does not animate.
+www\project.js:1085:// Gives every caption the same animation 
+(an empty patch takes the animation away from all of them).
+www\project.js:1086:function setCaptionAnim(p, patch){
+www\project.js:1087:  var tr = captionTrackOf(p); if (!tr || 
+!tr.clips.length || !_MO) return p;
+www\project.js:1089:  captionTrackOf(q).clips.forEach(function 
+(c){ if (a) c.anim = JSON.parse(JSON.stringify(a)); else 
+delete c.anim; });
+www\project.js:1136:// another row of its own kind, or to a 
+new row above or below them. Picture, voice, music and 
+captions each have a row that stays as it is.
+www\project.js:1197:  addCaptions: addCaptions, 
+addCaptionLine: addCaptionLine, captionList: captionList, 
+setCaptionStyle: setCaptionStyle, removeCaptions: 
+removeCaptions,
+www\project.js:1198:  parseSrt: parseSrt, toSrt: toSrt, 
+detachAudio: detachAudio, captionTrackOf: captionTrackOf,
+www\project.js:1203:  addSfx: addSfx, speechRanges: 
+speechRanges, captionsFromVoice: captionsFromVoice, 
+addVideoClip: addVideoClip, moveClipToRow: moveClipToRow, 
+rowFamily: rowFamily,
+
+
+
+www\editor.js:17:  var NCAP = (typeof module !== 'undefined' 
+&& module.exports) ? require('./captions.js') : (typeof window 
+!== 'undefined' ? window.NakiCaptions : null);
+www\editor.js:23:  var ROLE_NAME = { movie: 'Picture', 
+movieSound: 'Movie sound', voice: 'Your voice', music: 
+'Music', text: 'Text', captions: 'Captions', stickers: 
+'Stickers', overlay: 'Overlay', sfx: 'Effects', fx: 'Video 
+effects' };
+www\editor.js:608:    captions: svg('<rect x="3" y="5" 
+width="18" height="14" rx="2.5"/><path d="M7 11h4M13 11h4M7 
+15h2.5M12 15h5"/>'),
+www\editor.js:757:        { id: 'edAddText', label: 'Add 
+text', icon: G.addText, run: addText },
+www\editor.js:759:        { id: 'edCaptions', label: 
+'Captions', icon: G.captions, run: function (){ 
+openPanel('captions'); } },
+www\editor.js:769:  // every text on the timeline (titles and 
+captions), in time order
+www\editor.js:781:  // ----- captions -----
+www\editor.js:782:  function addCaptionHere(){
+www\editor.js:783:    var out = {}, q = 
+P.addCaptionLine(E.hist.cur, Math.round(E.t), 2500, out);
+www\editor.js:784:    if (q === E.hist.cur){ toast('There is 
+no room for a caption here. Move the playhead or shorten the 
+next one.'); return; }
+www\editor.js:787:  // text = the contents of an .srt file. 
+Replaces the captions you have (after asking, when there are 
+some).
+www\editor.js:788:  function importCaptions(text){
+www\editor.js:791:    var had = 
+P.captionList(E.hist.cur).length;
+www\editor.js:792:    if (had && !confirm('Replace your ' + 
+had + ' caption lines with the ' + items.length + ' lines in 
+this file?')) return 0;
+www\editor.js:793:    var out = {}, q = 
+P.addCaptions(E.hist.cur, items, { replace: true }, out);
+www\editor.js:796:    toast(out.added + ' caption line' + 
+(out.added === 1 ? '' : 's') + ' added' + (out.skipped ? ' (' 
++ out.skipped + ' did not fit the video)' : '') + '. Times 
+follow your edited video.');
+www\editor.js:803:      (f.text ? f.text() : new 
+Promise(function (res){ var r = new FileReader(); r.onload = 
+function (){ res(r.result); }; r.readAsText(f); 
+})).then(importCaptions);
+www\editor.js:810:    if (!txt){ toast('There are no captions 
+or titles to save yet.'); return; }
+www\editor.js:941:      if (c.caption) 
+body.appendChild(actions([{ id: 'edCapStyleAll', label: 'Apply 
+this look to all captions', run: function (){
+www\editor.js:942:        commit(P.setCaptionStyle(E.hist.cur, 
+{ size: c.size, color: c.color, pos: c.pos, weight: c.weight, 
+bg: c.bg, font: c.font || 'sans', outline: c.outline || 0, 
+shadow: c.shadow == null ? 1 : c.shadow })); toast('Every 
+caption has this look now.'); } }]));
+www\editor.js:1014:      if (c.caption) acts.push({ id: 
+'edTextAnimAll', label: 'Apply to all captions', run: function 
+(){ commit(P.setCaptionAnim(E.hist.cur, c.anim || {})); 
+toast('Every caption has this animation now.'); } });
+www\editor.js:1052:    autocaptions: { title: 'Auto captions', 
+build: function (body){
+www\editor.js:1053:      var keys = NCAP.LANGS.map(function 
+(l){ return { key: l.key, label: l.label }; }), cur = 
+chipKey('autocaptions', keys, 'english'), run = !!(E.ac && 
+E.ac.running);
+www\editor.js:1054:      body.appendChild(chips(keys, cur, 
+pickChip('autocaptions')));
+www\editor.js:1055:      var st = mk('div', 'ed-hint', run ? 
+E.ac.msg : 'Listens to your recording on this device and 
+writes the captions at the right times. English works best. 
+Luganda is not supported, so for Luganda use Mark speech and 
+type the words.');
+www\editor.js:1057:      body.appendChild(actions([{ id: 
+'edAutoCapStart', label: run ? 'Working...' : 'Start', run: 
+function (){ runAutoCaptions(cur); } }]));
+www\editor.js:1099:    texts: { title: 'Your texts', build: 
+function (body){
+www\editor.js:1106:    captions: { title: 'Captions', build: 
+function (body){
+www\editor.js:1107:      var list = P.captionList(E.hist.cur);
+www\editor.js:1108:      body.appendChild(actions([{ id: 
+'edCapAdd', label: 'Add line here', run: addCaptionHere }, { 
+id: 'edCapImport', label: 'Import .srt', run: importSrtFile }, 
+{ id: 'edCapExport', label: 'Save .srt', run: exportSrtFile 
+}]));
+www\editor.js:1109:      body.appendChild(actions([{ id: 
+'edCapAuto', label: 'Auto captions', run: function (){ 
+openPanel('autocaptions'); } }, { id: 'edCapMark', label: 
+'Mark speech', run: markSpeech }]));
+www\editor.js:1110:      if (!list.length){ 
+body.appendChild(mk('div', 'ed-hint', 'Type subtitle lines at 
+the playhead, or import an .srt file. Times follow your edited 
+video, so cuts move the captions with it.')); return; }
+www\editor.js:1114:      body.appendChild(actions([{ id: 
+'edCapClear', label: 'Remove all captions', run: function (){ 
+if (confirm('Remove all ' + list.length + ' caption lines?')) 
+commit(P.removeCaptions(E.hist.cur)); } }]));
+www\editor.js:1401:  // ----- auto captions -----
+www\editor.js:1402:  function applyCaptionItems(items){
+www\editor.js:1403:    var had = 
+P.captionList(E.hist.cur).length;
+www\editor.js:1404:    if (had && !confirm('Replace your ' + 
+had + ' caption lines with the ' + items.length + ' new 
+ones?')){ renderDock(); return; }
+www\editor.js:1405:    var out = {}, q = 
+P.addCaptions(E.hist.cur, items, { replace: true }, out);
+www\editor.js:1407:    commit(q); openPanel('captions', 
+'text');
+www\editor.js:1408:    toast(out.added + ' caption line' + 
+(out.added === 1 ? '' : 's') + ' added. Check them, speech 
+recognition makes mistakes.', 8000);
+
+

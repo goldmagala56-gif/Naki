@@ -331,7 +331,7 @@ function addTextClip(p, t, dur, out){
   tr.clips.push(clip); if (out) out.id = clip.id;
   return finish(q);
 }
-var TEXT_FONTS = ['sans', 'serif', 'mono', 'bold', 'script'];
+var TEXT_FONTS = ['sans', 'serif', 'mono', 'bold', 'script', 'inter', 'montserrat', 'poppins', 'bebas', 'anton', 'oswald', 'archivo', 'bangers', 'righteous', 'playfair', 'pacifico', 'lobster', 'caveat', 'dancing'];
 // Changes the look of one text clip (in place). size 3 to 16 (% of the picture height), font, outline 0 to 1 and shadow 0 to 1
 // (shadow 1 is the look titles always had, so it is not stored; outline 0 is not stored either).
 function applyTextPatch(clip, patch){
