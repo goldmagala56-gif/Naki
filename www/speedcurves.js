@@ -49,7 +49,30 @@ var NakiSpeedCurves = (function () {
     return { pieces: pieces, outMs: out, cuts: pieces.slice(0, -1).map(function (p) { return p.toMs; }) };
   }
 
-  var api = { LIST: LIST, MIN: MIN, MAX: MAX, find: find, speedAt: speedAt, plan: plan };
+  // Applies a curve to one picture clip of a project. P is the project module (project.js), so this stays testable.
+  // The clip is first brought to normal speed, then cut into the pieces of plan() (only the picture and the sound linked to it are cut, never your voice,
+  // music or titles), and each piece gets its speed. Returns { project, parts, srcMs, outMs }, or null when the clip is not a playing picture clip.
+  function applyToProject(P, p, id, curve, o) {
+    var f = P.findClip(p, id);
+    if (!f || f.track.kind !== 'video' || f.clip.type !== 'video') return null;
+    var q = p;
+    if ((f.clip.speed || 1) !== 1) { q = P.setClipSpeed(q, id, 1); f = P.findClip(q, id); if (!f) return null; }
+    var start = f.clip.start, dur = f.clip.dur, pl = plan(curve, dur, o);
+    if (!pl) return null;
+    var keep = {}, was = {}, r = JSON.parse(JSON.stringify(q));
+    keep[P.findClip(r, id).track.id] = 1;
+    P.linkedClips(r, id).forEach(function (x) { var g = P.findClip(r, x.clip.id); if (g) keep[g.track.id] = 1; });
+    r.tracks.forEach(function (tr) { was[tr.id] = !!tr.locked; if (!keep[tr.id]) tr.locked = true; });   // a locked row is left alone by a cut
+    pl.cuts.forEach(function (off) { r = P.splitAt(r, start + off); });
+    r.tracks.forEach(function (tr) { tr.locked = was[tr.id]; });
+    var row = P.findClip(r, id).track.clips.filter(function (c) { return c.start >= start - 1 && c.start + c.dur <= start + dur + 1; })
+      .sort(function (a, b) { return a.start - b.start; });
+    if (row.length !== pl.pieces.length) return null;
+    row.forEach(function (c, i) { r = P.setClipSpeed(r, c.id, pl.pieces[i].speed); });
+    return { project: r, parts: pl.pieces.length, srcMs: dur, outMs: pl.outMs };
+  }
+
+  var api = { LIST: LIST, MIN: MIN, MAX: MAX, find: find, speedAt: speedAt, plan: plan, applyToProject: applyToProject };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') { window.NakiSpeedCurves = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['speedcurves.js'] = 'tools'; }
   return api;

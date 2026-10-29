@@ -1,0 +1,159 @@
+﻿
+> www\editor.js:825:  function addMusic(){
+  www\editor.js:826:    Promise.resolve(E.hooks.pickMusic()).then(function (m){
+  www\editor.js:827:      if (!m || !m.file) return;
+  www\editor.js:828:      if (E.hooks.setMusicFile) E.hooks.setMusicFile(m.file);
+  www\editor.js:829:      commit(P.ensureMusic(E.hist.cur, { name: m.name || 
+m.file.name, durMs: m.durMs || null }));
+  www\editor.js:830:      toast('Music added. Set its level under Volume.');
+  www\editor.js:831:    });
+  www\editor.js:832:  }
+  www\editor.js:833:  function addText(){
+  www\editor.js:834:    var out = {}, q = P.addTextClip(E.hist.cur, Math.round(E.t), 
+3000, out);
+  www\editor.js:835:    if (q === E.hist.cur){ toast('There is no room for text at 
+the playhead. Move it or shorten the other text.'); return; }
+  www\editor.js:836:    E.sel = out.id; commit(q); openPanel('textedit', 'text');
+  www\editor.js:837:  }
+  www\editor.js:838:  function commit0(){ renderTimeline(); }
+  www\editor.js:839:  function selText(){ var f = E.sel && P.findClip(E.proj, 
+E.sel); return f && f.track.kind === 'text' ? f.clip : null; }
+  www\editor.js:840:
+  www\editor.js:841:  /* ---------- the panels (a tool's settings) ---------- */
+
+
+
+  www\editor.js:747:      var mt = E.proj.tracks.filter(function (t){ return t.role 
+=== 'music'; })[0], has = !!(mt && mt.clips[0]), items = [];
+> www\editor.js:748:      if (E.hooks.pickMusic) items.push({ id: 'edAddMusic', 
+label: has ? 'Change music' : 'Add music', icon: G.music, run: addMusic });
+  www\editor.js:749:      items.push({ id: 'edSfx', label: 'Effects', icon: G.music, 
+run: function (){ openPanel('sfxpick'); } });
+  www\editor.js:750:      items.push({ id: 'edMix', label: 'Volume', icon: G.mix, 
+run: function (){ openPanel('mix'); } });
+  www\editor.js:824:  }
+> www\editor.js:825:  function addMusic(){
+  www\editor.js:826:    Promise.resolve(E.hooks.pickMusic()).then(function (m){
+  www\editor.js:827:      if (!m || !m.file) return;
+  www\editor.js:845:      if (c.type !== 'video'){ body.appendChild(mk('div', 
+'ed-hint', 'A paused picture has no speed. Pick a part where the movie plays.')); 
+return; }
+> www\editor.js:846:      var cur = c.speed || 1, set = function (v){ 
+commit(P.setClipSpeed(E.hist.cur, c.id, v)); };
+  www\editor.js:847:      body.appendChild(chips([0.5, 0.75, 1, 1.5, 2, 
+3].map(function (v){ return { key: v, label: v + '×' }; }), cur, set));
+  www\editor.js:848:      body.appendChild(sliderRow('Speed', 0.25, 4, 0.05, cur, 
+function (v){ return v.toFixed(2) + '×'; }, null, set));
+  www\editor.js:861:      if (t.zoom > 1 || (c.kf && c.kf.zoom)) keys.push({ key: 
+'x', label: 'Left / right' }, { key: 'y', label: 'Up / down' });
+> www\editor.js:862:      var cur = chipKey('frame', keys, 'zoom'), one = function 
+(v){ return P.setAnimated(E.hist.cur, c.id, cur, v, relNow(c)); };
+  www\editor.js:863:      body.appendChild(chips(keys, cur, pickChip('frame')));
+  www\editor.js:864:      body.appendChild(cur === 'zoom'
+  www\editor.js:1041:      var keys = ['size', 'rot', 'opacity', 'x', 
+'y'].map(function (k){ return { key: k, label: KF_LABEL[k] }; }), cur = 
+chipKey('overlayedit', keys, 'size');
+> www\editor.js:1042:      var val = NANIM.valueOf(c, 'overlay', cur, relNow(c)), 
+set = function (v){ return P.setAnimated(E.hist.cur, c.id, cur, v, relNow(c)); };
+  www\editor.js:1043:      body.appendChild(chips(keys, cur, 
+pickChip('overlayedit')));
+  www\editor.js:1044:      if (cur === 'size') body.appendChild(sliderRow('Size', 5, 
+150, 1, Math.round(val * 100), pct, function (v){ live(set(v / 100)); }, function 
+(v){ commit(set(v / 100)); }));
+  www\editor.js:1353:    function at(e){
+> www\editor.js:1354:      var q = P.setAnimated(E.hist.cur, id, 'x', s0.x + 
+(e.clientX - st.x0) / st.w, relNow(c));
+> www\editor.js:1355:      return P.setAnimated(q, id, 'y', s0.y + (e.clientY - 
+st.y0) / st.h, relNow(c));
+  www\editor.js:1356:    }
+  www\editor.js:1357:    function mv(e){ st.moved = true; live(at(e)); }
+
+
+
+> www\project.js:121:function splitAt(p, t){
+  www\project.js:122:  var q = cloneProject(p), rightLink = {};
+  www\project.js:123:  q.tracks.forEach(function (tr){
+  www\project.js:124:    var out = [];
+  www\project.js:125:    tr.clips.forEach(function (c){
+  www\project.js:126:      if (tr.locked || !(c.start < t && t < clipEnd(c))) { 
+out.push(c); return; }
+  www\project.js:127:      var left = sliceClip(c, c.start, t), right = sliceClip(c, 
+t, clipEnd(c));
+  www\project.js:128:      left.id = c.id;
+  www\project.js:129:      if (c.link){ rightLink[c.link] = rightLink[c.link] || 
+newId('l'); right.link = rightLink[c.link]; }
+  www\project.js:130:      out.push(left, right);
+  www\project.js:131:    });
+  www\project.js:132:    tr.clips = out;
+  www\project.js:133:  });
+> www\project.js:358:function setClipSpeed(p, id, speed){
+  www\project.js:359:  speed = Math.round(Math.max(0.25, Math.min(4, +speed || 1)) * 
+100) / 100;
+  www\project.js:360:  var f = findClip(p, id); if (!f || f.clip.type !== 'video') 
+return p;
+  www\project.js:361:  var old = f.clip.speed || 1; if (Math.abs(old - speed) < 
+0.001) return p;
+  www\project.js:362:  var q = cloneProject(p), ids = linkedIds(q, id), c0 = 
+findClip(q, id).clip;
+  www\project.js:363:  var oldDur = c0.dur, newDur = Math.max(1, Math.round(oldDur * 
+old / speed)), delta = newDur - oldDur, ratio = newDur / oldDur, anchor = c0.start + 
+oldDur;
+  www\project.js:364:  ids.forEach(function (cid){
+  www\project.js:365:    var c = findClip(q, cid).clip; c.speed = speed; c.dur = 
+newDur;
+  www\project.js:366:    if (c.gain && c.gain.length) c.gain = c.gain.map(function 
+(pt){ return [Math.round(pt[0] * ratio), pt[1]]; });
+  www\project.js:367:    if (c.kf){ var kk2 = {}; Object.keys(c.kf).forEach(function 
+(k){ kk2[k] = c.kf[k].map(function (pt){ return [Math.round(pt[0] * ratio), pt[1]]; 
+}); }); c.kf = kk2; }
+  www\project.js:368:    c.fadeInOff = Math.round((c.fadeInOff || 0) * ratio); 
+c.fadeOutOff = Math.round((c.fadeOutOff || 0) * ratio);
+  www\project.js:369:    c.fadeIn = Math.min(c.fadeIn || 0, Math.floor(newDur / 2)); 
+c.fadeOut = Math.min(c.fadeOut || 0, Math.floor(newDur / 2));
+  www\project.js:370:    if (c.vFadeIn) c.vFadeIn = Math.min(c.vFadeIn, 
+Math.floor(newDur / 2)); if (c.vFadeOut) c.vFadeOut = Math.min(c.vFadeOut, 
+Math.floor(newDur / 2));
+> www\project.js:672:function ensureMusic(p, info){
+  www\project.js:673:  var q = cloneProject(p), dm = (info && info.durMs) || null;
+  www\project.js:674:  q.assets.music = { type: 'audio', name: (info && info.name) 
+|| 'music', durMs: dm };
+  www\project.js:675:  var tr = q.tracks.filter(function (t){ return t.role === 
+'music'; })[0];
+  www\project.js:676:  if (tr && tr.clips.length){
+  www\project.js:677:    tr.clips.forEach(function (c){ if (dm) c.dur = Math.max(1, 
+Math.min(c.dur, dm - c.in)); });
+  www\project.js:678:    return finish(q);
+  www\project.js:679:  }
+  www\project.js:680:  var total = q.durationMs, d = dm ? Math.min(dm, total) : 
+total;
+  www\project.js:681:  if (!(d > 0)) return p;
+  www\project.js:682:  if (!tr){ tr = { id: 't-music', kind: 'audio', role: 'music', 
+muted: false, hidden: false, volume: 1, locked: false, clips: [] }; 
+q.tracks.splice(3, 0, tr); }
+  www\project.js:683:  tr.clips.push({ id: newId('c'), type: 'audio', asset: 
+'music', start: 0, dur: d, in: 0, speed: 1, volume: 0.7, fadeIn: 0, fadeOut: 
+Math.min(1500, Math.floor(d / 2)) });
+  www\project.js:684:  return finish(q);
+> www\project.js:907:function setAnimated(p, id, prop, value, relMs){
+  www\project.js:908:  var f = findClip(p, id), kind = f && kfKind(f.track); if 
+(!kind || !_AN || !_AN.RANGE[kind][prop]) return p;
+  www\project.js:909:  var r = _AN.RANGE[kind][prop], v = Math.max(r[0], 
+Math.min(r[1], +value)); if (isNaN(v)) return p; v = r3(v);
+  www\project.js:910:  var q = cloneProject(p), c = findClip(q, id).clip;
+  www\project.js:911:  if (c.kf && c.kf[prop] && c.kf[prop].length) putKeyframe(c, 
+prop, relMs, v); else setStaticProp(c, kind, prop, v);
+  www\project.js:912:  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) 
+? p : finish(q);
+  www\project.js:913:}
+  www\project.js:914:// The diamond button: no keyframe at the playhead = add one 
+holding the current value; one there = take it away (when it was the last one on
+  www\project.js:915:// that property, the property keeps that value).
+  www\project.js:916:function toggleKeyframe(p, id, prop, relMs){
+  www\project.js:917:  var f = findClip(p, id), kind = f && kfKind(f.track); if 
+(!kind || !_AN || !_AN.RANGE[kind][prop]) return p;
+  www\project.js:918:  var q = cloneProject(p), c = findClip(q, id).clip, pts = c.kf 
+&& c.kf[prop];
+  www\project.js:919:  relMs = Math.max(0, Math.min(Math.round(c.dur), 
+Math.round(relMs)));
+
+
