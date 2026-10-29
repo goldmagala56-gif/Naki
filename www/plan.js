@@ -90,10 +90,11 @@ var NakiPlan = (function () {
     p.tracks.forEach(function (tr) {
       if (tr.kind !== 'overlay' || tr.hidden) return;
       tr.clips.forEach(function (c) {
-        var a = p.assets && p.assets[c.asset]; if (!a) return;
+        var a = c.gen ? { w: 0, h: 0 } : (p.assets && p.assets[c.asset]); if (!a) return;
         var s = Math.max(0, Math.round(c.start)), e = Math.min(total, Math.round(c.start + c.dur));
         if (e <= s) return;
         var o = { startMs: s, durMs: e - s, asset: c.asset, kind: c.type === 'freeze' ? 'image' : 'video', inMs: Math.round(c.in || 0), x: c.x, y: c.y, size: c.size, rot: c.rot || 0, opacity: c.opacity != null ? c.opacity : 1, w: a.w || 0, h: a.h || 0 };
+        if (c.gen){ o.gen = JSON.parse(JSON.stringify(c.gen)); o.asset = 'gen_' + c.id; o.kind = 'image'; o.inMs = 0; o.w = c.gen.full ? 0 : 1000; o.h = c.gen.full ? 0 : Math.max(2, Math.round(1000 * (c.gen.ar || 1))); }
         if (c.kf) o.kf = JSON.parse(JSON.stringify(c.kf));
         if (c.blend) o.blend = c.blend;
         if (c.mask) o.mask = JSON.parse(JSON.stringify(c.mask));

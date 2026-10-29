@@ -420,7 +420,12 @@ var WebCodecsExport = (function () {
     async function setupOverlays() {
       var list = [], files = opts.overlayFiles || {};
       for (var oi = 0; oi < (plan.overlays || []).length; oi++) {
-        var o = plan.overlays[oi], f = files[o.asset]; if (!f) continue;
+        var o = plan.overlays[oi], f = files[o.asset];
+        if (o.gen && NFX && NFX.gen) {   // a shape, arrow, spotlight or frame: drawn here, no file
+          var nat = NFX.gen.natural(o.gen, W, H), gc = makeCanvas(nat.w, nat.h); NFX.gen.draw(gc.getContext('2d'), o.gen, nat.w, nat.h);
+          list.push({ o: o, cur: null, pulled: 0, bmp: gc, w: nat.w, h: nat.h }); continue;
+        }
+        if (!f) continue;
         var ov = { o: o, cur: null, pulled: 0, bmp: null, w: 0, h: 0 };
         if (o.kind === 'image') { ov.bmp = await createImageBitmap(f); ov.w = ov.bmp.width; ov.h = ov.bmp.height; }
         else {

@@ -270,7 +270,7 @@ function validate(p){
     cs.forEach(function (c, i){
       if (!(c.dur > 0)) errs.push(tr.id + ': clip ' + c.id + ' has no length');
       if (c.start < 0) errs.push(tr.id + ': clip ' + c.id + ' starts before 0');
-      if (c.type !== 'text' && !p.assets[c.asset]) errs.push(tr.id + ': clip ' + c.id + ' uses missing asset ' + c.asset);
+      if (c.type !== 'text' && !c.gen && !p.assets[c.asset]) errs.push(tr.id + ': clip ' + c.id + ' uses missing asset ' + c.asset);
       if (i > 0 && cs[i - 1].start + cs[i - 1].dur > c.start) errs.push(tr.id + ': clips overlap at ' + c.start);
     });
   });
@@ -973,6 +973,33 @@ function overlaysAt(p, t){
   return out;
 }
 
+// ---------- shapes, arrows, spotlights and frames (generated overlays) ----------
+// They sit on the same overlay rows as pictures and videos, so they move, size, turn, fade, blend, mask and keyframe the same way. Instead of a file they carry
+// clip.gen (see fx.js). A frame lasts until the end of the video, the others 3 seconds.
+function addGen(p, t, gen, out){
+  var g = _FX && _FX.gen ? _FX.gen.clean(gen) : null; if (!g) return p;
+  var total = p.durationMs; if (!(total > 0)) return p;
+  var start = Math.max(0, Math.min(Math.round(t), total - 300)), d = Math.min(g.kind === 'frame' ? total : 3000, total - start); if (d < 300) return p;
+  var q = cloneProject(p), rows = q.tracks.filter(function (x){ return x.kind === 'overlay'; }), tr = null;
+  for (var i = 0; i < rows.length && !tr; i++) if (!rows[i].clips.some(function (c){ return start < clipEnd(c) && start + d > c.start; })) tr = rows[i];
+  if (!tr){
+    var k = 1; while (q.tracks.some(function (x){ return x.id === 't-ov' + k; })) k++;
+    tr = { id: 't-ov' + k, kind: 'overlay', role: 'overlay', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr);
+  }
+  var look = Object.assign({}, _AN ? _AN.OVERLAY : {}, { x: 0.5, y: 0.5, size: g.full ? 1 : (g.kind === 'arrow' ? 0.4 : 0.3), rot: 0, opacity: 1 });
+  var clip = Object.assign({ id: newId('c'), type: 'freeze', asset: null, gen: g, start: start, dur: d, in: 0, speed: 1 }, look);
+  tr.clips.push(clip); if (out) out.id = clip.id;
+  return finish(q);
+}
+// Changes the look of one generated overlay (colour, shape, size of the hole...). Only what is mentioned changes.
+function setGenProps(p, id, patch){
+  var f = findClip(p, id); if (!f || !f.clip.gen || !_FX || !_FX.gen) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip, g = _FX.gen.clean(Object.assign({}, c.gen, patch || {}));
+  if (!g) return p;
+  c.gen = g;
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
 // ---------- sound effects ----------
 // A sound effect is an ordinary audio clip on an "Effects" row (role 'sfx'). The sound itself is a file kept by the page (project.assets only knows its name
 // and length), so it splits, trims, moves, fades and changes volume like any other sound clip. Effects that overlap in time go on separate rows.
@@ -1202,7 +1229,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
   addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
-  addFx: addFx, setFxProps: setFxProps, fxAt: fxAt };
+  addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 

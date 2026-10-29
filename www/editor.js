@@ -218,7 +218,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   function decorateClip(e, tr, c){
     if (c.dur * E.ppm < 6) return;
     tlStores();
-    if ((tr.kind === 'video' || tr.kind === 'overlay') && TS){ var cv = mk('canvas', 'ed-thumbcv'); cv._tr = tr; cv._c = c; e.insertBefore(cv, e.firstChild); paintClipThumbs(cv); }
+    if ((tr.kind === 'video' || tr.kind === 'overlay') && TS && !c.gen){ var cv = mk('canvas', 'ed-thumbcv'); cv._tr = tr; cv._c = c; e.insertBefore(cv, e.firstChild); paintClipThumbs(cv); }
     else if (tr.kind === 'audio' && PS){ var wv = mk('canvas', 'ed-wavecv'); wv._c = c; e.appendChild(wv); paintClipWave(wv); }
   }
   // While a clip is dragged and one of its edges lands on another clip, the playhead or a beat, a white line shows where, and the phone gives a tiny tap.
@@ -271,6 +271,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     return e;
   }
   function clipTitle(tr, c){
+    if (c.gen && NFX && NFX.gen) return NFX.gen.label(c.gen);
     if (tr.kind === 'text') return c.text || 'Text';
     if (tr.kind === 'video'){
       var extra = (c.speed && c.speed !== 1 ? ' ' + c.speed + '×' : '') + (c.filter ? ' · filter' : '') + (c.vFadeIn || c.vFadeOut ? ' · fade' : '') + (c.opacity != null ? ' · ' + Math.round(c.opacity * 100) + '%' : '') + (c.reverse ? ' · reversed' : '') + (c.transform ? ' · ' + (c.transform.zoom > 1 ? 'zoom ' : '') + (c.transform.rot ? c.transform.rot + '° ' : '') + (c.transform.flipH ? 'flip' : '') : '');
@@ -727,7 +728,11 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       var f = E.sel && P.findClip(E.proj, E.sel), isO = !!(f && f.track.kind === 'overlay');
       return [
         { id: 'edAddOverlay', label: 'Add', icon: G.sticker, run: addOverlayFromFile },
-        { id: 'edOverlayEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel('overlayedit'); }, disabled: !isO },
+        { id: 'edAddShape', label: 'Shapes', icon: G.shape, run: function (){ openPanel('shapepick'); } },
+        { id: 'edAddArrow', label: 'Arrows', icon: G.arrow, run: function (){ openPanel('arrowpick'); } },
+        { id: 'edAddSpot', label: 'Spotlight', icon: G.spot, run: function (){ openPanel('spotpick'); } },
+        { id: 'edAddFrame', label: 'Frames', icon: G.frame, run: function (){ openPanel('framepick'); } },
+        { id: 'edOverlayEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel(selGen() ? 'genedit' : 'overlayedit'); }, disabled: !isO },
         { id: 'edOverlayFx', label: 'Blend', icon: G.adjust, run: function (){ openPanel('overlayfx'); }, disabled: !isO },
         { id: 'edOverlayMotion', label: 'Motion', icon: G.motion, run: function (){ openPanel('motion'); }, disabled: !isO },
         { id: 'edOverlayDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isO },
@@ -1065,6 +1070,87 @@ opacity: { title: 'Opacity', build: function (body){
       E.acStatus = st; body.appendChild(st);
       body.appendChild(actions([{ id: 'edAutoCapStart', label: run ? 'Working...' : 'Start', run: function (){ runAutoCaptions(cur); } }]));
     } },
+        shapepick: { title: 'Shapes', build: function (body){
+      if (!NFX || !NFX.gen){ body.appendChild(mk('div', 'ed-hint', 'Shapes are not available here.')); return; }
+      body.appendChild(chips(NFX.gen.SHAPES, null, function (k){ addGenHere({ kind: 'shape', shape: k, ar: NFX.gen.AR[k] }); }));
+      body.appendChild(mk('div', 'ed-hint', 'Tap one to put it on the picture at the playhead. Drag it to move it. Under Edit you can change its colour, outline and size, and animate it with keyframes.'));
+    } },
+    arrowpick: { title: 'Arrows', build: function (body){
+      if (!NFX || !NFX.gen){ body.appendChild(mk('div', 'ed-hint', 'Arrows are not available here.')); return; }
+      body.appendChild(chips(NFX.gen.ARROWS, null, function (k){ addGenHere({ kind: 'arrow', style: k }); }));
+      body.appendChild(mk('div', 'ed-hint', 'Tap one to put it at the playhead. Use Turn under Edit to point it, and Curve to bend it.'));
+    } },
+    spotpick: { title: 'Spotlight', build: function (body){
+      if (!NFX || !NFX.gen){ body.appendChild(mk('div', 'ed-hint', 'Spotlight is not available here.')); return; }
+      body.appendChild(chips(NFX.gen.SPOTS, null, function (k){ addGenHere({ kind: 'spotlight', shape: k }); }));
+      body.appendChild(mk('div', 'ed-hint', 'Darkens everything except one spot. With the spotlight selected, drag on the picture to move the spot.'));
+    } },
+    framepick: { title: 'Frames', build: function (body){
+      if (!NFX || !NFX.gen){ body.appendChild(mk('div', 'ed-hint', 'Frames are not available here.')); return; }
+      body.appendChild(chips(NFX.gen.FRAMES, null, function (k){ var d = NFX.gen.frameDefaults(k); addGenHere({ kind: 'frame', frame: k, color: d.color, width: d.width }); }));
+      body.appendChild(mk('div', 'ed-hint', 'A frame goes over the whole picture from the playhead to the end. Drag its end on the timeline to make it shorter. To use your own frame, add a PNG with a see-through middle as an overlay and set its size to 100%.'));
+    } },
+    genedit: { title: 'Edit', build: function (body){
+      var c = selGen();
+      if (!c || !NFX || !NFX.gen){ body.appendChild(mk('div', 'ed-hint', 'Tap a shape, arrow, spotlight or frame on the timeline first.')); return; }
+      var g = c.gen, GN = NFX.gen, keys = [], gp = function (o){ return P.setGenProps(E.hist.cur, c.id, o); }, deg = function (v){ return v + '\u00b0'; };
+      if (g.kind === 'shape'){
+        keys = [{ key: 'shape', label: 'Shape' }, { key: 'fill', label: 'Fill' }, { key: 'stroke', label: 'Outline' }, { key: 'ar', label: g.shape === 'line' ? 'Thickness' : 'Height' }];
+        if (g.shape === 'rounded') keys.push({ key: 'corner', label: 'Corners' });
+      } else if (g.kind === 'arrow') keys = [{ key: 'style', label: 'Style' }, { key: 'color', label: 'Colour' }, { key: 'thick', label: 'Thickness' }, { key: 'ar', label: 'Height' }, { key: 'curve', label: 'Curve' }];
+      else if (g.kind === 'spotlight') keys = [{ key: 'shape', label: 'Shape' }, { key: 'size', label: 'Size' }, { key: 'stretch', label: 'Wide / tall' }, { key: 'dim', label: 'Darkness' }, { key: 'feather', label: 'Soft edge' },
+        { key: 'cx', label: 'Left / right' }, { key: 'cy', label: 'Up / down' }, { key: 'rot', label: 'Turn' }];
+      else keys = [{ key: 'frame', label: 'Frame' }, { key: 'color', label: 'Colour' }, { key: 'width', label: 'Width' }, { key: 'opacity', label: 'Opacity' }];
+      if (g.kind === 'shape' || g.kind === 'arrow') ['size', 'rot', 'opacity', 'x', 'y'].forEach(function (k){ keys.push({ key: k, label: KF_LABEL[k] }); });
+      var cur = chipKey('genedit', keys, keys[0].key);
+      body.appendChild(chips(keys, cur, pickChip('genedit')));
+      var sg = function (label, key, lo, hi, step, fmt){
+        body.appendChild(sliderRow(label, lo, hi, step, Math.round(g[key] * 100), fmt || pct, function (v){ var o = {}; o[key] = v / 100; live(gp(o)); }, function (v){ var o = {}; o[key] = v / 100; commit(gp(o)); }));
+      };
+      var col = function (label, key, dflt){
+        var ci = mk('input'); ci.type = 'color'; ci.value = g[key] || dflt; ci.setAttribute('aria-label', label);
+        ci.oninput = function (){ var o = {}; o[key] = ci.value; live(gp(o)); }; ci.onchange = function (){ var o = {}; o[key] = ci.value; commit(gp(o)); };
+        var r = mk('div', 'ed-mixrow wide'); add(r, mk('span', 'ed-mixname', label), ci); body.appendChild(r);
+      };
+      var kc = g.kind + ':' + cur;
+      if (kc === 'shape:shape') body.appendChild(chips(GN.SHAPES, g.shape, function (k){ commit(gp({ shape: k, ar: GN.AR[k] })); }));
+      else if (kc === 'spotlight:shape') body.appendChild(chips(GN.SPOTS, g.shape, function (k){ commit(gp({ shape: k })); }));
+      else if (kc === 'arrow:style') body.appendChild(chips(GN.ARROWS, g.style, function (k){ commit(gp({ style: k })); }));
+      else if (kc === 'frame:frame') body.appendChild(chips(GN.FRAMES, g.frame, function (k){ var d = GN.frameDefaults(k); commit(gp({ frame: k, color: d.color, width: d.width })); }));
+      else if (kc === 'shape:fill'){
+        col('Fill', 'fill', '#ffffff');
+        body.appendChild(actions([{ id: 'edGenFill', label: g.fill ? 'Fill: on' : 'Fill: off', on: !!g.fill, run: function (){ commit(gp({ fill: g.fill ? null : '#ffffff' })); } }]));
+      } else if (kc === 'shape:stroke'){
+        col('Outline', 'stroke', '#000000');
+        body.appendChild(actions([{ id: 'edGenStroke', label: g.stroke ? 'Outline: on' : 'Outline: off', on: !!g.stroke, run: function (){ commit(gp({ stroke: g.stroke ? null : '#000000' })); } }]));
+        if (g.stroke) sg('Outline width', 'strokeW', 1, 20, 1);
+      }
+      else if (kc === 'shape:ar') sg(g.shape === 'line' ? 'Thickness' : 'Height', 'ar', g.shape === 'line' ? 2 : 10, g.shape === 'line' ? 50 : 300, g.shape === 'line' ? 1 : 5);
+      else if (kc === 'shape:corner') sg('Corners', 'corner', 0, 50, 1);
+      else if (kc === 'arrow:color') col('Colour', 'color', '#ff3b30');
+      else if (kc === 'arrow:thick') sg('Thickness', 'thick', 5, 50, 1);
+      else if (kc === 'arrow:ar') sg('Height', 'ar', 15, 150, 5);
+      else if (kc === 'arrow:curve') sg('Curve', 'curve', -100, 100, 5, function (v){ return String(Math.round(v)); });
+      else if (kc === 'spotlight:size') sg('Size', 'size', 10, 150, 5);
+      else if (kc === 'spotlight:stretch') sg('Wide / tall', 'stretch', 30, 300, 5);
+      else if (kc === 'spotlight:dim') sg('Darkness', 'dim', 0, 100, 5);
+      else if (kc === 'spotlight:feather') sg('Soft edge', 'feather', 0, 100, 5);
+      else if (kc === 'spotlight:cx') sg('Left / right', 'cx', 0, 100, 1);
+      else if (kc === 'spotlight:cy') sg('Up / down', 'cy', 0, 100, 1);
+      else if (kc === 'spotlight:rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(g.rot), deg, function (v){ live(gp({ rot: v })); }, function (v){ commit(gp({ rot: v })); }));
+      else if (kc === 'frame:color') col('Colour', 'color', '#ffffff');
+      else if (kc === 'frame:width') sg('Width', 'width', 2, 30, 1);
+      else {   // size, turn, opacity and position of a shape or an arrow, and the opacity of a frame: with keyframes, like any overlay
+        var val = NANIM.valueOf(c, 'overlay', cur, relNow(c)), set = function (v){ return P.setAnimated(E.hist.cur, c.id, cur, v, relNow(c)); };
+        if (cur === 'size') body.appendChild(sliderRow('Size', 5, 150, 1, Math.round(val * 100), pct, function (v){ live(set(v / 100)); }, function (v){ commit(set(v / 100)); }));
+        else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(val), deg, function (v){ live(set(v)); }, function (v){ commit(set(v)); }));
+        else body.appendChild(sliderRow(KF_LABEL[cur], 0, 100, 1, Math.round(val * 100), pct, function (v){ live(set(v / 100)); }, function (v){ commit(set(v / 100)); }));
+        body.appendChild(keyframeActions(c, cur));
+      }
+      body.appendChild(mk('div', 'ed-hint', g.kind === 'spotlight' ? 'Drag on the picture to move the spot. Blend and Motion are under the Overlay tools too.'
+        : g.kind === 'frame' ? 'A frame covers the whole picture. Drag its ends on the timeline to change how long it shows.'
+        : 'Drag it on the picture to move it. For movement, put a keyframe here, move the playhead, change the value, and it glides between them.'));
+    } },
     overlayfx: { title: 'Blend & mask', build: function (body){
       var c = selOverlay(); if (!c || !NFX){ body.appendChild(mk('div', 'ed-hint', 'Tap an overlay on the timeline or the picture first.')); return; }
       var keys = [{ key: 'blend', label: 'Blend' }, { key: 'mask', label: 'Mask' }, { key: 'chroma', label: 'Chroma key' }], cur = chipKey('overlayfx', keys, 'blend');
@@ -1285,15 +1371,16 @@ opacity: { title: 'Opacity', build: function (body){
     if (!E.overlayEls) E.overlayEls = {};
     var list = P.overlaysAt(E.proj, E.t), want = {};
     list.forEach(function (c){
-      var url = E.hooks.overlayUrl ? E.hooks.overlayUrl(c.asset) : '', isImg = c.type === 'freeze';
+      var url = (E.hooks.overlayUrl && !c.gen) ? E.hooks.overlayUrl(c.asset) : '', isImg = c.type === 'freeze';
       want[c.id] = true;
       var d = E.overlayEls[c.id];
       if (!d){
-        d = E.overlayEls[c.id] = mk(isImg ? 'img' : 'video', 'ed-ovl'); d.dataset.id = c.id; d.draggable = false;
+        d = E.overlayEls[c.id] = mk(c.gen ? 'canvas' : (isImg ? 'img' : 'video'), 'ed-ovl'); d.dataset.id = c.id; d.draggable = false;
         if (!isImg){ d.muted = true; d.setAttribute('playsinline', ''); d.preload = 'auto'; }
         d.addEventListener('pointerdown', overlayDown); layer.appendChild(d);
       }
       if (url && d._src !== url){ d._src = url; d.src = url; }
+      if (c.gen && NFX && NFX.gen) paintGen(d, c);
       var s = NANIM.overlayState(c, E.t - c.start);
       d.style.left = (s.x * 100) + '%'; d.style.top = (s.y * 100) + '%'; d.style.width = (s.size * 100) + '%';
       d.style.transform = 'translate(-50%,-50%) rotate(' + s.rot + 'deg)'; d.style.opacity = String(s.opacity);
@@ -1318,22 +1405,22 @@ opacity: { title: 'Opacity', build: function (body){
   // where it is (the picture itself is hidden); it is keyed and cut with the same maths as the fast export.
   function keyOverlayFrame(d){
     var cv = d._cv; if (!cv || !NFX || !(d._ch || d._mk)) return;
-    var w = d.videoWidth || d.naturalWidth, h = d.videoHeight || d.naturalHeight; if (!w || !h) return;
+    var w = d.videoWidth || d.naturalWidth || (d.getContext ? d.width : 0), h = d.videoHeight || d.naturalHeight || (d.getContext ? d.height : 0); if (!w || !h) return;
     var sc = Math.min(1, 480 / w), cw = Math.max(1, Math.round(w * sc)), chh = Math.max(1, Math.round(h * sc));
     if (cv.width !== cw) cv.width = cw;
     if (cv.height !== chh) cv.height = chh;
     try { NFX.fxInto(cv, d, { chroma: d._ch, mask: d._mk }); } catch (e) {}
   }
   function applyOverlayFx(d, c){
-    var show = d, ch = NFX && c.chroma ? NFX.cleanChroma(c.chroma) : null, mk = NFX && c.mask ? NFX.cleanMask(c.mask) : null;
-    if (ch || mk){
+    var show = d, ch = NFX && c.chroma ? NFX.cleanChroma(c.chroma) : null, mkk = NFX && c.mask ? NFX.cleanMask(c.mask) : null;
+    if (ch || mkk){
       var cv = d._cv;
       if (!cv){
         cv = d._cv = mk('canvas', 'ed-ovl'); cv.dataset.id = c.id; cv.addEventListener('pointerdown', overlayDown);
         ['load', 'loadeddata', 'seeked'].forEach(function (ev){ d.addEventListener(ev, function (){ if (d._cv) keyOverlayFrame(d); }); });
         d.parentNode.appendChild(cv);
       }
-      d._ch = ch; d._mk = mk; keyOverlayFrame(d);
+      d._ch = ch; d._mk = mkk; keyOverlayFrame(d);
       ['left', 'top', 'width', 'transform', 'opacity'].forEach(function (k){ cv.style[k] = d.style[k]; });
       d.style.visibility = 'hidden'; d.style.pointerEvents = 'none'; show = cv;
     } else if (d._cv){
@@ -1349,6 +1436,7 @@ opacity: { title: 'Opacity', build: function (body){
     var id = ev.currentTarget.dataset.id, f = P.findClip(E.proj, id); if (!f) return;
     ev.preventDefault(); ev.stopPropagation();
     if (E.sel !== id){ E.sel = id; renderTimeline(); syncDock(); }
+    if (f.clip.gen && f.clip.gen.full) return dragGenCenter(f.clip, ev);
     var r = E.ui.overlaylayer.getBoundingClientRect(), c = f.clip, s0 = NANIM.overlayState(c, E.t - c.start), st = { x0: ev.clientX, y0: ev.clientY, w: r.width || 1, h: r.height || 1, moved: false };
     function at(e){
       var q = P.setAnimated(E.hist.cur, id, 'x', s0.x + (e.clientX - st.x0) / st.w, relNow(c));
@@ -1368,6 +1456,38 @@ opacity: { title: 'Opacity', build: function (body){
     var list = [{ id: 'edKeyframe', label: has ? '\u25c6 Remove keyframe' : '\u25c7 Add keyframe', on: has, run: function (){ commit(P.toggleKeyframe(E.hist.cur, c.id, prop, relNow(c))); } }];
     if (any) list.push({ id: 'edKeyframeClear', label: 'Clear keyframes', run: function (){ commit(P.clearKeyframes(E.hist.cur, c.id, prop, relNow(c))); } });
     return actions(list);
+  }
+    // ----- shapes, arrows, spotlights and frames (they live on the overlay rows) -----
+  G.shape = svg('<rect x="4" y="4" width="10" height="10" rx="1.5"/><circle cx="15.5" cy="15.5" r="4.5"/>');
+  G.arrow = svg('<path d="M4 12h15M13 6l6 6-6 6"/>');
+  G.spot = svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>');
+  G.frame = svg('<rect x="3" y="4" width="18" height="16" rx="1.5"/><rect x="7" y="8" width="10" height="8" rx="1"/>');
+  function selGen(){ var c = selOverlay(); return c && c.gen ? c : null; }
+  function addGenHere(gen){
+    var out = {}, q = P.addGen(E.hist.cur, Math.round(E.t), gen, out);
+    if (q === E.hist.cur){ toast('There is no room for that at the playhead.'); return; }
+    E.sel = out.id; commit(q); openPanel('genedit', 'overlay');
+  }
+  // Draws a generated overlay onto its canvas in the preview (again only when something about it changed).
+  function paintGen(d, c){
+    var g = c.gen, lay = E.ui.overlaylayer, w, h;
+    if (g.full){ var lw = lay.clientWidth || 480, lh = lay.clientHeight || 270, sc = Math.min(1, (g.kind === 'spotlight' ? 360 : 720) / lw); w = Math.max(2, Math.round(lw * sc)); h = Math.max(2, Math.round(lh * sc)); }
+    else { w = 640; h = Math.max(2, Math.round(640 * (g.ar || 1))); }
+    var key = JSON.stringify(g) + '|' + w + 'x' + h;
+    if (d._gk !== key){ d._gk = key; if (d.width !== w) d.width = w; if (d.height !== h) d.height = h; NFX.gen.draw(d.getContext('2d'), g, w, h); }
+    d.style.pointerEvents = (g.full && !(g.kind === 'spotlight' && c.id === E.sel)) ? 'none' : '';   // a frame never blocks taps; a selected spotlight can be dragged
+  }
+  // Dragging a selected spotlight moves its hole.
+  function dragGenCenter(c, ev){
+    var g = c.gen; if (g.kind !== 'spotlight') return;
+    var r = E.ui.overlaylayer.getBoundingClientRect(), st = { x0: ev.clientX, y0: ev.clientY, cx: g.cx, cy: g.cy, w: r.width || 1, h: r.height || 1, moved: false };
+    function at(e){ return P.setGenProps(E.hist.cur, c.id, { cx: st.cx + (e.clientX - st.x0) / st.w, cy: st.cy + (e.clientY - st.y0) / st.h }); }
+    function mv(e){ st.moved = true; live(at(e)); }
+    function up(e){
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+      if (st.moved) commit(at(e));
+    }
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   }
   // ----- sound effects -----
   function placeSfx(info){
@@ -1669,7 +1789,7 @@ opacity: { title: 'Opacity', build: function (body){
   function renderSelectionOnly(){
     var els = E.ui.inner.querySelectorAll('.ed-clip');
     for (var i = 0; i < els.length; i++) els[i].classList.toggle('sel', els[i].dataset.id === E.sel);
-    renderSelected(); updateButtons(); syncDock();
+    renderSelected(); updateButtons(); syncDock(); try { syncOverlays(); } catch (e) {}
   }
   function snapped(t){ return P.snapTime(E.proj, t, 8 / E.ppm, [E.t]); }
   function onMove(ev){

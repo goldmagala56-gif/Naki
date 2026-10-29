@@ -307,7 +307,7 @@ function planToJobs(plan, movieInfo, opts) {
 
   
 // ---- animation: overlays laid over the picture, and a picture whose zoom / pan has keyframes ----
-  var overlayList = plan.overlays || [];
+  var overlayList = (plan.overlays || []).map(function (o) { return o.gen && o.gen.full ? Object.assign({}, o, { w: width, h: height }) : o; });   // frames and spotlights cover the whole picture
   // Zoom / pan keyframes on the picture: flip and turn first, then zoompan works out the zoom and the pan for every frame from the keyframes.
   function animPre(sp) {
     var t = sp.transform || {}, rot = t.rot || 0, parts = [], kf = sp.kf || {}, spd = sp.speed && sp.speed !== 1 ? sp.speed : 1;
@@ -321,7 +321,7 @@ function planToJobs(plan, movieInfo, opts) {
   // One overlay laid over a picture part: cut to the part, sized, turned and faded (changing over time when it has keyframes) and placed.
   function overlayParts(o, sp) {
     var a = Math.max(0, (o.startMs - sp.sessionStart) / 1000), b = (Math.min(sp.sessionEnd, o.startMs + o.durMs) - sp.sessionStart) / 1000, len = (b - a).toFixed(3);
-    var src = o.kind === 'image' ? ['-loop', '1', '-framerate', String(FPS), '-t', len, '-i', o.asset + '.in']
+    var src = o.kind === 'image' ? ['-loop', '1', '-framerate', String(FPS), '-t', len, '-i', o.gen ? o.asset + '.png' : o.asset + '.in']
       : ['-ss', ((o.inMs + Math.max(0, sp.sessionStart - o.startMs)) / 1000).toFixed(3), '-t', len, '-i', o.asset + '.in'];
     var shift = o.startMs - sp.sessionStart, kf = o.kf || {}, asp = o.w > 0 && o.h > 0 ? o.h / o.w : 9 / 16;
     var anim = function (k, tv) { return kf[k] && kf[k].length ? _NA.kfExpr(kf[k], shift, 1, tv || 't') : null; };
@@ -495,6 +495,16 @@ async function renderTitlePng(tf) {
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+/* ---------- shapes, arrows, spotlights and frames: drawn by the page onto a transparent picture ---------- */
+async function renderGenPng(gen, fw, fh) {
+  var nat = _FX.gen.natural(gen, fw, fh), cv;
+  if (typeof OffscreenCanvas !== 'undefined') cv = new OffscreenCanvas(nat.w, nat.h);
+  else { cv = document.createElement('canvas'); cv.width = nat.w; cv.height = nat.h; }
+  _FX.gen.draw(cv.getContext('2d'), gen, nat.w, nat.h);
+  var blob = cv.convertToBlob ? await cv.convertToBlob({ type: 'image/png' }) : await new Promise(function (r) { cv.toBlob(r, 'image/png'); });
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
 /* ---------- reads a File/Blob/URL into raw bytes ---------- */
 async function fetchFile(file) {
   if (typeof file === 'string') {
@@ -606,6 +616,11 @@ var NakiExport = (function () {
     }
     opts = Object.assign({}, opts, { assets: vInfos });
     var built = planToJobs(plan, info, opts);
+    var genOv = (plan.overlays || []).filter(function (o) { return o.gen; });
+    for (var gi = 0; gi < genOv.length; gi++) {
+      say('Preparing your shapes...');
+      ffmpeg.writeFile(genOv[gi].asset + '.png', await renderGenPng(genOv[gi].gen, built.width, built.height)); extra.push(genOv[gi].asset + '.png');
+    }
     if (built.textFiles.length) {
       say('Preparing your titles...');
       for (var tfi = 0; tfi < built.textFiles.length; tfi++) {
