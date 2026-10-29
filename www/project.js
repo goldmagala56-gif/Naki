@@ -1000,6 +1000,49 @@ function setGenProps(p, id, patch){
   return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
 }
 
+// ---------- music that ducks under your voice, and removing quiet pauses ----------
+// The volume curve that lowers the music while you speak. ranges = [{ start, end }] in the clip's own time (ms since the clip started). The music goes down
+// over attackMs just before you speak and comes back over releaseMs after; speech closer together than that is treated as one stretch.
+function duckPoints(ranges, dur, o){
+  var gap = o.attackMs + o.releaseMs, merged = [];
+  ranges.slice().sort(function (a, b){ return a.start - b.start; }).forEach(function (r){
+    var s = Math.max(0, r.start), e = Math.min(dur, r.end); if (e <= s) return;
+    var last = merged[merged.length - 1];
+    if (last && s - last.end < gap) last.end = Math.max(last.end, e); else merged.push({ start: s, end: e });
+  });
+  var pts = [];
+  merged.forEach(function (r){
+    if (r.start > 0) pts.push([Math.max(0, r.start - o.attackMs), 1]);
+    pts.push([r.start, o.level], [r.end, o.level]);
+    if (r.end < dur) pts.push([Math.min(dur, r.end + o.releaseMs), 1]);
+  });
+  return pts.map(function (pt){ return [Math.round(pt[0]), r3(pt[1])]; });
+}
+// Lowers every music clip while you are speaking (found from the microphone history, which is cut along with the video, so this stays right after edits).
+// level = how loud the music is while you speak, 0 to 1; level 1 takes the ducking away. It replaces any volume curve the music clip had.
+function autoDuckMusic(p, opts){
+  var o = Object.assign({ level: 0.3, attackMs: 250, releaseMs: 700, thresholdDb: -42 }, opts || {});
+  o.level = r3(Math.max(0, Math.min(1, +o.level))); if (isNaN(o.level)) return p;
+  var q = cloneProject(p), speech = speechRanges(q, { thresholdDb: o.thresholdDb });
+  q.tracks.forEach(function (tr){
+    if (tr.role !== 'music') return;
+    tr.clips.forEach(function (c){
+      var rel = speech.map(function (r){ return { start: r.start - c.start, end: r.end - c.start }; });
+      var pts = o.level >= 0.999 ? [] : duckPoints(rel, c.dur, o);
+      if (pts.length) c.gain = pts; else delete c.gain;
+    });
+  });
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+// The quiet pauses in the recording: by default only where the picture is held still (so no movie is cut), or everywhere when onlyPaused is false.
+function silenceRanges(p, o){
+  o = Object.assign({ thresholdDb: -45, minMs: 700, padMs: 150, onlyPaused: true }, o || {});
+  var sil = findSilentRanges(p.levels || [], { thresholdDb: o.thresholdDb, minMs: o.minMs, padMs: o.padMs });
+  if (o.onlyPaused) sil = intersectRanges(sil, freezeRanges(p));
+  return sil.filter(function (r){ return r.end - r.start >= 100; });
+}
+function removeSilences(p, o){ var r = silenceRanges(p, o); return r.length ? rippleDeleteRanges(p, r) : p; }
+
 // ---------- sound effects ----------
 // A sound effect is an ordinary audio clip on an "Effects" row (role 'sfx'). The sound itself is a file kept by the page (project.assets only knows its name
 // and length), so it splits, trims, moves, fades and changes volume like any other sound clip. Effects that overlap in time go on separate rows.
@@ -1229,7 +1272,8 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
   addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
-  addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps };
+  addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps,
+  duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 

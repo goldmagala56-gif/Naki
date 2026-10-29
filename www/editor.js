@@ -752,6 +752,8 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       var mt = E.proj.tracks.filter(function (t){ return t.role === 'music'; })[0], has = !!(mt && mt.clips[0]), items = [];
       if (E.hooks.pickMusic) items.push({ id: 'edAddMusic', label: has ? 'Change music' : 'Add music', icon: G.music, run: addMusic });
       items.push({ id: 'edSfx', label: 'Effects', icon: G.music, run: function (){ openPanel('sfxpick'); } });
+      items.push({ id: 'edDuck', label: 'Duck music', icon: G.mix, run: function (){ openPanel('duck'); }, disabled: !has });
+      items.push({ id: 'edSilence', label: 'Remove pauses', icon: G.quiet, run: function (){ openPanel('silences'); } });
       items.push({ id: 'edMix', label: 'Volume', icon: G.mix, run: function (){ openPanel('mix'); } });
       items.push({ id: 'edClipAudio', label: 'Clip', icon: G.clip, run: function (){ openPanel('clipaudio'); } });
       if (has) items.push({ id: 'edRemoveMusic', label: 'Remove music', icon: G.trash, run: function (){ if (E.hooks.setMusicFile) E.hooks.setMusicFile(null); commit(P.removeMusic(E.hist.cur)); } });
@@ -910,6 +912,33 @@ opacity: { title: 'Opacity', build: function (body){
       body.appendChild(chips([1000, 2000, 3000, 5000].map(function (v){ return { key: v, label: (v / 1000) + ' s' }; }), E.freezeMs, function (v){ E.freezeMs = v; renderDock(); }));
       body.appendChild(actions([{ id: 'edFreeze', label: 'Freeze here', run: function (){ freezeHere(); } }]));
       body.appendChild(mk('div', 'ed-hint', 'Holds the picture still at the playhead. Everything after it moves later.'));
+    } },
+        duck: { title: 'Duck music', build: function (body){
+      var mt = E.proj.tracks.filter(function (t){ return t.role === 'music'; })[0];
+      if (!mt || !mt.clips.length){ body.appendChild(mk('div', 'ed-hint', 'Add music first (Audio, then Add music).')); return; }
+      var o = E.chip.duck || (E.chip.duck = { level: 30 });
+      var go = function (level){
+        var q = P.autoDuckMusic(E.hist.cur, { level: level, thresholdDb: E.quietDb });
+        if (q === E.hist.cur){ toast('Nothing to change: no speech was found in your recording, or the music already does this.'); return; }
+        commit(q); toast(level >= 1 ? 'Ducking removed.' : 'The music now goes down while you speak.');
+      };
+      body.appendChild(sliderRow('Music while you speak', 0, 100, 5, o.level, pct, function (v){ o.level = v; }, function (v){ o.level = v; }));
+      body.appendChild(actions([{ id: 'edDuckApply', label: 'Apply', run: function (){ go(o.level / 100); } }, { id: 'edDuckClear', label: 'Remove ducking', run: function (){ go(1); } }]));
+      body.appendChild(mk('div', 'ed-hint', 'Lowers the music while you talk and brings it back after, using your microphone history, so it follows your cuts. It replaces any volume curve the music had; run it again after big edits.'));
+    } },
+    silences: { title: 'Remove pauses', build: function (body){
+      var o = E.chip.sil || (E.chip.sil = { db: Math.round(E.quietDb || -42), min: 700, pad: 150, paused: true });
+      var opts = function (){ return { thresholdDb: o.db, minMs: o.min, padMs: o.pad, onlyPaused: o.paused }; };
+      body.appendChild(chips([{ key: 'paused', label: 'While paused' }, { key: 'all', label: 'Everywhere' }], o.paused ? 'paused' : 'all', function (k){ o.paused = k === 'paused'; renderDock(); }));
+      body.appendChild(sliderRow('Quiet below', -60, -20, 1, o.db, function (v){ return v + ' dB'; }, function (v){ o.db = v; }, function (v){ o.db = v; renderDock(); }));
+      body.appendChild(sliderRow('Pause at least', 300, 3000, 100, o.min, secs, function (v){ o.min = v; }, function (v){ o.min = v; renderDock(); }));
+      body.appendChild(sliderRow('Keep around it', 0, 400, 25, o.pad, function (v){ return v + ' ms'; }, function (v){ o.pad = v; }, function (v){ o.pad = v; renderDock(); }));
+      var found = P.silenceRanges(E.hist.cur, opts()), total = 0; found.forEach(function (r){ total += r.end - r.start; });
+      body.appendChild(mk('div', 'ed-hint', found.length ? 'Found ' + found.length + ' quiet pause' + (found.length > 1 ? 's' : '') + ' (' + (total / 1000).toFixed(1) + ' s) to cut out.' : 'No quiet pauses found with these settings.'));
+      body.appendChild(actions([{ id: 'edSilenceApply', label: 'Remove them', run: function (){
+        var q = P.removeSilences(E.hist.cur, opts()); if (q === E.hist.cur){ toast('No quiet pauses to remove.'); return; }
+        commit(q); toast('Pauses removed. Everything after each one moved up.'); } }]));
+      body.appendChild(mk('div', 'ed-hint', o.paused ? 'Only cuts pauses where the picture is held still, so no movie is lost.' : 'Everywhere also cuts stretches where the movie plays but you are quiet, so some of the movie goes too. Undo brings it back.'));
     } },
     mix: { title: 'Volume', build: function (body){
       var tracks = E.proj.tracks.filter(function (t){ return t.kind === 'audio'; }); if (!tracks.length) return;
