@@ -11,6 +11,7 @@ var NakiEditor = (function () {
   var NPR = (typeof module !== 'undefined' && module.exports) ? require('./presets.js') : (typeof window !== 'undefined' ? window.NakiPresets : null);
   var NANIM = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
   var NFX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
+var NCV = (typeof module !== 'undefined' && module.exports) ? require('./speedcurve.js') : (typeof window !== 'undefined' ? window.NakiCurve : null);
 var NTH = (typeof module !== 'undefined' && module.exports) ? require('./thumbs.js') : (typeof window !== 'undefined' ? window.NakiThumbs : null);
 var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.js') : (typeof window !== 'undefined' ? window.NakiPeaks : null);
   var NSFX = (typeof module !== 'undefined' && module.exports) ? require('./sfx.js') : (typeof window !== 'undefined' ? window.NakiSfx : null);
@@ -612,6 +613,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     join: svg('<path d="M4 7v10M20 7v10M4 12h5M20 12h-5M7 9l2.5 3L7 15M17 9l-2.5 3 2.5 3"/>'),
     gap: svg('<path d="M3 6v12M21 6v12M8 12h8M11 9l-3 3 3 3M13 9l3 3-3 3"/>'),
     magnet: svg('<path d="M6 3v9a6 6 0 0012 0V3h-4v9a2 2 0 01-4 0V3zM6 7h4M14 7h4"/>'),
+    curve: svg('<path d="M3 18C8 18 9 6 12 6s4 12 9 12"/>'),
     addVideo: svg('<rect x="3" y="5" width="14" height="14" rx="2"/><path d="M10 9v6M7 12h6M17 10l4-2v8l-4-2"/>')
   };
 
@@ -697,6 +699,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edMagnet', label: 'Magnet', icon: G.magnet, run: toggleMagnet, on: E.magnet },
         { id: 'edDetach', label: 'Detach', icon: G.detach, run: detachSel },
         { id: 'edSpeed', label: 'Speed', icon: G.speed, run: P2('speed') },
+        { id: 'edCurve', label: 'Curve', icon: G.curve, run: P2('speedcurve') },
         { id: 'edVolume', label: 'Volume', icon: G.volume, run: P2('volume') },
         { id: 'edZoom', label: 'Zoom', icon: G.zoom, run: P2('frame') },
         { id: 'edRotate', label: 'Rotate', icon: G.rotate, run: rotateSel },
@@ -853,6 +856,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       var cur = c.speed || 1, set = function (v){ commit(P.setClipSpeed(E.hist.cur, c.id, v)); };
       body.appendChild(chips([0.5, 0.75, 1, 1.5, 2, 3].map(function (v){ return { key: v, label: v + '×' }; }), cur, set));
       body.appendChild(sliderRow('Speed', 0.25, 4, 0.05, cur, function (v){ return v.toFixed(2) + '×'; }, null, set));
+      body.appendChild(actions([{ id: 'edSpeedCurve', label: 'Speed curve (graph)', run: function (){ openPanel('speedcurve'); } }]));
       body.appendChild(mk('div', 'ed-hint', 'The picture and its sound change together. The movie clips after it move up or back. Your voice stays where it is.'));
     } },
     volume: { title: 'Volume', build: function (body){
@@ -1219,6 +1223,61 @@ opacity: { title: 'Opacity', build: function (body){
         }
         body.appendChild(mk('div', 'ed-hint', 'Makes one colour see-through, such as a green screen. Raise Similarity until the colour is gone, then add a little softness. The exported video can differ slightly from this preview.'));
       }
+    } },
+        speedcurve: { title: 'Speed curve', build: function (body){
+      var c = needPicture(body); if (!c) return;
+      if (!NCV || c.type !== 'video' || c.reverse){ body.appendChild(mk('div', 'ed-hint', 'Pick a part where the movie plays forwards. A paused or reversed picture has no speed curve.')); return; }
+      var info = P.speedCurveOf(E.hist.cur, c.id), key = info ? info.g : c.id;
+      if (!E.cv || E.cv.key !== key) E.cv = { key: key, pts: info ? info.pts.map(function (p){ return p.slice(); }) : [[0, 1], [1, 1]], sel: -1, preset: info ? 'custom' : 'none' };
+      var cv = E.cv, apply = function (){ var q = P.setSpeedCurve(E.hist.cur, c.id, cv.pts); if (q === E.hist.cur) renderDock(); else commit(q); };
+      var list = [{ key: 'none', label: 'Normal' }].concat(NCV.PRESETS.map(function (p){ return { key: p.key, label: p.label }; }));
+      if (info) list.push({ key: 'custom', label: 'Custom' });
+      body.appendChild(chips(list, cv.preset, function (k){
+        if (k === 'custom') return;
+        if (k === 'none'){ E.cv = null; var q0 = P.clearSpeedCurve(E.hist.cur, c.id); if (q0 === E.hist.cur) renderDock(); else commit(q0); return; }
+        cv.pts = NCV.PRESETS.filter(function (p){ return p.key === k; })[0].pts.map(function (p){ return p.slice(); }); cv.sel = -1; cv.preset = k; apply();
+      }));
+      var NS = 'http://www.w3.org/2000/svg', svg0 = document.createElementNS(NS, 'svg'), out = mk('div', 'ed-hint');
+      svg0.setAttribute('viewBox', '0 0 ' + CVG.W + ' ' + CVG.H); svg0.setAttribute('class', 'ed-curve'); svg0.setAttribute('role', 'img'); svg0.setAttribute('aria-label', 'Speed curve');
+      var node = function (tag, attrs){ var e = document.createElementNS(NS, tag); Object.keys(attrs).forEach(function (k){ e.setAttribute(k, attrs[k]); }); return e; };
+      var draw = function (){
+        while (svg0.firstChild) svg0.removeChild(svg0.firstChild);
+        [0.25, 0.5, 1, 2, 4].forEach(function (v){
+          var y = cvY(v); svg0.appendChild(node('line', { x1: CVG.x0, x2: CVG.x1, y1: y, y2: y, 'class': v === 1 ? 'ed-cg one' : 'ed-cg' }));
+          var t = node('text', { x: 2, y: y - 2, 'class': 'ed-ct' }); t.textContent = v + '\u00d7'; svg0.appendChild(t);
+        });
+        var d = ''; for (var i = 0; i <= 60; i++){ var u = i / 60; d += (i ? 'L' : 'M') + cvX(u).toFixed(1) + ' ' + cvY(NCV.valueAt(cv.pts, u)).toFixed(1); }
+        svg0.appendChild(node('path', { d: d, 'class': 'ed-cpath' }));
+        cv.pts.forEach(function (p, i){ svg0.appendChild(node('circle', { cx: cvX(p[0]), cy: cvY(p[1]), r: i === cv.sel ? 8 : 6, 'class': 'ed-cdot' + (i === cv.sel ? ' sel' : '') })); });
+        var sp = curveSpan(c); out.textContent = 'Length: ' + fmtP(sp.now) + ' now, ' + fmtP(sp.span * NCV.outputFactor(cv.pts)) + ' with this curve.';
+      };
+      var drag = -1, where = function (ev){ var r = svg0.getBoundingClientRect(), s = CVG.W / (r.width || CVG.W); return { x: (ev.clientX - r.left) * s, y: (ev.clientY - r.top) * s }; };
+      svg0.addEventListener('pointerdown', function (ev){
+        var p = where(ev), best = -1, bd = 22;
+        cv.pts.forEach(function (pt, i){ var dd = Math.hypot(cvX(pt[0]) - p.x, cvY(pt[1]) - p.y); if (dd < bd){ bd = dd; best = i; } });
+        if (best < 0) return;
+        drag = best; cv.sel = best; cv.preset = 'custom'; try { svg0.setPointerCapture(ev.pointerId); } catch (e) {} ev.preventDefault(); draw();
+      });
+      svg0.addEventListener('pointermove', function (ev){
+        if (drag < 0) return;
+        var p = where(ev), pts = cv.pts, last = pts.length - 1, u = pts[drag][0];
+        if (drag > 0 && drag < last) u = clamp(cvU(p.x), pts[drag - 1][0] + NCV.GAP, pts[drag + 1][0] - NCV.GAP);
+        pts[drag] = [u, cvV(p.y)]; draw();
+      });
+      var letGo = function (){ if (drag < 0) return; drag = -1; apply(); };
+      svg0.addEventListener('pointerup', letGo); svg0.addEventListener('pointercancel', letGo);
+      body.appendChild(svg0); draw(); body.appendChild(out);
+      body.appendChild(actions([
+        { id: 'edCurveAdd', label: 'Add point', run: function (){
+          var pts = cv.pts, bi = 0, bg = 0; for (var i = 0; i < pts.length - 1; i++){ var g = pts[i + 1][0] - pts[i][0]; if (g > bg){ bg = g; bi = i; } }
+          if (bg < NCV.GAP * 2 || pts.length >= NCV.MAXPTS){ toast('There is no room for another point.'); return; }
+          var u = (pts[bi][0] + pts[bi + 1][0]) / 2; pts.splice(bi + 1, 0, [u, NCV.valueAt(pts, u)]); cv.sel = bi + 1; cv.preset = 'custom'; draw();
+        } },
+        { id: 'edCurveDel', label: 'Delete point', run: function (){
+          if (cv.sel <= 0 || cv.sel >= cv.pts.length - 1){ toast('Tap a point first (not the first or the last one).'); return; }
+          cv.pts.splice(cv.sel, 1); cv.sel = -1; cv.preset = 'custom'; apply();
+        } }]));
+      body.appendChild(mk('div', 'ed-hint', 'Drag a dot up to play faster there, down to play slower. Tap a dot to pick it, then Delete point. The movie sound follows the speed; your voice does not. Videos with a speed export with the compatible engine, which takes longer.'));
     } },
     texts: { title: 'Your texts', build: function (body){
       var list = allTexts();
@@ -1625,6 +1684,19 @@ opacity: { title: 'Opacity', build: function (body){
       id = out.id; q = P.setTextProps(q, id, Object.assign({ text: tp.text }, tp.style));
     }
     q = P.setTextAnim(q, id, tp.anim); E.sel = id; commit(q);
+  }
+    // ----- the speed curve graph (Speed > Curve) -----
+  var CVG = { W: 300, H: 130, x0: 14, x1: 286, y0: 12, y1: 116 };
+  function cvX(u){ return CVG.x0 + u * (CVG.x1 - CVG.x0); }
+  function cvY(v){ return CVG.y1 - Math.log(v / 0.25) / Math.log(16) * (CVG.y1 - CVG.y0); }
+  function cvU(x){ return clamp((x - CVG.x0) / (CVG.x1 - CVG.x0), 0, 1); }
+  function cvV(y){ return clamp(0.25 * Math.pow(16, (CVG.y1 - y) / (CVG.y1 - CVG.y0)), 0.25, 4); }
+  // How long the picture's own stretch of movie is (ms) and how long it plays for now (they differ once it has a speed).
+  function curveSpan(c){
+    var info = P.speedCurveOf(E.hist.cur, c.id);
+    if (!info) return { now: c.dur, span: c.dur * (c.speed || 1) };
+    var now = 0, span = 0; P.curvePieces(E.hist.cur, info.g).forEach(function (p){ now += p.dur; span += p.dur * (p.speed || 1); });
+    return { now: now, span: span };
   }
   function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); syncOverlays(); }
   function layoutTextLayerBase(){

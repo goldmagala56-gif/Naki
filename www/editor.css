@@ -196,3 +196,13 @@
 .ed-clip.dragging{opacity:.9;box-shadow:0 6px 16px rgba(0,0,0,.55)}
 .ed-add{border:0;background:#f3eee3;color:#111b24;border-radius:10px;font-size:26px}
 .ed-add:active{background:#d9d3c6}
+
+/* speed curve graph */
+.ed-curve{width:100%;max-height:150px;display:block;touch-action:none;background:#0f1820;border:1px solid var(--line);border-radius:10px}
+.ed-cg{stroke:rgba(255,255,255,.12);stroke-width:1}
+.ed-cg.one{stroke:rgba(255,255,255,.35)}
+.ed-ct{fill:rgba(255,255,255,.45);font-size:9px}
+.ed-cpath{fill:none;stroke:#fff;stroke-width:2;stroke-linejoin:round}
+.ed-cdot{fill:#111b24;stroke:#fff;stroke-width:2;cursor:grab}
+.ed-cdot.sel{fill:var(--mango);stroke:var(--mango)}
+.ed-pbody{max-height:44vh}

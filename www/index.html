@@ -369,6 +369,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="motion.js"></script>
 <script src="anim.js"></script>
 <script src="fx.js"></script>
+<script src="speedcurve.js"></script>
 <script src="thumbs.js"></script>
 <script src="peaks.js"></script>
 <script src="sfx.js"></script>
@@ -1626,7 +1627,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'overlay-kf', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'fonts', 'reverse.js': 'reverse' };
+  var want = { 'speedcurve.js': 'curve', 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'overlay-kf', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'fonts', 'reverse.js': 'reverse' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';

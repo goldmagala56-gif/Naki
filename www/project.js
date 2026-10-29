@@ -15,6 +15,7 @@ var _C = (typeof module !== 'undefined' && module.exports) ? require('./core.js'
 var _FM = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
 var _AN = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
 var _FX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
+var _CV = (typeof module !== 'undefined' && module.exports) ? require('./speedcurve.js') : (typeof window !== 'undefined' ? window.NakiCurve : null);
 var _MO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
 var _idn = 0;
 function newId(p){ _idn++; return p + _idn.toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -1238,6 +1239,60 @@ function moveClipToRow(p, id, target, newStart, pos){
   return finish(q);
 }
 
+// ---------- speed curves (the graph) ----------
+// A picture clip can follow a speed curve (see speedcurve.js). It is cut into short pieces that each play at one speed (the same speed the Speed tool sets),
+// so the sound, the clips after it, the preview and the export all behave as they do for any speed change. Every piece remembers which curve it belongs to
+// and which part of it (curve = { g, u0, u1, pts }), so the curve can be changed later without cutting the clip again.
+function curvePieces(p, g){
+  var lane = pictureLane(p);
+  return lane ? lane.clips.filter(function (c){ return c.curve && c.curve.g === g; }).sort(byStart) : [];
+}
+function speedCurveOf(p, id){
+  var f = findClip(p, id);
+  return f && f.clip.curve ? { g: f.clip.curve.g, pts: f.clip.curve.pts } : null;
+}
+// pts = the curve. n (optional) = how many pieces a clip is cut into the first time (4 to 32, 16 usually, never pieces shorter than 0.12 s).
+function setSpeedCurve(p, id, pts, n){
+  var f = findClip(p, id); if (!f || f.track.role !== 'movie' || f.clip.type !== 'video' || f.clip.reverse || !_CV) return p;
+  var cp = _CV.clean(pts); if (!cp) return p;
+  var q = cloneProject(p), c0 = findClip(q, id).clip, g = c0.curve && c0.curve.g;
+  if (!g){
+    if (c0.dur < 480) return p;
+    var segs = Math.max(4, Math.min(32, Math.round(n || 16), Math.floor(c0.dur / 120))), start = c0.start, dur = c0.dur, ids = linkedIds(q, id), links = [];
+    g = newId('g'); for (var i = 0; i < segs; i++) links.push(newId('l'));
+    ids.forEach(function (cid){
+      var ff = findClip(q, cid), cl = ff.clip, pieces = [];
+      for (var k = 0; k < segs; k++){
+        var from = start + Math.round(k * dur / segs), to = k === segs - 1 ? start + dur : start + Math.round((k + 1) * dur / segs), pc = sliceClip(cl, from, to);
+        if (k === 0) pc.id = cl.id;
+        if (cl.link) pc.link = links[k];
+        if (cid === id) pc.curve = { g: g, u0: k / segs, u1: (k + 1) / segs, pts: cp };
+        pieces.push(pc);
+      }
+      ff.track.clips = ff.track.clips.filter(function (x){ return x.id !== cid; }).concat(pieces);
+    });
+    q = finish(q);
+  }
+  var cur = q, list = curvePieces(cur, g);
+  list.forEach(function (pc){
+    var m = findClip(cur, pc.id).clip.curve;
+    cur = setClipSpeed(cur, pc.id, _CV.harmonic(cp, m.u0, m.u1));   // the same project comes back when nothing changes
+  });
+  list.forEach(function (pc){ var x = findClip(cur, pc.id); if (x) x.clip.curve.pts = cp; });
+  return JSON.stringify(cur.tracks) === JSON.stringify(p.tracks) ? p : cur;
+}
+// Back to normal speed. The pieces are put together again as far as they can be (Join does the rest if one was left).
+function clearSpeedCurve(p, id){
+  var f = findClip(p, id); if (!f || !f.clip.curve) return p;
+  var g = f.clip.curve.g, pieces = curvePieces(p, g), cur = p;
+  pieces.forEach(function (pc){ cur = setClipSpeed(cur, pc.id, 1); });
+  cur = cloneProject(cur);
+  curvePieces(cur, g).forEach(function (pc){ delete pc.curve; });
+  var first = pieces[0].id, guard = 0;
+  while (guard++ < 40){ var out = {}, nx = joinWithNext(cur, first, out); if (nx !== cur && out.merged) cur = nx; else break; }
+  return cur;
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -1270,7 +1325,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
   addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
-  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
+  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
   addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps,
   duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences };
