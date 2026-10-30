@@ -1526,8 +1526,8 @@ $('bExport').onclick = function(){
   // The files behind the overlays. An overlay whose file is missing is left out, and you are told.
   var ovFiles = {};
   (plan.overlays || []).forEach(function(o){ var f = S.overlays[o.asset]; if (f && f.file) ovFiles[o.asset] = f.file; });
-  if (plan.overlays && plan.overlays.some(function(o){ return !ovFiles[o.asset]; })){
-    plan.overlays = plan.overlays.filter(function(o){ return ovFiles[o.asset]; }); if (!plan.overlays.length) delete plan.overlays;
+  if (plan.overlays && plan.overlays.some(function(o){ return !o.gen && !ovFiles[o.asset]; })){
+    plan.overlays = plan.overlays.filter(function(o){ return o.gen || ovFiles[o.asset]; }); if (!plan.overlays.length) delete plan.overlays;
     toast('An overlay file is missing, so it was left out. Open Edit, Overlay and add it again.', 9000);
   }
   ffmpegOpts.overlayFiles = webcodecsOpts.overlayFiles = ovFiles;

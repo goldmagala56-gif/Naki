@@ -1,0 +1,127 @@
+﻿
+  www\export-engine.js:309:// ---- animation: overlays 
+laid over the picture, and a picture whose zoom / pan 
+has keyframes ----
+> www\export-engine.js:310:  var overlayList = 
+(plan.overlays || []).map(function (o) { return o.gen 
+&& o.gen.full ? Object.assign({}, o, { w: width, h: 
+height }) : o; });   // frames and spotlights cover 
+the whole picture
+  www\export-engine.js:311:  // Zoom / pan keyframes 
+on the picture: flip and turn first, then zoompan 
+works out the zoom and the pan for every frame from 
+the keyframes.
+  www\export-engine.js:312:  function animPre(sp) {
+  www\export-engine.js:313:    var t = sp.transform || 
+{}, rot = t.rot || 0, parts = [], kf = sp.kf || {}, 
+spd = sp.speed && sp.speed !== 1 ? sp.speed : 1;
+  www\export-engine.js:497:
+> www\export-engine.js:498:/* ---------- shapes, 
+arrows, spotlights and frames: drawn by the page onto 
+a transparent picture ---------- */
+  www\export-engine.js:499:async function 
+renderGenPng(gen, fw, fh) {
+  www\export-engine.js:500:  var nat = 
+_FX.gen.natural(gen, fw, fh), cv;
+  www\export-engine.js:501:  if (typeof 
+OffscreenCanvas !== 'undefined') cv = new 
+OffscreenCanvas(nat.w, nat.h);
+  www\webcodecs-export.js:423:        var o = 
+plan.overlays[oi], f = files[o.asset];
+> www\webcodecs-export.js:424:        if (o.gen && NFX 
+&& NFX.gen) {   // a shape, arrow, spotlight or frame: 
+drawn here, no file
+  www\webcodecs-export.js:425:          var nat = 
+NFX.gen.natural(o.gen, W, H), gc = makeCanvas(nat.w, 
+nat.h); NFX.gen.draw(gc.getContext('2d'), o.gen, 
+nat.w, nat.h);
+  www\webcodecs-export.js:426:          list.push({ o: 
+o, cur: null, pulled: 0, bmp: gc, w: nat.w, h: nat.h 
+}); continue;
+  www\webcodecs-export.js:427:        }
+  www\fx.js:214:
+> www\fx.js:215:    // ---------- generated overlays: 
+shapes, arrows, spotlights and frames ----------
+> www\fx.js:216:  // They have no picture file. An 
+overlay clip carries clip.gen = { kind: 'shape' | 
+'arrow' | 'spotlight' | 'frame', ... } and everything 
+that shows overlays
+  www\fx.js:217:  // (the preview, the fast engine, 
+the ffmpeg engine) draws it with GEN.draw(), so all 
+three look the same. Shapes and arrows are boxes you 
+move, size and turn
+> www\fx.js:218:  // like any overlay. Spotlights and 
+frames cover the whole picture (gen.full) and are 
+drawn at the size of the video.
+  www\fx.js:219:  var GEN = (function () {
+  www\fx.js:220:    var SHAPES = [{ key: 'rect', 
+label: 'Rectangle' }, { key: 'rounded', label: 
+'Rounded' }, { key: 'circle', label: 'Circle' }, { 
+key: 'triangle', label: 'Triangle' },
+  www\fx.js:221:      { key: 'diamond', label: 
+'Diamond' }, { key: 'hexagon', label: 'Hexagon' }, { 
+key: 'star', label: 'Star' }, { key: 'heart', label: 
+'Heart' }, { key: 'line', label: 'Line' }];
+  www\fx.js:249:      }
+> www\fx.js:250:      if (g.kind === 'spotlight') {
+> www\fx.js:251:        return { kind: 'spotlight', 
+full: true, shape: has(SPOTS, g.shape) ? g.shape : 
+'circle', cx: r3(clamp(num(g.cx, 0.5), 0, 1)), cy: 
+r3(clamp(num(g.cy, 0.5), 0, 1)),
+  www\fx.js:252:          size: r3(clamp(num(g.size, 
+0.5), 0.1, 1.5)), stretch: r3(clamp(num(g.stretch, 1), 
+0.3, 3)), dim: r3(clamp(num(g.dim, 0.7), 0, 1)),
+  www\fx.js:253:          feather: 
+r3(clamp(num(g.feather, 0.2), 0, 1)), rot: 
+r3((((num(g.rot, 0) + 180) % 360) + 360) % 360 - 180) 
+};
+  www\fx.js:254:      }
+  www\fx.js:264:      if (g.kind === 'arrow') return 
+'Arrow \u00b7 ' + nameOf(ARROWS, g.style);
+> www\fx.js:265:      if (g.kind === 'spotlight') 
+return 'Spotlight';
+  www\fx.js:266:      if (g.kind === 'frame') return 
+'Frame \u00b7 ' + nameOf(FRAMES, g.frame);
+  www\fx.js:267:      return 'Overlay';
+  www\fx.js:268:    }
+> www\fx.js:269:    // The size of the picture this is 
+drawn at: the whole video frame for spotlights and 
+frames, otherwise a box of 1024 wide with the shape's 
+own height.
+  www\fx.js:270:    function natural(g, fw, fh) { 
+return g.full ? { w: Math.max(2, fw), h: Math.max(2, 
+fh) } : { w: 1024, h: Math.max(2, Math.round(1024 * 
+(g.ar || 1))) }; }
+  www\fx.js:271:
+  www\fx.js:272:    // ----- paths -----
+  www\fx.js:330:    }
+> www\fx.js:331:    // The spotlight is a dark layer 
+with a see-through hole: the hole is the same shape 
+(and soft edge) maths as an overlay mask.
+  www\fx.js:332:    function drawSpot(g, s, w, h) {
+  www\fx.js:333:      var hh = s.size * Math.min(w, 
+h), hw = hh * s.stretch;
+  www\fx.js:334:      var m = cleanMask({ shape: 
+s.shape, x: s.cx, y: s.cy, w: hw / w, h: hh / h, rot: 
+s.rot, feather: s.feather, corner: s.shape === 'rect' 
+? 0.2 : 0 });
+  www\fx.js:417:      else if (c.kind === 'arrow') 
+drawArrow(g, c, w, h);
+> www\fx.js:418:      else if (c.kind === 'spotlight') 
+drawSpot(g, c, w, h);
+  www\fx.js:419:      else FR[c.frame](g, w, h, 
+c.width * Math.min(w, h), c.color);
+  www\fx.js:420:      g.restore();
+  www\fx.js:421:    }
+  www\project.js:976:
+> www\project.js:977:// ---------- shapes, arrows, 
+spotlights and frames (generated overlays) ----------
+  www\project.js:978:// They sit on the same overlay 
+rows as pictures and videos, so they move, size, turn, 
+fade, blend, mask and keyframe the same way. Instead 
+of a file they carry
+  www\project.js:979:// clip.gen (see fx.js). A frame 
+lasts until the end of the video, the others 3 seconds.
+  www\project.js:980:function addGen(p, t, gen, out){
+
+
