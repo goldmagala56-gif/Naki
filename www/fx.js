@@ -422,7 +422,77 @@ var NakiFx = (function () {
     return { SHAPES: SHAPES, AR: AR, ARROWS: ARROWS, SPOTS: SPOTS, FRAMES: FRAMES, frameDefaults: frameDefaults, clean: clean, label: label, natural: natural, draw: draw };
   })();
 
-  var api = { gen: GEN, BLEND: BLEND, MASKS: MASKS, CHROMA: CHROMA, blendOf: blendOf, cssBlend: cssBlend, ffBlend: ffBlend, ffBlendFormat: ffBlendFormat,
+    // ---------- voice enhance ----------
+  // A preset and a strength stored on the voice row (track.enhance = { preset, amount }). Three parts, in this order: a gate that turns down the hiss between
+  // words (how quiet "quiet" is comes from your own recording), tone shaping (EQ), and a compressor that evens out loud and soft. The preview, the fast export
+  // (Web Audio) and the ffmpeg export all use the same numbers from params(), so they sound close. The preview has no gate.
+  var VOICE = (function () {
+    var PRESETS = [{ key: 'clean', label: 'Clean' }, { key: 'podcast', label: 'Podcast' }, { key: 'warm', label: 'Warm' }, { key: 'bright', label: 'Bright' }];
+    // eq: [type, Hz, dB at full strength, Q]; gate: dB of reduction at full strength; comp: threshold dB, ratio, attack ms, release ms, makeup dB (all at full strength)
+    var DEF = {
+      clean: { eq: [['peaking', 3000, 2, 1], ['peaking', 250, -1.5, 1]], gate: 18, comp: { thr: -22, ratio: 2, atk: 10, rel: 150, make: 2 } },
+      podcast: { eq: [['lowshelf', 120, 2.5, 0.7], ['peaking', 250, -2, 1], ['peaking', 3500, 3, 1]], gate: 12, comp: { thr: -24, ratio: 3.5, atk: 8, rel: 120, make: 4 } },
+      warm: { eq: [['lowshelf', 160, 4, 0.7], ['peaking', 3000, 1, 1], ['highshelf', 8000, -3, 0.7]], gate: 10, comp: { thr: -20, ratio: 2.5, atk: 10, rel: 150, make: 2 } },
+      bright: { eq: [['peaking', 250, -2, 1], ['peaking', 4500, 4, 1], ['highshelf', 9000, 3, 0.7]], gate: 10, comp: { thr: -22, ratio: 3, atk: 8, rel: 140, make: 3 } }
+    };
+    function lin(db) { return Math.pow(10, db / 20); }
+    function clean(e) {
+      if (!e || !DEF[e.preset]) return null;
+      var a = r3(clamp(num(e.amount, 0.6), 0, 1)); if (a < 0.01) return null;
+      return { preset: e.preset, amount: a };
+    }
+    // The numbers for one setting. floorDb = how loud the background hiss in your recording is.
+    function params(e, floorDb) {
+      var c = clean(e); if (!c) return null;
+      var d = DEF[c.preset], a = c.amount, fl = clamp(num(floorDb, -50), -60, -35);
+      return { bands: d.eq.map(function (b) { return { type: b[0], f: b[1], g: r3(b[2] * a), q: b[3] }; }),
+        gate: { thrDb: r3(fl + 9), depthDb: r3(d.gate * a) },
+        comp: { thr: d.comp.thr, ratio: r3(1 + (d.comp.ratio - 1) * a), atk: d.comp.atk, rel: d.comp.rel, make: r3(d.comp.make * a) } };
+    }
+    // The ffmpeg filters, in order (gate, EQ, compressor).
+    function ffmpegChain(e, floorDb) {
+      var p = params(e, floorDb); if (!p) return [];
+      var out = ['agate=threshold=' + clamp(lin(p.gate.thrDb), 0.001, 1).toFixed(5) + ':range=' + clamp(lin(-p.gate.depthDb), 0.001, 1).toFixed(5) + ':ratio=20:attack=5:release=150:detection=peak'];
+      p.bands.forEach(function (b) {
+        if (Math.abs(b.g) < 0.05) return;
+        out.push(b.type === 'peaking' ? 'equalizer=f=' + b.f + ':t=q:w=' + b.q + ':g=' + b.g : b.type + '=f=' + b.f + ':g=' + b.g);
+      });
+      out.push('acompressor=threshold=' + clamp(lin(p.comp.thr), 0.001, 1).toFixed(5) + ':ratio=' + p.comp.ratio + ':attack=' + p.comp.atk + ':release=' + p.comp.rel + ':makeup=' + clamp(lin(p.comp.make), 1, 64).toFixed(3));
+      return out;
+    }
+    // Web Audio nodes (for the preview and the fast export): three tone filters, a compressor and a makeup gain. setNodes puts the numbers in; e = null is "off".
+    function makeNodes(ctx) {
+      var bands = [0, 1, 2].map(function () { var f = ctx.createBiquadFilter(); f.type = 'peaking'; f.frequency.value = 1000; f.gain.value = 0; f.Q.value = 1; return f; });
+      var comp = ctx.createDynamicsCompressor(), make = ctx.createGain();
+      bands[0].connect(bands[1]); bands[1].connect(bands[2]); bands[2].connect(comp); comp.connect(make);
+      return { input: bands[0], output: make, bands: bands, comp: comp, make: make };
+    }
+    function setNodes(fx, e, floorDb) {
+      var p = params(e, floorDb);
+      fx.bands.forEach(function (f, i) { var b = p && p.bands[i]; f.type = b ? b.type : 'peaking'; f.frequency.value = b ? b.f : 1000; f.gain.value = b ? b.g : 0; f.Q.value = b ? b.q : 1; });
+      var c = p ? p.comp : { thr: 0, ratio: 1, atk: 10, rel: 150, make: 0 };
+      fx.comp.threshold.value = c.thr; fx.comp.knee.value = 12; fx.comp.ratio.value = c.ratio; fx.comp.attack.value = c.atk / 1000; fx.comp.release.value = c.rel / 1000;
+      fx.make.gain.value = lin(c.make);
+    }
+    // The gate for a decoded recording: below the threshold the sound is turned down by depthDb (quickly up when you start talking, slowly down after).
+    // mk(channels, length, sampleRate) makes an empty buffer to write into.
+    function gateBuffer(buf, mk, e, floorDb) {
+      var p = params(e, floorDb); if (!p || p.gate.depthDb < 0.5) return buf;
+      var sr = buf.sampleRate, n = buf.length, nc = buf.numberOfChannels, out = mk(nc, n, sr), thr = lin(p.gate.thrDb), low = lin(-p.gate.depthDb);
+      var dec = Math.exp(-1 / (sr * 0.03)), up = 1 - Math.exp(-1 / (sr * 0.005)), down = 1 - Math.exp(-1 / (sr * 0.15)), env = 0, g = 1, i, c, m, tgt, src = [], dst = [];
+      for (c = 0; c < nc; c++) { src.push(buf.getChannelData(c)); dst.push(out.getChannelData(c)); }
+      for (i = 0; i < n; i++) {
+        m = 0; for (c = 0; c < nc; c++) { var v = src[c][i]; if (v < 0) v = -v; if (v > m) m = v; }
+        env = m > env * dec ? m : env * dec;
+        tgt = env < thr ? low : 1; g += (tgt - g) * (tgt > g ? up : down);
+        for (c = 0; c < nc; c++) dst[c][i] = src[c][i] * g;
+      }
+      return out;
+    }
+    return { PRESETS: PRESETS, clean: clean, params: params, ffmpegChain: ffmpegChain, makeNodes: makeNodes, setNodes: setNodes, gateBuffer: gateBuffer };
+  })();
+
+  var api = { voice: VOICE, gen: GEN, BLEND: BLEND, MASKS: MASKS, CHROMA: CHROMA, blendOf: blendOf, cssBlend: cssBlend, ffBlend: ffBlend, ffBlendFormat: ffBlendFormat,
     cleanBlend: cleanBlend, cleanMask: cleanMask, cleanChroma: cleanChroma, hexRgb: hexRgb, keyOf: keyOf, chromaAlpha: chromaAlpha, chromaFilter: chromaFilter,
     maskSd: maskSd, maskAlpha: maskAlpha, maskAlphaExpr: maskAlphaExpr, maskCanvas: maskCanvas, fxInto: fxInto, chromaInto: chromaInto, chromaCanvas: chromaCanvas, drawFx: drawFx };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

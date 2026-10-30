@@ -757,6 +757,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       items.push({ id: 'edSfx', label: 'Effects', icon: G.music, run: function (){ openPanel('sfxpick'); } });
       items.push({ id: 'edDuck', label: 'Duck music', icon: G.mix, run: function (){ openPanel('duck'); }, disabled: !has });
       items.push({ id: 'edSilence', label: 'Remove pauses', icon: G.quiet, run: function (){ openPanel('silences'); } });
+      items.push({ id: 'edVoiceFx', label: 'Enhance voice', icon: G.volume, run: function (){ openPanel('voicefx'); } });
       items.push({ id: 'edMix', label: 'Volume', icon: G.mix, run: function (){ openPanel('mix'); } });
       items.push({ id: 'edClipAudio', label: 'Clip', icon: G.clip, run: function (){ openPanel('clipaudio'); } });
       if (has) items.push({ id: 'edRemoveMusic', label: 'Remove music', icon: G.trash, run: function (){ if (E.hooks.setMusicFile) E.hooks.setMusicFile(null); commit(P.removeMusic(E.hist.cur)); } });
@@ -943,6 +944,14 @@ opacity: { title: 'Opacity', build: function (body){
         var q = P.removeSilences(E.hist.cur, opts()); if (q === E.hist.cur){ toast('No quiet pauses to remove.'); return; }
         commit(q); toast('Pauses removed. Everything after each one moved up.'); } }]));
       body.appendChild(mk('div', 'ed-hint', o.paused ? 'Only cuts pauses where the picture is held still, so no movie is lost.' : 'Everywhere also cuts stretches where the movie plays but you are quiet, so some of the movie goes too. Undo brings it back.'));
+    } },
+        voicefx: { title: 'Enhance voice', build: function (body){
+      var vt = E.proj.tracks.filter(function (t){ return t.role === 'voice'; })[0];
+      if (!vt || !NFX || !NFX.voice){ body.appendChild(mk('div', 'ed-hint', 'There is no voice recording to enhance.')); return; }
+      var e = vt.enhance, cur = e ? e.preset : 'none', set = function (o){ return P.setVoiceEnhance(E.hist.cur, o); };
+      body.appendChild(chips([{ key: 'none', label: 'Off' }].concat(NFX.voice.PRESETS), cur, function (k){ commit(set({ preset: k })); }));
+      if (e) body.appendChild(sliderRow('Strength', 5, 100, 5, Math.round(e.amount * 100), pct, function (v){ live(set({ amount: v / 100 })); }, function (v){ commit(set({ amount: v / 100 })); }));
+      body.appendChild(mk('div', 'ed-hint', 'Turns down the hiss between words (measured from your own recording), shapes the tone and evens out loud and soft. Clean is gentle, Podcast is fuller and punchier, Warm is softer, Bright is crisper. The preview plays the tone and loudness; the hiss reduction is only in the exported video.'));
     } },
     mix: { title: 'Volume', build: function (body){
       var tracks = E.proj.tracks.filter(function (t){ return t.kind === 'audio'; }); if (!tracks.length) return;
@@ -1577,6 +1586,13 @@ opacity: { title: 'Opacity', build: function (body){
     }
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   }
+    // Puts the voice enhance setting (or "off") into the preview's sound chain.
+  function applyVoiceFx(){
+    var fx = E.voiceFx; if (!fx || !NFX || !NFX.voice || !E.proj) return;
+    var vt = E.proj.tracks.filter(function (t){ return t.role === 'voice'; })[0], e = vt && vt.enhance ? vt.enhance : null, key = e ? e.preset + '|' + e.amount : '';
+    if (fx._k === key) return; fx._k = key;
+    NFX.voice.setNodes(fx, e, P.voiceFloorDb(E.hist.cur));
+  }
   // ----- sound effects -----
   function placeSfx(info){
     var out = {}, q = P.addSfx(E.hist.cur, Math.round(E.t), info, out);
@@ -1770,7 +1786,11 @@ opacity: { title: 'Opacity', build: function (body){
   function gainSetup(key, el){
     var h = E.hooks; if (h.simple || E[key] || !el) return;
     var ctx = h.getCtx && h.getCtx(); if (!ctx) return;
-    try { var src = ctx.createMediaElementSource(el), g = ctx.createGain(); src.connect(g); g.connect(ctx.destination); E[key] = g; } catch (e) {}
+    try {
+      var src = ctx.createMediaElementSource(el), g = ctx.createGain(), tail = src;
+      if (key === 'voiceGain' && NFX && NFX.voice){ E.voiceFx = NFX.voice.makeNodes(ctx); NFX.voice.setNodes(E.voiceFx, null); src.connect(E.voiceFx.input); tail = E.voiceFx.output; }
+      tail.connect(g); g.connect(ctx.destination); E[key] = g;
+    } catch (e) {}
   }
   function setGain(key, el, v){
     var h = E.hooks;
@@ -1824,6 +1844,7 @@ opacity: { title: 'Opacity', build: function (body){
     var ms = null, vo = null, mu = null;
     s.audio.forEach(function (a){ if (a.role === 'movieSound') ms = a; else if (a.role === 'voice') vo = a; else if (a.role === 'music') mu = a; });
     h.setMovieGain(ms && !ms.clip.reverse ? ms.gain : 0);
+    applyVoiceFx();
     if (E.playing && vo){
       if (v.paused){ v.currentTime = vo.sourceMs / 1000; var pv = v.play(); if (pv && pv.catch) pv.catch(function (){}); }
       else if (Math.abs(v.currentTime * 1000 - vo.sourceMs) > 250) v.currentTime = vo.sourceMs / 1000;

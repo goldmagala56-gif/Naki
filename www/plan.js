@@ -55,6 +55,7 @@ var NakiPlan = (function () {
           points: C.simplifyGain(series, STEP, 0.01) };
         if (src === 'movie' && c.speed && c.speed !== 1) a.speed = c.speed;
         if (src === 'movie' && c.reverse) a.reverse = true;
+        if (src === 'voice' && tr.enhance) a.enhance = { preset: tr.enhance.preset, amount: tr.enhance.amount, floorDb: P.voiceFloorDb ? P.voiceFloorDb(p) : -50 };
         if (tr.role === 'sfx') a.file = c.asset + '.in';
         if (src === 'movie' && c.asset && c.asset !== 'movie') a.asset = c.asset;
         audio.push(a);

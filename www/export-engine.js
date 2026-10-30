@@ -383,6 +383,8 @@ function planToJobs(plan, movieInfo, opts) {
       '-af', 'aformat=sample_fmts=s16:channel_layouts=stereo,atrim=end_sample=' + samples,
       '-t', (samples / SR + 0.05).toFixed(3), '-c:a', 'pcm_s16le', '-f', 'wav', name] };
   }
+  // Voice enhance (gate, tone, compressor), after the usual voice clean-up. Nothing for other sounds or when it is off.
+  function enhanceChain(src, c) { return (src === 'voice' && c.enhance && _FX && _FX.voice) ? _FX.voice.ffmpegChain(c.enhance, c.enhance.floorDb).map(function (s) { return ',' + s; }).join('') : ''; }
   // ffmpeg's atempo only accepts 0.5 to 2 per step, so 0.25x and 4x take two steps.
   function tempoChain(speed) {
     if (!speed || speed === 1) return '';
@@ -410,7 +412,7 @@ function planToJobs(plan, movieInfo, opts) {
     var lostMs = (startS - Sm(c.startMs)) * 1000 / SR;   // only non-zero if clips overlapped
     var spd = c.speed && c.speed !== 1 ? c.speed : 1;
     var rev = !!c.reverse && src === 'movie';
-    var fc = '[0:a]' + sourceChain(src, ai) + (rev ? ',areverse' : '') + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
+    var fc = '[0:a]' + sourceChain(src, ai) + enhanceChain(src, c) + (rev ? ',areverse' : '') + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
       '[1:a]aresample=' + SR + ',aformat=sample_fmts=fltp:channel_layouts=stereo[g];' +
       '[a][g]amultiply,aformat=sample_fmts=s16:channel_layouts=stereo[o]';
     var files = {}; files[gfile] = buildGainRaw(c.points, c.durMs + lostMs);

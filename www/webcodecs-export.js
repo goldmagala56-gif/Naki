@@ -276,6 +276,10 @@ var WebCodecsExport = (function () {
     var voiceBuf = null, musicBuf = null, movieSink = null;
     if (sources.voiceBlob && clips.some(function (c) { return c.src === 'voice'; })) {
       try { voiceBuf = await decodeWhole(sources.voiceBlob); } catch (e) { voiceBuf = null; }
+      try {   // voice enhance: turn down the hiss between words
+        var ve = clips.filter(function (c) { return c.src === 'voice' && c.enhance; })[0];
+        if (voiceBuf && ve && NFX && NFX.voice) voiceBuf = NFX.voice.gateBuffer(voiceBuf, function (nc, len, sr) { return new OfflineAudioContext(1, 1, sr).createBuffer(nc, len, sr); }, ve.enhance, ve.enhance.floorDb);
+      } catch (e) {}
     }
     if (sources.musicFile && clips.some(function (c) { return c.src === 'music'; })) {
       try { musicBuf = await decodeWhole(sources.musicFile); } catch (e) { musicBuf = null; }
@@ -296,7 +300,9 @@ var WebCodecsExport = (function () {
       var ctx = new OfflineAudioContext(2, n, AUDIO_SR);
       var hp = ctx.createBiquadFilter();
       hp.type = 'highpass'; hp.frequency.value = 80;
-      hp.connect(ctx.destination);
+      var venh = clips.filter(function (c) { return c.src === 'voice' && c.enhance; })[0];
+      if (venh && NFX && NFX.voice) { var vfx = NFX.voice.makeNodes(ctx); NFX.voice.setNodes(vfx, venh.enhance, venh.enhance.floorDb); hp.connect(vfx.input); vfx.output.connect(ctx.destination); }
+      else hp.connect(ctx.destination);
 
       for (var i = 0; i < clips.length; i++) {
         var c = clips[i];

@@ -1044,6 +1044,27 @@ function silenceRanges(p, o){
 }
 function removeSilences(p, o){ var r = silenceRanges(p, o); return r.length ? rippleDeleteRanges(p, r) : p; }
 
+// ---------- voice enhance ----------
+// How loud the background hiss in your recording is (dB): the quiet end of the microphone history, kept between -60 and -35. The gate uses it.
+function voiceFloorDb(p){
+  var lv = p.levels || [], arr = [];
+  for (var i = 0; i < lv.length; i++) arr.push(_C.byteToDb(lv[i]));
+  if (!arr.length) return -50;
+  arr.sort(function (a, b){ return a - b; });
+  return r3(Math.max(-60, Math.min(-35, arr[Math.floor(arr.length * 0.15)])));
+}
+// patch = { preset: 'none' | 'clean' | 'podcast' | 'warm' | 'bright', amount: 0 to 1 }; only what is mentioned changes. Stored on the voice row.
+function setVoiceEnhance(p, patch){
+  patch = patch || {};
+  var tr0 = p.tracks.filter(function (t){ return t.role === 'voice'; })[0]; if (!tr0 || !_FX || !_FX.voice) return p;
+  var cur = tr0.enhance || {}, preset = patch.preset !== undefined ? patch.preset : cur.preset;
+  var e = (!preset || preset === 'none') ? null : _FX.voice.clean({ preset: preset, amount: patch.amount !== undefined ? patch.amount : (cur.amount != null ? cur.amount : 0.6) });
+  if (JSON.stringify(e) === JSON.stringify(tr0.enhance || null)) return p;
+  var q = cloneProject(p), tr = q.tracks.filter(function (t){ return t.role === 'voice'; })[0];
+  if (e) tr.enhance = e; else delete tr.enhance;
+  return q;
+}
+
 // ---------- sound effects ----------
 // A sound effect is an ordinary audio clip on an "Effects" row (role 'sfx'). The sound itself is a file kept by the page (project.assets only knows its name
 // and length), so it splits, trims, moves, fades and changes volume like any other sound clip. Effects that overlap in time go on separate rows.
@@ -1327,7 +1348,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
   addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
-  addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps,
+  addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps, setVoiceEnhance: setVoiceEnhance, voiceFloorDb: voiceFloorDb,
   duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
