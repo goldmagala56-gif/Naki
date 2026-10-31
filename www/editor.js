@@ -1574,11 +1574,54 @@ opacity: { title: 'Opacity', build: function (body){
   }
   // The diamond: puts a keyframe on this property at the playhead, or takes the one that is there away. Change the value at another moment and it
   // moves smoothly between the keyframes.
+    // ----- the easing graph: how a value moves from the keyframe at the playhead to the next one -----
+  function easeBlock(c, prop){
+    var info = NANIM && P.keyframeEase(E.hist.cur, c.id, prop, relNow(c)); if (!info) return null;
+    var box = mk('div', 'ed-easebox');
+    if (!info.hasNext){ box.appendChild(mk('div', 'ed-hint', 'This is the last keyframe, so there is nothing after it to ease into.')); return box; }
+    var set = function (e){ var q = P.setKeyframeEase(E.hist.cur, c.id, prop, relNow(c), e); if (q === E.hist.cur) renderDock(); else commit(q); };
+    var bz = NANIM.bezierOf(info.ease), name = NANIM.easeName(info.ease), list = NANIM.EASES.map(function (x){ return { key: x.key, label: x.label }; });
+    if (name === 'custom') list.push({ key: 'custom', label: 'Custom' });
+    box.appendChild(mk('div', 'ed-hint', 'How it moves from this keyframe to the next:'));
+    box.appendChild(chips(list, name, function (k){ if (k !== 'custom') set(k); }));
+    if (name === 'hold'){ box.appendChild(mk('div', 'ed-hint', 'Hold keeps the value still until the next keyframe, then jumps to it.')); return box; }
+    var NS = 'http://www.w3.org/2000/svg', svg0 = document.createElementNS(NS, 'svg'), X0 = 16, X1 = 124, Y0 = 12, Y1 = 118;
+    svg0.setAttribute('viewBox', '0 0 140 130'); svg0.setAttribute('class', 'ed-ease'); svg0.setAttribute('role', 'img'); svg0.setAttribute('aria-label', 'Easing curve');
+    var px = function (x){ return X0 + x * (X1 - X0); }, py = function (y){ return Y1 - y * (Y1 - Y0); };
+    var node = function (tag, attrs){ var e = document.createElementNS(NS, tag); Object.keys(attrs).forEach(function (k){ e.setAttribute(k, attrs[k]); }); return e; };
+    var draw = function (){
+      while (svg0.firstChild) svg0.removeChild(svg0.firstChild);
+      svg0.appendChild(node('rect', { x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, 'class': 'ed-ezbox' }));
+      svg0.appendChild(node('line', { x1: px(0), y1: py(0), x2: px(1), y2: py(1), 'class': 'ed-ezdiag' }));
+      svg0.appendChild(node('line', { x1: px(0), y1: py(0), x2: px(bz[0]), y2: py(bz[1]), 'class': 'ed-ezh' }));
+      svg0.appendChild(node('line', { x1: px(1), y1: py(1), x2: px(bz[2]), y2: py(bz[3]), 'class': 'ed-ezh' }));
+      var d = ''; for (var i = 0; i <= 40; i++){ var f = i / 40; d += (i ? 'L' : 'M') + px(f).toFixed(1) + ' ' + py(NANIM.easeProgress(bz, f)).toFixed(1); }
+      svg0.appendChild(node('path', { d: d, 'class': 'ed-ezpath' }));
+      svg0.appendChild(node('circle', { cx: px(bz[0]), cy: py(bz[1]), r: 7, 'class': 'ed-ezdot' })); svg0.appendChild(node('circle', { cx: px(bz[2]), cy: py(bz[3]), r: 7, 'class': 'ed-ezdot' }));
+    };
+    var drag = -1, where = function (ev){ var r = svg0.getBoundingClientRect(), s = 140 / (r.width || 140); return { x: (ev.clientX - r.left) * s, y: (ev.clientY - r.top) * s }; };
+    svg0.addEventListener('pointerdown', function (ev){
+      var p = where(ev), d1 = Math.hypot(px(bz[0]) - p.x, py(bz[1]) - p.y), d2 = Math.hypot(px(bz[2]) - p.x, py(bz[3]) - p.y);
+      if (Math.min(d1, d2) > 22) return;
+      drag = d1 <= d2 ? 0 : 1; try { svg0.setPointerCapture(ev.pointerId); } catch (e) {} ev.preventDefault();
+    });
+    svg0.addEventListener('pointermove', function (ev){
+      if (drag < 0) return; var p = where(ev);
+      bz[drag * 2] = clamp((p.x - X0) / (X1 - X0), 0, 1); bz[drag * 2 + 1] = clamp((Y1 - p.y) / (Y1 - Y0), 0, 1); draw();
+    });
+    var letGo = function (){ if (drag < 0) return; drag = -1; set(bz.slice()); };
+    svg0.addEventListener('pointerup', letGo); svg0.addEventListener('pointercancel', letGo);
+    draw(); box.appendChild(svg0);
+    box.appendChild(mk('div', 'ed-hint', 'Drag the two dots. Up and to the left makes it start fast; down and to the right makes it start slowly. The preview and the export follow the curve.'));
+    return box;
+  }
   function keyframeActions(c, prop){
     var has = P.hasKeyframe(E.hist.cur, c.id, prop, relNow(c)), any = !!(c.kf && c.kf[prop]);
     var list = [{ id: 'edKeyframe', label: has ? '\u25c6 Remove keyframe' : '\u25c7 Add keyframe', on: has, run: function (){ commit(P.toggleKeyframe(E.hist.cur, c.id, prop, relNow(c))); } }];
     if (any) list.push({ id: 'edKeyframeClear', label: 'Clear keyframes', run: function (){ commit(P.clearKeyframes(E.hist.cur, c.id, prop, relNow(c))); } });
-    return actions(list);
+    var acts = actions(list), ez = easeBlock(c, prop);
+    if (!ez) return acts;
+    var wrap = mk('div'); wrap.appendChild(acts); wrap.appendChild(ez); return wrap;
   }
     // ----- shapes, arrows, spotlights and frames (they live on the overlay rows) -----
   G.shape = svg('<rect x="4" y="4" width="10" height="10" rx="1.5"/><circle cx="15.5" cy="15.5" r="4.5"/>');

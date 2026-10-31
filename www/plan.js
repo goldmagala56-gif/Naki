@@ -3,6 +3,7 @@ var NakiPlan = (function () {
   var P = (typeof module !== 'undefined' && module.exports) ? require('./project.js') : window.NakiProject;
   var C = (typeof module !== 'undefined' && module.exports) ? require('./core.js')
     : { simplifyGain: simplifyGain, LEVEL_STEP_MS: LEVEL_STEP_MS };
+  var NAN = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
   var STEP = 50;
   var ROLE_SRC = { movieSound: 'movie', voice: 'voice', music: 'music' };
 
@@ -29,7 +30,7 @@ var NakiPlan = (function () {
       if (c.transform) sp.transform = { zoom: c.transform.zoom, x: c.transform.x, y: c.transform.y, rot: c.transform.rot, flipH: !!c.transform.flipH };
       if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;
       if (c.vFadeOut) sp.vFadeOut = c.vFadeOut;
-      if (c.kf && (c.kf.zoom || c.kf.x || c.kf.y)) { sp.kf = {}; ['zoom', 'x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sp.kf[k] = JSON.parse(JSON.stringify(c.kf[k])); }); }
+      if (c.kf && (c.kf.zoom || c.kf.x || c.kf.y)) { sp.kf = {}; ['zoom', 'x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sp.kf[k] = NAN && NAN.bakeKf ? NAN.bakeKf({ v: c.kf[k] }).v : JSON.parse(JSON.stringify(c.kf[k])); }); }
       video.push(sp);
       cursor = e;
     });
@@ -96,7 +97,7 @@ var NakiPlan = (function () {
         if (e <= s) return;
         var o = { startMs: s, durMs: e - s, asset: c.asset, kind: c.type === 'freeze' ? 'image' : 'video', inMs: Math.round(c.in || 0), x: c.x, y: c.y, size: c.size, rot: c.rot || 0, opacity: c.opacity != null ? c.opacity : 1, w: a.w || 0, h: a.h || 0 };
         if (c.gen){ o.gen = JSON.parse(JSON.stringify(c.gen)); o.asset = 'gen_' + c.id; o.kind = 'image'; o.inMs = 0; o.w = c.gen.full ? 0 : 1000; o.h = c.gen.full ? 0 : Math.max(2, Math.round(1000 * (c.gen.ar || 1))); }
-        if (c.kf) o.kf = JSON.parse(JSON.stringify(c.kf));
+        if (c.kf) o.kf = NAN && NAN.bakeKf ? NAN.bakeKf(c.kf) : JSON.parse(JSON.stringify(c.kf));
         if (c.blend) o.blend = c.blend;
         if (c.mask) o.mask = JSON.parse(JSON.stringify(c.mask));
         if (c.chroma) o.chroma = JSON.parse(JSON.stringify(c.chroma));

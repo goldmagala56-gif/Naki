@@ -217,7 +217,7 @@ function trimClipStart(p, id, newStart){
     c.fadeInOff = 0;
     if (c.kf && _AN){
       if (delta > 0) c.kf = kfSlice(c.kf, delta, c.dur);
-      else if (delta < 0){ var kk = {}; Object.keys(c.kf).forEach(function (k){ kk[k] = [[0, c.kf[k][0][1]]].concat(c.kf[k].map(function (pt){ return [pt[0] - delta, pt[1]]; })); }); c.kf = kk; }
+      else if (delta < 0){ var kk = {}; Object.keys(c.kf).forEach(function (k){ kk[k] = [[0, c.kf[k][0][1]]].concat(c.kf[k].map(function (pt){ return pt.length > 2 ? [pt[0] - delta, pt[1], pt[2]] : [pt[0] - delta, pt[1]]; })); }); c.kf = kk; }
     }
     c.start += delta; c.dur -= delta;
   });
@@ -365,7 +365,7 @@ function setClipSpeed(p, id, speed){
   ids.forEach(function (cid){
     var c = findClip(q, cid).clip; c.speed = speed; c.dur = newDur;
     if (c.gain && c.gain.length) c.gain = c.gain.map(function (pt){ return [Math.round(pt[0] * ratio), pt[1]]; });
-    if (c.kf){ var kk2 = {}; Object.keys(c.kf).forEach(function (k){ kk2[k] = c.kf[k].map(function (pt){ return [Math.round(pt[0] * ratio), pt[1]]; }); }); c.kf = kk2; }
+    if (c.kf){ var kk2 = {}; Object.keys(c.kf).forEach(function (k){ kk2[k] = c.kf[k].map(function (pt){ return pt.length > 2 ? [Math.round(pt[0] * ratio), pt[1], pt[2]] : [Math.round(pt[0] * ratio), pt[1]]; }); }); c.kf = kk2; }
     c.fadeInOff = Math.round((c.fadeInOff || 0) * ratio); c.fadeOutOff = Math.round((c.fadeOutOff || 0) * ratio);
     c.fadeIn = Math.min(c.fadeIn || 0, Math.floor(newDur / 2)); c.fadeOut = Math.min(c.fadeOut || 0, Math.floor(newDur / 2));
     if (c.vFadeIn) c.vFadeIn = Math.min(c.vFadeIn, Math.floor(newDur / 2)); if (c.vFadeOut) c.vFadeOut = Math.min(c.vFadeOut, Math.floor(newDur / 2));
@@ -900,7 +900,7 @@ function kfAt(pts, relMs){ var hit = -1; (pts || []).forEach(function (pt, i){ i
 function putKeyframe(c, prop, relMs, v){
   relMs = Math.max(0, Math.min(Math.round(c.dur), Math.round(relMs)));
   c.kf = c.kf || {}; var pts = c.kf[prop] = c.kf[prop] || [], hit = kfAt(pts, relMs);
-  if (hit >= 0) pts[hit] = [pts[hit][0], v]; else pts.push([relMs, v]);
+  if (hit >= 0) pts[hit] = pts[hit].length > 2 ? [pts[hit][0], v, pts[hit][2]] : [pts[hit][0], v]; else _AN.insertKf(pts, relMs, v);
   pts.sort(function (a, b){ return a[0] - b[0]; });
 }
 // Sets a property at the playhead (relMs since the clip started). With keyframes on that property it sets (or adds) the keyframe there; without,
@@ -940,9 +940,9 @@ function clearKeyframes(p, id, prop, relMs){
 function kfSlice(kf, from, to){
   var out = {};
   Object.keys(kf).forEach(function (k){
-    var pts = kf[k], arr = [[0, r3(_AN.kfValue(pts, from))]];
-    pts.forEach(function (pt){ if (pt[0] > from && pt[0] < to) arr.push([pt[0] - from, pt[1]]); });
-    arr.push([to - from, r3(_AN.kfValue(pts, to))]); out[k] = arr;
+    var pts = kf[k], arr = _AN.sliceKf(pts, from, to);
+    
+    out[k] = arr;
   });
   return out;
 }
@@ -1314,6 +1314,23 @@ function clearSpeedCurve(p, id){
   return cur;
 }
 
+// ---------- easing of keyframes ----------
+// The keyframe at relMs (the playhead, counted from the start of the clip): its number, how many there are, how it eases to the next one (null = a straight
+// line, 'hold', or four numbers), and whether there is a next one. Null when there is no keyframe there.
+function keyframeEase(p, id, prop, relMs){
+  var f = findClip(p, id); if (!f || !f.clip.kf || !f.clip.kf[prop]) return null;
+  var pts = f.clip.kf[prop], i = kfAt(pts, Math.round(relMs)); if (i < 0) return null;
+  return { index: i, count: pts.length, ease: pts[i][2] == null ? null : pts[i][2], hasNext: i < pts.length - 1 };
+}
+// ease = 'linear' | 'in' | 'out' | 'inout' | 'hold' | [x1, y1, x2, y2] (see anim.js). Sets how the value moves from this keyframe to the next one.
+function setKeyframeEase(p, id, prop, relMs, ease){
+  var f = findClip(p, id); if (!f || !_AN || !f.clip.kf || !f.clip.kf[prop]) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip, pts = c.kf[prop], i = kfAt(pts, Math.round(relMs));
+  if (i < 0 || i >= pts.length - 1) return p;
+  var e = _AN.cleanEase(ease); if (e == null) pts[i].length = 2; else pts[i][2] = e;
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -1346,7 +1363,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
   addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
-  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
+  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, keyframeEase: keyframeEase, setKeyframeEase: setKeyframeEase, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
   addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps, setVoiceEnhance: setVoiceEnhance, voiceFloorDb: voiceFloorDb,
   duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences };
