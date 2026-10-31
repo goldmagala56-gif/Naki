@@ -802,7 +802,7 @@ function setFormat(p, patch){
 // ---------- transitions (between two picture clips that touch) ----------
 // A transition is stored on the clip that comes AFTER the cut: clip.transition = { type, durMs }. It takes half of its length from the end of the
 // clip before and half from the start of this one (using the movie that carries on past each cut), so the video does not get longer or shorter.
-var TRANSITION_TYPES = ['fade', 'fadeblack', 'wipeleft', 'slideleft', 'zoomin', 'circleopen'];
+var TRANSITION_TYPES = (_FX && _FX.trans) ? _FX.trans.KEYS : ['fade', 'fadeblack', 'wipeleft', 'slideleft', 'zoomin', 'circleopen'];
 function pictureLane(p){ return p.tracks.filter(function (t){ return t.role === 'movie'; })[0] || null; }
 function transitionOk(a, b){
   return !!(a && b && (a.type === 'video' || a.type === 'freeze') && (b.type === 'video' || b.type === 'freeze') && !a.reverse && !b.reverse && clipEnd(a) === b.start);
@@ -1196,10 +1196,10 @@ function setMotionPreset(p, id, key){
 // ---------- video effects over a stretch of time ----------
 // An effect is a clip on a "video effects" row: shake, glitch, blur, flash, RGB split or film grain, with a strength from 0 to 1. Effects that overlap in
 // time go on separate rows (and add up).
-var FX_KEYS = ['shake', 'glitch', 'blur', 'flash', 'rgbsplit', 'grain'];
+var FX_KEYS = (_FX && _FX.vfx) ? _FX.vfx.KEYS : ['shake', 'glitch', 'blur', 'flash', 'rgbsplit', 'grain'];
 function addFx(p, t, key, out){
   var total = p.durationMs; if (!(total > 0) || FX_KEYS.indexOf(key) < 0) return p;
-  var start = Math.max(0, Math.min(Math.round(t), total - 200)), d = Math.min(key === 'flash' ? 500 : 2000, total - start); if (d < 200) return p;
+  var start = Math.max(0, Math.min(Math.round(t), total - 200)), d = Math.min((_FX && _FX.vfx) ? _FX.vfx.defDur(key) : (key === 'flash' ? 500 : 2000), total - start); if (d < 200) return p;
   var q = cloneProject(p), rows = q.tracks.filter(function (x){ return x.kind === 'fx'; }), tr = null;
   for (var i = 0; i < rows.length && !tr; i++) if (!rows[i].clips.some(function (c){ return start < clipEnd(c) && start + d > c.start; })) tr = rows[i];
   if (!tr){

@@ -186,7 +186,7 @@ function planToJobs(plan, movieInfo, opts) {
     var cur = 'v0';
     fxs.forEach(function (x) {
       var a0 = Math.max(0, (x.startMs - sp.sessionStart) / 1000), b0 = (Math.min(sp.sessionEnd, x.startMs + x.durMs) - sp.sessionStart) / 1000, out = 'v' + (++n);
-      fc.push(_L2.ffmpegFx(x, a0, b0, cur, out, width, height)); cur = out;
+      fc.push(_FX && _FX.vfx && _FX.vfx.has(x.fx) && !_FX.vfx.legacy(x.fx) ? _FX.vfx.graph(x, a0, b0, cur, out, width, height) : _L2.ffmpegFx(x, a0, b0, cur, out, width, height)); cur = out;
     });
     ovs.forEach(function (o) {
       var op = overlayParts(o, sp), bm = _FX && op.blend ? _FX.ffBlend(op.blend) : null;
@@ -270,7 +270,7 @@ function planToJobs(plan, movieInfo, opts) {
   }
 
   // ---- transitions: where two touching pictures meet, each gives up half of the transition and a short piece made from both goes between ----
-  var XFADE = { fade: 'fade', fadeblack: 'fadeblack', wipeleft: 'wipeleft', slideleft: 'slideleft', zoomin: 'zoomin', circleopen: 'circleopen' };
+  var XFADE = (_FX && _FX.trans) ? _FX.trans.XFADE : { fade: 'fade', fadeblack: 'fadeblack', wipeleft: 'wipeleft', slideleft: 'slideleft', zoomin: 'zoomin', circleopen: 'circleopen' };
   function transOk(a, b) {
     return !!(a && b && b.transitionIn && XFADE[b.transitionIn.type] && a.sessionEnd === b.sessionStart && a.type !== 'black' && b.type !== 'black' && !a.reverse && !b.reverse && b.transitionIn.durMs >= 100);
   }

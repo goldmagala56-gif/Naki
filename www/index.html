@@ -1454,10 +1454,10 @@ function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callba
     toast('Using the compatible export engine so all your edits are included. This can take longer.', 6000);
     return loadExportEngine().then(function(){ return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks); }).catch(function(err){
       // If transitions are what this device's video engine cannot do, make the video without them rather than not at all.
-      if (!plan.video.some(function(s){ return s.transitionIn; })) throw err;
+      if (!plan.video.some(function(s){ return s.transitionIn; }) && !(plan.fx && plan.fx.length)) throw err;
       console.warn('transitions failed, trying again without them:', err);
-      plan.video.forEach(function(s){ delete s.transitionIn; });
-      toast('Transitions could not be made on this device, so they were left out.', 8000);
+      plan.video.forEach(function(s){ delete s.transitionIn; }); delete plan.fx;
+      toast('Transitions or effects could not be made on this device, so they were left out.', 8000);
       return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks);
     });
   }

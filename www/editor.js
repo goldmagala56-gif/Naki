@@ -278,7 +278,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       var extra = (c.speed && c.speed !== 1 ? ' ' + c.speed + '×' : '') + (c.filter ? ' · filter' : '') + (c.vFadeIn || c.vFadeOut ? ' · fade' : '') + (c.opacity != null ? ' · ' + Math.round(c.opacity * 100) + '%' : '') + (c.reverse ? ' · reversed' : '') + (c.transform ? ' · ' + (c.transform.zoom > 1 ? 'zoom ' : '') + (c.transform.rot ? c.transform.rot + '° ' : '') + (c.transform.flipH ? 'flip' : '') : '');
       return (c.type === 'freeze' ? 'Paused picture' : (c.asset && c.asset !== 'movie' ? ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || 'Video') : 'Movie playing')) + extra;
     }
-    return tr.kind === 'fx' ? 'FX · ' + (NL2 ? NL2.fxLabel(c.fx) : c.fx) : tr.kind === 'sticker' ? (c.glyph || '') + ' Sticker' : tr.kind === 'overlay' ? 'Overlay \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : tr.role === 'sfx' ? 'Effect \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : (ROLE_NAME[tr.role] || 'Audio');
+    return tr.kind === 'fx' ? 'FX · ' + (NFX && NFX.vfx && NFX.vfx.has(c.fx) ? NFX.vfx.label(c.fx) : (NL2 ? NL2.fxLabel(c.fx) : c.fx)) : tr.kind === 'sticker' ? (c.glyph || '') + ' Sticker' : tr.kind === 'overlay' ? 'Overlay \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : tr.role === 'sfx' ? 'Effect \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : (ROLE_NAME[tr.role] || 'Audio');
   }
   function drawWave(cv, c){
     var g = cv.getContext && cv.getContext('2d'); if (!g) return;
@@ -1019,7 +1019,12 @@ opacity: { title: 'Opacity', build: function (body){
       var f = P.findClip(E.proj, c.id), touching = false;
       if (f) f.track.clips.forEach(function (a){ if (a.id !== c.id && a.start + a.dur === c.start) touching = true; });
       var cur = c.transition || { type: 'none', durMs: 600 };
-      body.appendChild(chips(TRANSITIONS, cur.type, function (k){ commit(P.setTransition(E.hist.cur, c.id, { type: k })); }));
+      var TG = NFX && NFX.trans;
+      if (TG){
+        var tgNow = (TG.LIST.filter(function (t){ return t.key === cur.type; })[0] || {}).group || 'fades', tgSel = chipKey('transgroup', TG.GROUPS, tgNow);
+        body.appendChild(chips(TG.GROUPS, tgSel, pickChip('transgroup')));
+        body.appendChild(chips([{ key: 'none', label: 'None' }].concat(TG.inGroup(tgSel)), cur.type, function (k){ commit(P.setTransition(E.hist.cur, c.id, { type: k })); }));
+      } else body.appendChild(chips(TRANSITIONS, cur.type, function (k){ commit(P.setTransition(E.hist.cur, c.id, { type: k })); }));
       if (c.transition) body.appendChild(sliderRow('Length', 200, 2000, 100, c.transition.durMs, secs, null, function (v){ commit(P.setTransition(E.hist.cur, c.id, { durMs: v })); }));
       body.appendChild(mk('div', 'ed-hint', touching
         ? 'The transition happens where this clip starts. The preview shows a fade; the exported video has the real effect. Videos with transitions export with the compatible engine, which takes longer.'
@@ -1129,7 +1134,10 @@ opacity: { title: 'Opacity', build: function (body){
     } },
     framepick: { title: 'Frames', build: function (body){
       if (!NFX || !NFX.gen){ body.appendChild(mk('div', 'ed-hint', 'Frames are not available here.')); return; }
-      body.appendChild(chips(NFX.gen.FRAMES, null, function (k){ var d = NFX.gen.frameDefaults(k); addGenHere({ kind: 'frame', frame: k, color: d.color, width: d.width }); }));
+      var fcats = []; NFX.gen.FRAMES.forEach(function (f){ var c = f.cat || 'Classic'; if (fcats.indexOf(c) < 0) fcats.push(c); });
+      var fck = chipKey('framepick', fcats.map(function (c){ return { key: c, label: c }; }), fcats[0]);
+      body.appendChild(chips(fcats.map(function (c){ return { key: c, label: c }; }), fck, pickChip('framepick')));
+      body.appendChild(chips(NFX.gen.FRAMES.filter(function (f){ return (f.cat || 'Classic') === fck; }), null, function (k){ var d = NFX.gen.frameDefaults(k); addGenHere({ kind: 'frame', frame: k, color: d.color, width: d.width }); }));
       body.appendChild(mk('div', 'ed-hint', 'A frame goes over the whole picture from the playhead to the end. Drag its end on the timeline to make it shorter. To use your own frame, add a PNG with a see-through middle as an overlay and set its size to 100%.'));
     } },
     genedit: { title: 'Edit', build: function (body){
@@ -1192,6 +1200,24 @@ opacity: { title: 'Opacity', build: function (body){
       body.appendChild(mk('div', 'ed-hint', g.kind === 'spotlight' ? 'Drag on the picture to move the spot. Blend and Motion are under the Overlay tools too.'
         : g.kind === 'frame' ? 'A frame covers the whole picture. Drag its ends on the timeline to change how long it shows.'
         : 'Drag it on the picture to move it. For movement, put a keyframe here, move the playhead, change the value, and it glides between them.'));
+    } },
+        fxpick: { title: 'Video effects', build: function (body){
+      var V = NFX && NFX.vfx; if (!V){ body.appendChild(mk('div', 'ed-hint', 'Effects are not available here.')); return; }
+      var cur = chipKey('fxcat', V.CATS, V.CATS[0].key);
+      body.appendChild(chips(V.CATS, cur, pickChip('fxcat')));
+      body.appendChild(chips(V.inCat(cur), null, function (k){ addFxHere(k); }));
+      body.appendChild(mk('div', 'ed-hint', 'Tap one to put it on the picture at the playhead, then press play. Drag its ends on the timeline to change how long it lasts. Effects that CSS cannot show in the preview (mirrors, pixelate, lens, edges) show a note there; the exported video has the real effect. Videos with effects export with the compatible engine, which takes longer.'));
+    } },
+    fxedit: { title: 'Effect', build: function (body){
+      var V = NFX && NFX.vfx, c = selFx();
+      if (!V || !c){ body.appendChild(mk('div', 'ed-hint', 'Tap an effect on the timeline first.')); return; }
+      var me = V.LIST.filter(function (e){ return e.key === c.fx; })[0], cat = me ? me.cat : V.CATS[0].key;
+      body.appendChild(chips(V.inCat(cat), c.fx, function (k){ commit(P.setFxProps(E.hist.cur, c.id, { fx: k })); }));
+      if (V.isFixed(c.fx)) body.appendChild(mk('div', 'ed-hint', 'This effect has one setting. Drag its ends on the timeline to change how long it lasts.'));
+      else {
+        body.appendChild(sliderRow('Strength', 0, 100, 5, Math.round((c.strength == null ? 0.5 : c.strength) * 100), pct, function (v){ live(P.setFxProps(E.hist.cur, c.id, { strength: v / 100 })); }, function (v){ commit(P.setFxProps(E.hist.cur, c.id, { strength: v / 100 })); }));
+        body.appendChild(mk('div', 'ed-hint', 'Drag the ends of the effect on the timeline to change how long it lasts. Several effects can be on at once (each on its own row).'));
+      }
     } },
     overlayfx: { title: 'Blend & mask', build: function (body){
       var c = selOverlay(); if (!c || !NFX){ body.appendChild(mk('div', 'ed-hint', 'Tap an overlay on the timeline or the picture first.')); return; }
@@ -1593,6 +1619,25 @@ opacity: { title: 'Opacity', build: function (body){
     if (fx._k === key) return; fx._k = key;
     NFX.voice.setNodes(fx, e, P.voiceFloorDb(E.hist.cur));
   }
+    // The parts of an effect's preview that are not a filter or a transform on the picture: a colour wash or pattern, cinema bars, and a note for effects the preview cannot show.
+  function applyFxExtras(r){
+    var u = E.ui, pf = u.picframe; if (!pf || !r) return;
+    if (!u.fxtint){
+      var base = 'position:absolute;pointer-events:none;display:none;z-index:3;';
+      u.fxtint = mk('div'); u.fxtint.style.cssText = base + 'inset:0';
+      u.fxbarT = mk('div'); u.fxbarT.style.cssText = base + 'left:0;right:0;top:0;background:#000';
+      u.fxbarB = mk('div'); u.fxbarB.style.cssText = base + 'left:0;right:0;bottom:0;background:#000';
+      u.fxbadge = mk('div'); u.fxbadge.style.cssText = base + 'left:8px;bottom:8px;padding:3px 8px;border-radius:999px;background:rgba(17,27,36,.85);color:#f3eee3;font:600 11px system-ui,sans-serif;z-index:4';
+      pf.appendChild(u.fxtint); pf.appendChild(u.fxbarT); pf.appendChild(u.fxbarB); pf.appendChild(u.fxbadge);
+    }
+    var t0 = r.tints && r.tints[0], key = (t0 ? t0.bg + '|' + t0.mode : '') + '#' + Math.round((r.bars || 0) * 1000) + '#' + (r.badge || []).join(',');
+    if (u.fxtint._k === key) return; u.fxtint._k = key;
+    if (t0){ u.fxtint.style.background = t0.bg; u.fxtint.style.mixBlendMode = t0.mode === 'normal' ? '' : t0.mode; u.fxtint.style.display = 'block'; } else u.fxtint.style.display = 'none';
+    var bh = r.bars ? (r.bars * 100) + '%' : '0';
+    u.fxbarT.style.height = u.fxbarB.style.height = bh; u.fxbarT.style.display = u.fxbarB.style.display = r.bars ? 'block' : 'none';
+    var note = (r.badge || []).join(', ');
+    u.fxbadge.textContent = note ? note + ': the full effect is in the exported video' : ''; u.fxbadge.style.display = note ? 'block' : 'none';
+  }
   // ----- sound effects -----
   function placeSfx(info){
     var out = {}, q = P.addSfx(E.hist.cur, Math.round(E.t), info, out);
@@ -1678,7 +1723,7 @@ opacity: { title: 'Opacity', build: function (body){
   // ----- video effects: shake, glitch, blur, flash, RGB split, film grain -----
   function syncFx(){
     var u = E.ui; if (!NL2 || !u.fxflash || !E.proj || !E.proj.tracks) return;
-    var r = NL2.previewFx(P.fxAt(E.proj, E.t), E.t);
+    var r = (NFX && NFX.vfx) ? NFX.vfx.preview(P.fxAt(E.proj, E.t), E.t) : NL2.previewFx(P.fxAt(E.proj, E.t), E.t); applyFxExtras(r);
     u.picbox.style.transform = r.transform; u.picbox.style.filter = r.filter.trim();
     var fl = String(Math.round(r.flash * 1000) / 1000); if (fl !== u.fxflash._o){ u.fxflash.style.opacity = fl; u.fxflash._o = fl; }
     var gr = String(Math.round(Math.max(r.grain, E.grainBase || 0) * 1000) / 1000); if (gr !== u.grain._o){ u.grain.style.opacity = gr; u.grain.style.display = +gr ? 'block' : 'none'; u.grain._o = gr; }
