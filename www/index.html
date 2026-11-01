@@ -142,6 +142,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 }
 </style>
 <link rel="stylesheet" href="fonts/fonts.css">
+<link rel="stylesheet" href="theme.css">
 </head>
 <body>
 <header class="top">
@@ -1878,5 +1879,6 @@ $('bEdit').onclick = function(){
 placeThr();
 DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show('home'); return refreshHome(); });
 </script>
+<script src="skin.js"></script>
 </body>
 </html>

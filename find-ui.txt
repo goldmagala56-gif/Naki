@@ -1,0 +1,279 @@
+﻿
+> www\editor.js:53:  function svg(path, fill){ return 
+'<svg viewBox="0 0 24 24" ' + (fill ? 
+'fill="currentColor"' : 'fill="none" 
+stroke="currentColor" stroke-width="2" 
+stroke-linecap="round" stroke-linejoin="round"') + '>' 
++ path + '</svg>'; }
+  www\editor.js:54:  var ICON = {
+  www\editor.js:55:    play: svg('<path d="M8 
+5.5v13l11-6.5z"/>', true), pause: svg('<path d="M6.5 
+5h4v14h-4zM13.5 5h4v14h-4z"/>', true),
+  www\editor.js:56:    undo: svg('<path d="M9 14L4 
+9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 010 11H11"/>'), 
+redo: svg('<path d="M15 14l5-5-5-5"/><path d="M20 
+9H9.5a5.5 5.5 0 000 11H13"/>')
+  www\editor.js:57:  };
+  www\editor.js:58:
+> www\editor.js:214:    var g = cv.getContext('2d'), v 
+= PS ? PS.view(c.asset, c.in || 0, c.dur * (c.speed || 
+1), W, !!c.reverse) : null;
+  www\editor.js:215:    g.clearRect(0, 0, W, H);
+  www\editor.js:216:    if (!v){ g.fillStyle = 
+'rgba(255,255,255,.25)'; g.fillRect(0, H / 2 - 1, W, 
+2); cv._pending = false; return; }   // no file, or it 
+cannot be read: a thin line
+  www\editor.js:217:    g.fillStyle = 
+'rgba(255,255,255,.65)'; NPK.drawBars(g, v.vals, W, H, 
+v.norm); cv._pending = !v.done;
+  www\editor.js:218:  }
+  www\editor.js:219:  function decorateClip(e, tr, c){
+> www\editor.js:255:    var g = E.ui.snapline, snapped 
+= Math.abs(d.newStart - raw) >= 1;
+  www\editor.js:256:    if (!snapped){ if (g) 
+g.style.display = 'none'; d.wasSnapped = false; 
+return; }
+  www\editor.js:257:    var skip = 
+P.linkedClips(E.hist.cur, d.id).map(function (x){ 
+return x.clip.id; }), len = d.e0 - d.s0, th = 8 / 
+E.ppm;
+  www\editor.js:258:    var a = P.snapTime(E.proj, 
+raw, th, [E.t], skip), b = P.snapTime(E.proj, raw + 
+len, th, [E.t], skip) - len;
+  www\editor.js:259:    var atStart = a !== raw && (b 
+=== raw || Math.abs(a - raw) <= Math.abs(b - raw));
+  www\editor.js:260:    if (!g || !g.parentNode){ g = 
+E.ui.snapline = mk('div', 'ed-snapline'); 
+E.ui.inner.appendChild(g); }
+> www\editor.js:284:    var g = cv.getContext && 
+cv.getContext('2d'); if (!g) return;
+  www\editor.js:285:    var lv = E.proj.levels || [], 
+w = cv.width = Math.max(1, Math.min(4000, 
+Math.round(c.dur * E.ppm))), hh = cv.height = 34;
+  www\editor.js:286:    g.fillStyle = 
+'rgba(255,255,255,.6)';
+  www\editor.js:287:    for (var x = 0; x < w; x += 2){
+  www\editor.js:288:      var i0 = Math.floor((c.start 
++ x / w * c.dur) / 50), i1 = Math.max(i0, 
+Math.floor((c.start + (x + 2) / w * c.dur) / 50)), b = 
+0;
+  www\editor.js:289:      for (var i = i0; i <= i1 && 
+i < lv.length; i++) b = Math.max(b, lv[i] || 0);
+> www\editor.js:578:  var G = {
+  www\editor.js:579:    back: svg('<path d="M15 5l-7 7 
+7 7"/>'), check: svg('<path d="M5 12.5l4.5 4.5L19 
+7.5"/>'),
+  www\editor.js:580:    split: svg('<path d="M12 
+3v18M7 7l-3 3 3 3M17 7l3 3-3 3"/>'),
+  www\editor.js:581:    cut: svg('<circle cx="6" 
+cy="6" r="2.6"/><circle cx="6" cy="18" r="2.6"/><path 
+d="M8.2 7.6L20 19M8.2 16.4L20 5"/>'),
+  www\editor.js:582:    trash: svg('<path d="M4 7h16M9 
+7V4h6v3M6 7l1 13h10l1-13"/>'),
+  www\editor.js:583:    dup: svg('<rect x="8" y="8" 
+width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 
+00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2"/>'),
+> www\editor.js:1043:      var g = mk('div', 
+'ed-grid');
+  www\editor.js:1044:      (NSTK ? 
+NSTK.EMOJI.concat(NSTK.SYMBOLS) : []).forEach(function 
+(ch){ var b = btn(null, ch, 'ed-gbtn', 'Add sticker ' 
++ ch); b.onclick = function (){ addStickerHere(ch); }; 
+g.appendChild(b); });
+  www\editor.js:1045:      body.appendChild(g);
+  www\editor.js:1046:      body.appendChild(mk('div', 
+'ed-hint', 'Tap one to put it on the picture at the 
+playhead. Drag it in the preview to move it.'));
+  www\editor.js:1047:    } },
+  www\editor.js:1048:    stickeredit: { title: 
+'Sticker', build: function (body){
+> www\editor.js:1103:      var g = mk('div', 'ed-chips 
+wrap');
+  www\editor.js:1104:      var cats = [{ key: 'all', 
+label: 'All' }], seenCat = {};
+  www\editor.js:1105:      (NSFX ? NSFX.LIST : 
+[]).forEach(function (x){ var c = x.cat || 'Other'; if 
+(!seenCat[c]){ seenCat[c] = 1; cats.push({ key: c, 
+label: c }); } });
+  www\editor.js:1106:      var catNow = 
+chipKey('sfxpick', cats, 'all');
+  www\editor.js:1107:      
+body.appendChild(chips(cats, catNow, 
+pickChip('sfxpick')));
+  www\editor.js:1108:      (NSFX ? NSFX.LIST : 
+[]).forEach(function (x){ if (catNow !== 'all' && 
+(x.cat || 'Other') !== catNow) return; var b = 
+btn(null, x.label, 'ed-chip'); b.onclick = function 
+(){ addSfxBuiltin(x.key); }; g.appendChild(b); });
+> www\editor.js:1146:      var g = c.gen, GN = 
+NFX.gen, keys = [], gp = function (o){ return 
+P.setGenProps(E.hist.cur, c.id, o); }, deg = function 
+(v){ return v + '\u00b0'; };
+  www\editor.js:1147:      if (g.kind === 'shape'){
+  www\editor.js:1148:        keys = [{ key: 'shape', 
+label: 'Shape' }, { key: 'fill', label: 'Fill' }, { 
+key: 'stroke', label: 'Outline' }, { key: 'ar', label: 
+g.shape === 'line' ? 'Thickness' : 'Height' }];
+  www\editor.js:1149:        if (g.shape === 
+'rounded') keys.push({ key: 'corner', label: 'Corners' 
+});
+  www\editor.js:1150:      } else if (g.kind === 
+'arrow') keys = [{ key: 'style', label: 'Style' }, { 
+key: 'color', label: 'Colour' }, { key: 'thick', 
+label: 'Thickness' }, { key: 'ar', label: 'Height' }, 
+{ key: 'curve', label: 'Curve' }];
+  www\editor.js:1151:      else if (g.kind === 
+'spotlight') keys = [{ key: 'shape', label: 'Shape' }, 
+{ key: 'size', label: 'Size' }, { key: 'stretch', 
+label: 'Wide / tall' }, { key: 'dim', label: 
+'Darkness' }, { key: 'feather', label: 'Soft edge' },
+> www\editor.js:1307:          var pts = cv.pts, bi = 
+0, bg = 0; for (var i = 0; i < pts.length - 1; i++){ 
+var g = pts[i + 1][0] - pts[i][0]; if (g > bg){ bg = 
+g; bi = i; } }
+  www\editor.js:1308:          if (bg < NCV.GAP * 2 || 
+pts.length >= NCV.MAXPTS){ toast('There is no room for 
+another point.'); return; }
+  www\editor.js:1309:          var u = (pts[bi][0] + 
+pts[bi + 1][0]) / 2; pts.splice(bi + 1, 0, [u, 
+NCV.valueAt(pts, u)]); cv.sel = bi + 1; cv.preset = 
+'custom'; draw();
+  www\editor.js:1310:        } },
+  www\editor.js:1311:        { id: 'edCurveDel', 
+label: 'Delete point', run: function (){
+  www\editor.js:1312:          if (cv.sel <= 0 || 
+cv.sel >= cv.pts.length - 1){ toast('Tap a point first 
+(not the first or the last one).'); return; }
+> www\editor.js:1639:    var g = c.gen, lay = 
+E.ui.overlaylayer, w, h;
+  www\editor.js:1640:    if (g.full){ var lw = 
+lay.clientWidth || 480, lh = lay.clientHeight || 270, 
+sc = Math.min(1, (g.kind === 'spotlight' ? 360 : 720) 
+/ lw); w = Math.max(2, Math.round(lw * sc)); h = 
+Math.max(2, Math.round(lh * sc)); }
+  www\editor.js:1641:    else { w = 640; h = 
+Math.max(2, Math.round(640 * (g.ar || 1))); }
+  www\editor.js:1642:    var key = JSON.stringify(g) + 
+'|' + w + 'x' + h;
+  www\editor.js:1643:    if (d._gk !== key){ d._gk = 
+key; if (d.width !== w) d.width = w; if (d.height !== 
+h) d.height = h; NFX.gen.draw(d.getContext('2d'), g, 
+w, h); }
+  www\editor.js:1644:    d.style.pointerEvents = 
+(g.full && !(g.kind === 'spotlight' && c.id === 
+E.sel)) ? 'none' : '';   // a frame never blocks taps; 
+a selected spotlight can be dragged
+> www\editor.js:1648:    var g = c.gen; if (g.kind !== 
+'spotlight') return;
+  www\editor.js:1649:    var r = 
+E.ui.overlaylayer.getBoundingClientRect(), st = { x0: 
+ev.clientX, y0: ev.clientY, cx: g.cx, cy: g.cy, w: 
+r.width || 1, h: r.height || 1, moved: false };
+  www\editor.js:1650:    function at(e){ return 
+P.setGenProps(E.hist.cur, c.id, { cx: st.cx + 
+(e.clientX - st.x0) / st.w, cy: st.cy + (e.clientY - 
+st.y0) / st.h }); }
+  www\editor.js:1651:    function mv(e){ st.moved = 
+true; live(at(e)); }
+  www\editor.js:1652:    function up(e){
+  www\editor.js:1653:      
+window.removeEventListener('pointermove', mv); 
+window.removeEventListener('pointerup', up); 
+window.removeEventListener('pointercancel', up);
+> www\editor.js:1793:  var CVG = { W: 300, H: 130, x0: 
+14, x1: 286, y0: 12, y1: 116 };
+  www\editor.js:1794:  function cvX(u){ return CVG.x0 
++ u * (CVG.x1 - CVG.x0); }
+  www\editor.js:1795:  function cvY(v){ return CVG.y1 
+- Math.log(v / 0.25) / Math.log(16) * (CVG.y1 - 
+CVG.y0); }
+  www\editor.js:1796:  function cvU(x){ return 
+clamp((x - CVG.x0) / (CVG.x1 - CVG.x0), 0, 1); }
+  www\editor.js:1797:  function cvV(y){ return 
+clamp(0.25 * Math.pow(16, (CVG.y1 - y) / (CVG.y1 - 
+CVG.y0)), 0.25, 4); }
+  www\editor.js:1798:  // How long the picture's own 
+stretch of movie is (ms) and how long it plays for now 
+(they differ once it has a speed).
+> www\editor.js:1987:      E.drag = { mode: handle ? 
+(handle.classList.contains('ed-hl') ? 'trimL' : 
+'trimR') : 'pending', id: id, x0: ev.clientX, y0: 
+ev.clientY, el: clipE, tr: tr,
+  www\editor.js:1988:        s0: c.start, e0: c.start 
++ c.dur, touch: ev.pointerType === 'touch', moved: 
+false, press: 0, timer: 0, wasSel: wasSel, sl0: 
+E.ui.scroll.scrollLeft, lastX: ev.clientX };
+  www\editor.js:1989:      if (E.drag.mode === 
+'pending' && E.drag.touch) E.drag.press = 
+setTimeout(function (){
+  www\editor.js:1990:        if (E.drag && E.drag.mode 
+=== 'pending'){ E.drag.mode = 'move'; try { 
+navigator.vibrate && navigator.vibrate(12); } catch 
+(e) {} }
+  www\editor.js:1991:      }, 380);
+  www\editor.js:1992:      
+> www\editor.js:1995:      E.drag = { mode: 'scrub' }; 
+seek(xToT(ev.clientX));
+  www\editor.js:1996:    }
+  www\editor.js:1997:    
+window.addEventListener('pointermove', onMove); 
+window.addEventListener('pointerup', onUp); 
+window.addEventListener('pointercancel', onCancel);
+  www\editor.js:1998:  }
+  www\editor.js:1999:  function renderSelectionOnly(){
+  www\editor.js:2000:    var els = 
+E.ui.inner.querySelectorAll('.ed-clip');
+
+
+
+www\index.html:20:<style>
+www\index.html:154:  <section id="view-home">
+www\index.html:169:  <section id="view-check" hidden>
+www\index.html:177:  <section id="view-work" hidden>
+
+
+/* Naki editor. Loaded by index.html. One layout that adapts: phone = stacked, computer = CapCut-style panes.
+   The bottom dock (like CapCut): the main toolbar, which turns into a row of tools for the clip you tap, which turns into a small panel. */
+.ed{position:fixed;inset:0;z-index:40;display:grid;background:var(--ink);color:var(--chalk);
+  grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(110px,1fr) auto auto minmax(150px,34vh) auto;
+  grid-template-areas:"top" "stage" "bar" "note" "tl" "tools";
+  padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+.ed[hidden]{display:none}
+@media (min-width:900px){
+  .ed{grid-template-columns:minmax(0,1fr) 340px;grid-template-rows:auto minmax(200px,1fr) auto auto 260px auto;
+    grid-template-areas:"top top" "stage insp" "bar bar" "note note" "tl tl" "tools tools"}
+}
+.ed-top{grid-area:top;display:flex;align-items:center;gap:8px;padding:8px 10px;border-bottom:1px solid var(--line)}
+.ed-title{font-weight:800;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ed-saved{color:var(--dim);font-size:12.5px;white-space:nowrap;min-width:3.6em;text-align:right}
+.ed-time{color:var(--dim);font-size:13px;white-space:nowrap}
+.ed-btn{appearance:none;border:1px solid var(--line);background:var(--panel-2);color:var(--chalk);min-height:40px;padding:0 12px;
+  border-radius:10px;font-weight:650;font-size:14px;cursor:pointer;touch-action:manipulation;white-space:nowrap}
+.ed-btn:active{transform:scale(.97)}
+.ed-btn:disabled{opacity:.38;cursor:default}
+.ed-btn.primary{background:var(--mango);border-color:transparent;color:#1d1300}
+.ed-btn.on{background:var(--mango);border-color:transparent;color:#1d1300}
+.ed-btn.ed-sq{min-width:40px;padding:0;font-size:20px}
+.ed-btn.ed-small{min-height:32px;padding:0 10px;font-size:13px}
+.ed-danger{border-color:var(--hibiscus);color:var(--hibiscus);background:transparent}
+
+.ed-stage{grid-area:stage;position:relative;background:#000;min-height:0;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.ed-stage video{width:100%;height:100%;max-height:100%;object-fit:contain;background:#000;display:block}
+.ed-stage-msg{position:absolute;left:12px;right:12px;top:50%;transform:translateY(-50%);text-align:center;color:var(--dim);pointer-events:none}
+.ed-stage-msg:empty{display:none}
+.ed-textlayer{position:absolute;pointer-events:none;overflow:hidden}
+.ed-textov{position:absolute;left:6%;right:6%;text-align:center;line-height:1.2;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  text-shadow:0 1px 3px rgba(0,0,0,.7);white-space:pre-wrap;word-break:break-word}
+
+.ed-insp{grid-area:insp;display:none;overflow:auto;padding:12px 14px;background:var(--panel);border-left:1px solid var(--line)}
+.ed-insp h3{margin:4px 0 8px;font-size:13px;letter-spacing:.06em;text-transform:uppercase;color:var(--dim)}
+@media (min-width:900px){.ed-insp{display:block}}
+.ed-mixrow{display:grid;grid-template-columns:84px 1fr 44px auto;gap:8px;align-items:center;margin:8px 0}
+.ed-mixrow.wide{grid-template-columns:84px 1fr auto auto}
+.ed-mixrow input[type=range]{width:100%;min-width:0;height:28px}
+.ed-mixname{font-size:14px}
+.ed-mixval{text-align:right;font-size:13px;color:var(--dim);min-width:44px}
+.ed-selinfo{font-size:14px;color:var(--dim)}
+.ed-selinfo strong{color:var(--chalk)}
+
+/* play row */
