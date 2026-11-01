@@ -1,0 +1,55 @@
+﻿</header>
+
+<main>
+  <!-- Home -->
+  <section id="view-home">
+    <h1>Narrate your movie live.</h1>
+    <p class="lead">Play a movie, talk over it, and pause whenever you want to explain more. Naki records your voice and every pause, and works without internet.</p>
+    <div class="stack">
+      <button id="btnNew" class="btn primary big">New session</button>
+      <button id="btnCheck" class="btn">Check this device</button>
+      <button id="btnInstall" class="btn" hidden>Install Naki on this phone</button>
+    </div>
+    <div class="tip">Wear headphones or earphones while you record. Without them, the movie sound leaks into your microphone.</div>
+    <h2>Your sessions</h2>
+    <div id="sessList"></div>
+    <p id="verLine" class="dim small" style="margin-top:28px"></p>
+  </section>
+
+  <!-- Device check -->
+  <section id="view-check" hidden>
+    <h2>Device check</h2>
+    <p class="lead">This shows what this phone or computer can do. Copy it and send it to me.</p>
+    <pre id="checkOut" class="report">Checking...</pre>
+    <div class="row"><button id="btnCopy" class="btn primary">Copy report</button></div>
+  </section>
+
+  <!-- Studio and preview -->
+  <section id="view-work" hidden>
+    <div class="work">
+      <div class="stage" id="stage">
+        <video id="movie" playsinline preload="auto"></video>
+        <div id="chip" class="chip" hidden><b></b><span id="chipText"></span></div>
+        <div id="count" class="count" hidden></div>
+      </div>
+
+      <div class="panel">
+        <!-- Studio -->
+        <div id="studio">
+          <div class="seekrow">
+            <span id="tNow" class="num">0:00</span>
+            <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Movie position">
+            <span id="tDur" class="num">0:00</span>
+          </div>
+          <div class="status">
+            <span id="recDot" class="recdot"></span>
+            <span id="recTime" class="num">0:00</span>
+            <span id="recState" class="dim">Ready</span>
+          </div>
+          <div class="meter" aria-label="Microphone level"><div id="meterFill"></div><div id="meterThr"></div></div>
+          <div class="dim small" style="margin-top:4px">Speak to test the mic. The movie lowers when the bar passes the white line.</div>
+          <label class="check" style="margin-top:14px"><input id="cRemember" type="checkbox" checked><span>Remember this movie on this device, so you don't have to choose it again next time (uses more storage)</span></label>
+
+          <div class="icon-row">
+            <div class="icon-col">
+              <button id="bBack" class="icon-btn md" aria-label="Back 10 seconds"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1.3L6.3 6 12 10.7V7a5 5 0 11-4.9 6H4.9A7.1 7.1 0 1012 5z"/></svg></button>
