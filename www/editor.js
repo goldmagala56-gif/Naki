@@ -19,6 +19,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   var NCAP = (typeof module !== 'undefined' && module.exports) ? require('./captions.js') : (typeof window !== 'undefined' ? window.NakiCaptions : null);
   var NSUBS = (typeof module !== 'undefined' && module.exports) ? require('./subtitles.js') : (typeof window !== 'undefined' ? window.NakiSubs : null);
   var NL2 = (typeof module !== 'undefined' && module.exports) ? require('./look2.js') : (typeof window !== 'undefined' ? window.NakiLook2 : null);
+  var NPT = (typeof module !== 'undefined' && module.exports) ? require('./projtemplate.js') : (typeof window !== 'undefined' ? window.NakiProjTpl : null);
   var NTPL = (typeof module !== 'undefined' && module.exports) ? require('./templates.js') : (typeof window !== 'undefined' ? window.NakiTemplates : null);
   var NMO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
   var TRANSITIONS = [{ key: 'none', label: 'None' }, { key: 'fade', label: 'Fade' }, { key: 'fadeblack', label: 'Dip to black' }, { key: 'wipeleft', label: 'Wipe' }, { key: 'slideleft', label: 'Slide' }, { key: 'zoomin', label: 'Zoom' }, { key: 'circleopen', label: 'Circle' }];
@@ -718,6 +719,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edAddVideo', label: 'Add video', icon: G.addVideo, run: addVideoFromFile },
         { id: 'edReplace', label: 'Replace', icon: G.replace, run: replaceMovie },
         { id: 'edQuiet', label: 'Quiet', icon: G.quiet, run: scanQuiet },
+        { id: 'edProjTpl', label: 'Layouts', icon: G.style, run: P2('projtpl') },
         { id: 'edReset', label: 'Start over', icon: G.reset, run: startOver }
       ];
     },
@@ -837,6 +839,34 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     document.body.appendChild(a); a.click(); setTimeout(function (){ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
     toast('Saved ' + name + '.vtt');
   }
+  // ----- project templates: save the look and layout of this edit as a file, and put it on another project -----
+  function tplNeed(){ if (NPT) return true; toast('Templates are not loaded. Add <script src="projtemplate.js"></script> to index.html, before editor.js.'); return false; }
+  function saveTemplateFile(){
+    if (!tplNeed()) return;
+    var nm = prompt('Name this template:', String((E.sess && E.sess.name) || 'My template').slice(0, 40));
+    if (nm === null) return;
+    var tpl = NPT.capture(E.hist.cur, nm);
+    if (NPT.isEmpty(tpl)){ toast('There is nothing to save yet. Add titles, stickers, shapes or effects, or set a look, then save.'); return; }
+    var a = document.createElement('a'), file = NPT.fileName(tpl);
+    a.href = URL.createObjectURL(new Blob([NPT.serialize(tpl)], { type: 'application/json' })); a.download = file;
+    document.body.appendChild(a); a.click(); setTimeout(function (){ URL.revokeObjectURL(a.href); a.remove(); }, 2000);
+    toast('Saved ' + file + '. ' + NPT.describeSaved(tpl), 9000);
+  }
+  function loadTemplateFile(){
+    if (!tplNeed()) return;
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json,application/json';
+    inp.onchange = function (){
+      var f = inp.files && inp.files[0]; if (!f) return;
+      (f.text ? f.text() : new Promise(function (res){ var r = new FileReader(); r.onload = function (){ res(r.result); }; r.readAsText(f); })).then(function (text){
+        var r = NPT.parse(text); if (r.error){ toast(r.error, 7000); return; }
+        var out = {}, q = NPT.apply(E.hist.cur, r.template, { replace: E.chip.tplMode !== 'add' }, out);
+        if (out.error){ toast(out.error, 7000); return; }
+        if (q === E.hist.cur){ toast('That template did not change anything.'); return; }
+        commit(q); toast(NPT.describe(out), 9000);
+      });
+    };
+    inp.click();
+  }
   function addMusic(){
     Promise.resolve(E.hooks.pickMusic()).then(function (m){
       if (!m || !m.file) return;
@@ -855,6 +885,12 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
 
   /* ---------- the panels (a tool's settings) ---------- */
   var PANELS = {
+    projtpl: { title: 'Layout template', build: function (body){
+      var mode = E.chip.tplMode === 'add' ? 'add' : 'replace';
+      body.appendChild(actions([{ id: 'edTplSave', label: 'Save as template', run: saveTemplateFile }, { id: 'edTplApply', label: 'Apply a template file', run: loadTemplateFile }]));
+      body.appendChild(chips([{ key: 'replace', label: 'Replace my titles and effects' }, { key: 'add', label: 'Add to what is there' }], mode, function (k){ E.chip.tplMode = k; renderDock(); }));
+      body.appendChild(mk('div', 'ed-hint', 'A template keeps the look and layout of this edit (video shape, colour look, titles, stickers, shapes, effects, sound levels) as a small file, without the footage. Apply it to another project and the titles and effects land at the same share of the video. Pictures, videos, sound effects and captions are not stored. Undo brings back what it replaced.'));
+    } },
     speed: { title: 'Speed', build: function (body){
       var c = needPicture(body); if (!c) return;
       if (c.type !== 'video'){ body.appendChild(mk('div', 'ed-hint', 'A paused picture has no speed. Pick a part where the movie plays.')); return; }
