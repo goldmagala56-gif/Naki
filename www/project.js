@@ -1331,6 +1331,60 @@ function setKeyframeEase(p, id, prop, relMs, ease){
   return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
 }
 
+// ---------- the keyframe bar (CapCut style): one diamond for the whole clip ----------
+// CapCut keyframes a clip as a whole: the diamond puts a keyframe on every property (position, size, turn, opacity) at the playhead, the arrows jump to the
+// neighbouring keyframes, and once a clip has keyframes, changing anything at a new moment keyframes it there. These work on top of the per-property
+// keyframes above: nothing about how a keyframe is stored changes.
+function keyframeProps(p, id){
+  var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !_AN) return [];
+  if (kind === 'overlay' && f.clip.gen && f.clip.gen.full) return [];   // a frame or a spotlight covers the picture: nothing to move
+  return kind === 'overlay' ? ['x', 'y', 'size', 'rot', 'opacity'] : ['zoom', 'x', 'y'];
+}
+// The moments (ms since the clip started) that have a keyframe on any property; keyframes within a frame of each other count as one.
+function keyframeTimes(p, id){
+  var f = findClip(p, id); if (!f || !f.clip.kf) return [];
+  var all = []; Object.keys(f.clip.kf).forEach(function (k){ f.clip.kf[k].forEach(function (pt){ all.push(Math.round(pt[0])); }); });
+  all.sort(function (a, b){ return a - b; });
+  var out = []; all.forEach(function (t){ if (!out.length || t - out[out.length - 1] > 33) out.push(t); });
+  return out;
+}
+// The properties that have a keyframe at relMs.
+function keyframesHere(p, id, relMs){
+  var f = findClip(p, id); if (!f || !f.clip.kf) return [];
+  return keyframeProps(p, id).filter(function (k){ return f.clip.kf[k] && kfAt(f.clip.kf[k], Math.round(relMs)) >= 0; });
+}
+// The nearest keyframe time before (dir -1) or after (dir 1) relMs, or null.
+function neighbourKeyframe(p, id, relMs, dir){
+  var r = Math.round(relMs), best = null;
+  keyframeTimes(p, id).forEach(function (t){
+    if (dir < 0 && t < r - 33 && (best === null || t > best)) best = t;
+    if (dir > 0 && t > r + 33 && (best === null || t < best)) best = t;
+  });
+  return best;
+}
+// The diamond: on a keyframe it takes them away (on every property); otherwise it adds one on every property holding the value it has now.
+function toggleKeyframes(p, id, relMs){
+  var props = keyframeProps(p, id); if (!props.length) return p;
+  var here = keyframesHere(p, id, relMs), q = p;
+  (here.length ? here : props).forEach(function (k){ q = toggleKeyframe(q, id, k, relMs); });
+  return q;
+}
+// Like setAnimated, but once the clip has keyframes on any property the change also keyframes every other property at this moment (holding its value),
+// so the keyframes stay lined up the way CapCut does it. A clip with no keyframes just changes its fixed value.
+function setAnimatedAuto(p, id, prop, value, relMs){
+  var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !_AN || !_AN.RANGE[kind][prop]) return p;
+  var c0 = f.clip, any = c0.kf && Object.keys(c0.kf).some(function (k){ return c0.kf[k] && c0.kf[k].length; });
+  if (!any) return setAnimated(p, id, prop, value, relMs);
+  var q = p;
+  keyframeProps(p, id).forEach(function (k){ if (!hasKeyframe(q, id, k, relMs)) q = toggleKeyframe(q, id, k, relMs); });
+  return setAnimated(q, id, prop, value, relMs);
+}
+// The same easing for the move out of the keyframe at relMs, on every property that has one there.
+function setKeyframeEaseAll(p, id, relMs, ease){
+  var q = p; keyframesHere(p, id, relMs).forEach(function (k){ q = setKeyframeEase(q, id, k, relMs, ease); });
+  return q;
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -1363,7 +1417,8 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
   addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
-  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, keyframeEase: keyframeEase, setKeyframeEase: setKeyframeEase, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
+  addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, keyframeEase: keyframeEase, setKeyframeEase: setKeyframeEase,
+  keyframeProps: keyframeProps, keyframeTimes: keyframeTimes, keyframesHere: keyframesHere, neighbourKeyframe: neighbourKeyframe, toggleKeyframes: toggleKeyframes, setAnimatedAuto: setAnimatedAuto, setKeyframeEaseAll: setKeyframeEaseAll, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
   addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps, setVoiceEnhance: setVoiceEnhance, voiceFloorDb: voiceFloorDb,
   duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences };

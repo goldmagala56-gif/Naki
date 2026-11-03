@@ -164,8 +164,9 @@ var NakiFx = (function () {
   var scratch = null, maskCache = [];
   function makeCanvas(w, h) { return typeof OffscreenCanvas !== 'undefined' ? new OffscreenCanvas(w, h) : (function () { var c = document.createElement('canvas'); c.width = w; c.height = h; return c; })(); }
   // The mask as a picture (white with the shape's alpha), made once per shape and size.
-  function maskCanvas(m, w, h) {
+  function maskCanvas(m, w, h, cap) {
     m = cleanMask(m); w = Math.max(1, Math.round(w)); h = Math.max(1, Math.round(h));
+    if (cap && Math.max(w, h) > cap) { var kc = cap / Math.max(w, h); w = Math.max(2, Math.round(w * kc)); h = Math.max(2, Math.round(h * kc)); }
     var key = JSON.stringify(m) + '|' + w + 'x' + h;
     for (var i = 0; i < maskCache.length; i++) if (maskCache[i].key === key) return maskCache[i].cv;
     var cv = makeCanvas(w, h), g = cv.getContext('2d'), im = g.createImageData(w, h), d = im.data;
@@ -183,7 +184,7 @@ var NakiFx = (function () {
       for (var i = 0; i < d.length; i += 4) { var a = chromaAlpha(d[i], d[i + 1], d[i + 2], key, sim, bl); if (a < d[i + 3]) d[i + 3] = a; }
       g.putImageData(im, 0, 0);
     }
-    if (fx.mask) { g.globalCompositeOperation = 'destination-in'; g.drawImage(maskCanvas(fx.mask, w, h), 0, 0); g.globalCompositeOperation = 'source-over'; }
+    if (fx.mask) { g.globalCompositeOperation = 'destination-in'; g.drawImage(maskCanvas(fx.mask, w, h, fx.fast ? 200 : 0), 0, 0, w, h); g.globalCompositeOperation = 'source-over'; }
     return cv;
   }
   function chromaInto(cv, src, ch) { return fxInto(cv, src, { chroma: ch }); }

@@ -5,6 +5,7 @@
    -> a tool with settings -> a small panel with a tick. Nothing slides up over the picture or the timeline. */
 var NakiEditor = (function () {
   var P = (typeof module !== 'undefined' && module.exports) ? require('./project.js') : window.NakiProject;
+  P = Object.assign({}, P, { setAnimated: P.setAnimatedAuto || P.setAnimated });   // in the editor, a change at a new moment keyframes every property there (CapCut style)
   var NP = (typeof module !== 'undefined' && module.exports) ? require('./plan.js') : window.NakiPlan;
   var NF = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
   var NSTK = (typeof module !== 'undefined' && module.exports) ? require('./stickers.js') : (typeof window !== 'undefined' ? window.NakiStickers : null);
@@ -267,7 +268,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     e.dataset.id = c.id; e.style.left = tx(c.start) + 'px'; e.style.width = Math.max(3, c.dur * E.ppm) + 'px';
     if (c.dur * E.ppm > 46) e.appendChild(mk('span', 'ed-cl', clipTitle(tr, c)));
     if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); } else { try { decorateClip(e, tr, c); } catch (err){ console.warn('clip picture/waveform failed', err); } }
-    if (c.kf){ var kts = {}; Object.keys(c.kf).forEach(function (k){ c.kf[k].forEach(function (pt){ kts[pt[0]] = 1; }); }); Object.keys(kts).forEach(function (t0){ var kd = mk('i', 'ed-kf'); kd.style.left = (t0 * E.ppm) + 'px'; e.appendChild(kd); }); }
+    if (c.kf){ var kts = {}; Object.keys(c.kf).forEach(function (k){ c.kf[k].forEach(function (pt){ kts[pt[0]] = 1; }); }); Object.keys(kts).forEach(function (t0){ var kd = mk('i', 'ed-kf'); kd.style.left = (t0 * E.ppm) + 'px'; kd.dataset.t = t0; e.appendChild(kd); }); }
     add(e, mk('i', 'ed-h ed-hl'), mk('i', 'ed-h ed-hr'));
     return e;
   }
@@ -318,7 +319,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   
   function placeHead(){ if (E.ui.head) E.ui.head.style.left = tx(E.t) + 'px'; }
   function readout(){
-    E.ui.time.textContent = fmtP(E.t) + ' / ' + fmtP(E.proj.durationMs);
+    E.ui.time.textContent = fmtP(E.t) + ' / ' + fmtP(E.proj.durationMs); updateKfBar();
     if (E.proj.durationMs) E.ui.scrub.value = String(Math.round(E.t / E.proj.durationMs * 1000));
   }
   function hasCrossing(t){
@@ -636,13 +637,15 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     var old = d.querySelector('.ed-tscroll'); if (old) E.rowScroll = { tool: E.rowTool, left: old.scrollLeft };
     u.bSplit = u.bCut = u.bDel = null;
     d.textContent = '';
+    var kb = kfBar(); if (kb) d.appendChild(kb);
     if (E.panel && PANELS[E.panel]) d.appendChild(panelShell(PANELS[E.panel]));
     else if (E.tool && ROWS[E.tool]){
       d.appendChild(toolRow(ROWS[E.tool]())); E.rowTool = E.tool;
-      var sc = d.querySelector('.ed-tscroll'); if (sc && E.rowScroll && E.rowScroll.tool === E.tool) sc.scrollLeft = E.rowScroll.left;   // the row stays where you scrolled it
+      var sc = d.querySelector('.ed-tscroll'); if (sc && E.rowScroll && E.rowScroll.tool === E.tool) sc.scrollLeft = E.rowScroll.left; peekRow(sc);   // the row stays where you scrolled it
     } else d.appendChild(u.toolbar);
     updateButtons();
     if (E.isOpen) layoutTextLayer();
+    syncPicker();
   }
   function toolRow(items){
     var row = mk('div', 'ed-trow'), back = iconBtn('edBack', G.back, 'Back', 'ed-ibtn ed-back'), sc = mk('div', 'ed-tscroll');
@@ -651,14 +654,14 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       var b = btn(it.id || null, null, 'ed-tbtn' + (it.on ? ' on' : ''), it.label); b.innerHTML = it.icon + '<span>' + it.label + '</span>';
       b.disabled = !!it.disabled; b.onclick = it.run; if (it.ref) E.ui[it.ref] = b; sc.appendChild(b);
     });
-    return add(row, back, sc);
+    return add(row, back, cueScroller(sc, true));
   }
   function panelShell(def){
     var p = mk('div', 'ed-panel'), h = mk('div', 'ed-phead'), done = iconBtn('edPanelDone', G.check, 'Done', 'ed-ibtn ed-pdone'), body = mk('div', 'ed-pbody');
     done.onclick = closePanel; add(h, mk('span', 'ed-ptitle', def.title), done); add(p, h, body); def.build(body);
     return p;
   }
-  function chips(list, cur, pick){
+  function chipsRaw(list, cur, pick){
     var w = mk('div', 'ed-chips');
     list.forEach(function (o){ var b = btn(null, o.label, 'ed-chip' + (o.key === cur ? ' on' : '')); b.onclick = function (){ pick(o.key); }; w.appendChild(b); });
     return w;
@@ -737,6 +740,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edAddFrame', label: 'Frames', icon: G.frame, run: function (){ openPanel('framepick'); } },
         { id: 'edOverlayEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel(selGen() ? 'genedit' : 'overlayedit'); }, disabled: !isO },
         { id: 'edOverlayFx', label: 'Blend', icon: G.adjust, run: function (){ openPanel('overlayfx'); }, disabled: !isO },
+        { id: 'edOverlayChroma', label: 'Chroma key', icon: G.pick, run: function (){ openPanel('chromakey'); }, disabled: !isO || !!selGen() },
         { id: 'edOverlayMotion', label: 'Motion', icon: G.motion, run: function (){ openPanel('motion'); }, disabled: !isO },
         { id: 'edOverlayDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isO },
         { id: 'edOverlayDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isO }
@@ -1219,6 +1223,29 @@ opacity: { title: 'Opacity', build: function (body){
         body.appendChild(mk('div', 'ed-hint', 'Drag the ends of the effect on the timeline to change how long it lasts. Several effects can be on at once (each on its own row).'));
       }
     } },
+        chromakey: { title: 'Chroma key', build: function (body){
+      var c = selOverlay();
+      if (!c || c.gen || !NFX){ body.appendChild(mk('div', 'ed-hint', 'Tap a picture or a video overlay on the timeline or the picture first.')); return; }
+      var ch = c.chroma, fx = function (o){ return P.setOverlayFx(E.hist.cur, c.id, o); };
+      body.appendChild(actions([{ id: 'edChromaOn2', label: ch ? 'Chroma key: on' : 'Chroma key: off', on: !!ch, run: function (){ E.pickOn = !ch; commit(fx({ chroma: ch ? null : {} })); } }]));
+      if (!ch){ body.appendChild(mk('div', 'ed-hint', 'Switch it on, then drag the circle on the picture over the colour you want to remove (a green screen, say).')); return; }
+      var top = mk('div', 'ed-mixrow wide'), sw = mk('span', 'ed-swatch'); sw.style.background = ch.color;
+      add(top, mk('span', 'ed-mixname', 'Colour'), sw, mk('span', 'ed-mixval num', ch.color)); body.appendChild(top);
+      body.appendChild(actions([{ id: 'edPickColour', label: E.pickOn ? 'Picker: on' : 'Pick colour', on: !!E.pickOn, run: function (){ E.pickOn = !E.pickOn; renderDock(); } },
+        { id: 'edKeyGreen2', label: 'Green', run: function (){ commit(fx({ chroma: { color: '#00ff00' } })); } }, { id: 'edKeyBlue2', label: 'Blue', run: function (){ commit(fx({ chroma: { color: '#0000ff' } })); } }]));
+      var inten = Math.round(clamp(ch.similarity / 0.9, 0.01, 1) * 100), shad = Math.round(clamp(ch.blend / 0.5, 0, 1) * 100);
+      body.appendChild(sliderRow('Intensity', 1, 100, 1, inten, pct, function (v){ live(fx({ chroma: { similarity: Math.max(0.01, v / 100 * 0.9) } })); }, function (v){ commit(fx({ chroma: { similarity: Math.max(0.01, v / 100 * 0.9) } })); }));
+      body.appendChild(sliderRow('Shadow', 0, 100, 1, shad, pct, function (v){ live(fx({ chroma: { blend: v / 100 * 0.5 } })); }, function (v){ commit(fx({ chroma: { blend: v / 100 * 0.5 } })); }));
+      body.appendChild(mk('div', 'ed-hint', 'Drag the circle over the colour to remove. Intensity: how far from that colour is still removed (raise it until the screen is gone). Shadow: how soft the edge is, so soft shadows and hair stay (lower it for a sharp cut). The exported video can differ slightly from this preview.'));
+    } },
+    keyease: { title: 'Keyframe easing', build: function (body){
+      var f = E.sel && P.findClip(E.proj, E.sel);
+      if (!f || !P.keyframesHere){ body.appendChild(mk('div', 'ed-hint', 'Tap a clip with keyframes first.')); return; }
+      var c = f.clip, here = P.keyframesHere(E.hist.cur, c.id, relNow(c)), ez = here.length ? easeBlock(c, here[0], true) : null;
+      if (!ez){ body.appendChild(mk('div', 'ed-hint', here.length ? 'This is the last keyframe, so there is nothing after it to ease into.' : 'Move the playhead onto a keyframe (a diamond on the clip) first.')); return; }
+      body.appendChild(ez);
+      body.appendChild(mk('div', 'ed-hint', 'The same easing is used for everything that moves at this keyframe (position, size, turn, opacity).'));
+    } },
     overlayfx: { title: 'Blend & mask', build: function (body){
       var c = selOverlay(); if (!c || !NFX){ body.appendChild(mk('div', 'ed-hint', 'Tap an overlay on the timeline or the picture first.')); return; }
       var keys = [{ key: 'blend', label: 'Blend' }, { key: 'mask', label: 'Mask' }, { key: 'chroma', label: 'Chroma key' }], cur = chipKey('overlayfx', keys, 'blend');
@@ -1229,17 +1256,19 @@ opacity: { title: 'Opacity', build: function (body){
         body.appendChild(mk('div', 'ed-hint', 'Mixes the overlay with the picture under it. Multiply darkens (shadows, textures); Screen and Add lighten (glows, light leaks); Overlay and Soft light add contrast; Colour and Brightness take only the colours or only the light from the overlay. Use Opacity under Edit to make it weaker.'));
       } else if (cur === 'mask'){
         var m0 = NFX.cleanMask(c.mask), shape = m0 ? m0.shape : 'none';
-        body.appendChild(chips(NFX.MASKS, shape, function (k){ commit(fx({ mask: { shape: k } })); }));
+        body.appendChild(chips(NFX.MASKS, shape, function (k){ commit(fx({ mask: (k === 'rect' && !(m0 && m0.corner)) ? { shape: k, corner: 0.2 } : { shape: k } })); }));
         if (m0){
           var props = [];
           if (m0.shape !== 'line' && m0.shape !== 'mirror') props.push({ key: 'w', label: 'Width' });
           if (m0.shape !== 'line') props.push({ key: 'h', label: m0.shape === 'mirror' ? 'Band' : 'Height' });
           props.push({ key: 'x', label: 'Left / right' }, { key: 'y', label: 'Up / down' }, { key: 'rot', label: 'Turn' }, { key: 'feather', label: 'Feather' });
+          if (m0.shape !== 'line' && m0.shape !== 'mirror') props.unshift({ key: 'size', label: 'Size' });
           if (m0.shape === 'rect') props.push({ key: 'corner', label: 'Corners' });
-          var pk = chipKey('maskprop', props, props[0].key), val = m0[pk], put = function (v){ var o = {}; o[pk] = v; return fx({ mask: o }); };
+          var pk = chipKey('maskprop', props, props[0].key), big = Math.max(m0.w, m0.h), val = pk === 'size' ? big : m0[pk],
+            put = function (v){ var o = {}; if (pk === 'size'){ var k = v / big; o.w = m0.w * k; o.h = m0.h * k; } else o[pk] = v; return fx({ mask: o }); };
           body.appendChild(chips(props, pk, pickChip('maskprop')));
           if (pk === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(val), function (v){ return v + '\u00b0'; }, function (v){ live(put(v)); }, function (v){ commit(put(v)); }));
-          else if (pk === 'w' || pk === 'h') body.appendChild(sliderRow('Size', 5, 200, 5, Math.round(val * 100), pct, function (v){ live(put(v / 100)); }, function (v){ commit(put(v / 100)); }));
+          else if (pk === 'w' || pk === 'h' || pk === 'size') body.appendChild(sliderRow('Size', 5, 200, 5, Math.round(val * 100), pct, function (v){ live(put(v / 100)); }, function (v){ commit(put(v / 100)); }));
           else body.appendChild(sliderRow('Amount', 0, 100, 1, Math.round(val * 100), pct, function (v){ live(put(v / 100)); }, function (v){ commit(put(v / 100)); }));
           body.appendChild(actions([{ id: 'edMaskInvert', label: m0.invert ? 'Invert: on' : 'Invert: off', on: !!m0.invert, run: function (){ commit(fx({ mask: { invert: !m0.invert } })); } }]));
         }
@@ -1532,7 +1561,10 @@ opacity: { title: 'Opacity', build: function (body){
     var sc = Math.min(1, 480 / w), cw = Math.max(1, Math.round(w * sc)), chh = Math.max(1, Math.round(h * sc));
     if (cv.width !== cw) cv.width = cw;
     if (cv.height !== chh) cv.height = chh;
-    try { NFX.fxInto(cv, d, { chroma: d._ch, mask: d._mk }); } catch (e) {}
+    var fk = JSON.stringify([d._ch, d._mk]) + '|' + cw + 'x' + chh + '|' + (d.currentSrc || d.src || ''), kind = d.tagName;
+    if ((kind === 'IMG' || kind === 'VIDEO') && d._fk === fk && (kind === 'IMG' || d._ft === d.currentTime)) return;
+    d._fk = fk; d._ft = d.currentTime;
+    try { NFX.fxInto(cv, d, { chroma: d._ch, mask: d._mk, fast: true }); } catch (e) {}
   }
   function applyOverlayFx(d, c){
     var show = d, ch = NFX && c.chroma ? NFX.cleanChroma(c.chroma) : null, mkk = NFX && c.mask ? NFX.cleanMask(c.mask) : null;
@@ -1540,14 +1572,14 @@ opacity: { title: 'Opacity', build: function (body){
       var cv = d._cv;
       if (!cv){
         cv = d._cv = mk('canvas', 'ed-ovl'); cv.dataset.id = c.id; cv.addEventListener('pointerdown', overlayDown);
-        ['load', 'loadeddata', 'seeked'].forEach(function (ev){ d.addEventListener(ev, function (){ if (d._cv) keyOverlayFrame(d); }); });
+        ['load', 'loadeddata', 'seeked'].forEach(function (ev){ d.addEventListener(ev, function (){ d._fk = null; if (d._cv) keyOverlayFrame(d); }); });
         d.parentNode.appendChild(cv);
       }
       d._ch = ch; d._mk = mkk; keyOverlayFrame(d);
       ['left', 'top', 'width', 'transform', 'opacity'].forEach(function (k){ cv.style[k] = d.style[k]; });
       d.style.visibility = 'hidden'; d.style.pointerEvents = 'none'; show = cv;
     } else if (d._cv){
-      d._cv.remove(); d._cv = null; d._ch = null; d._mk = null; d.style.visibility = ''; d.style.pointerEvents = '';
+      d._cv.remove(); d._cv = null; d._ch = null; d._mk = null; d._fk = null; d.style.visibility = ''; d.style.pointerEvents = '';
     }
     if (show !== d) show.classList.toggle('sel', c.id === E.sel);
     var bl = NFX ? NFX.cssBlend(c.blend) : 'normal';
@@ -1575,11 +1607,11 @@ opacity: { title: 'Opacity', build: function (body){
   // The diamond: puts a keyframe on this property at the playhead, or takes the one that is there away. Change the value at another moment and it
   // moves smoothly between the keyframes.
     // ----- the easing graph: how a value moves from the keyframe at the playhead to the next one -----
-  function easeBlock(c, prop){
+  function easeBlock(c, prop, all){
     var info = NANIM && P.keyframeEase(E.hist.cur, c.id, prop, relNow(c)); if (!info) return null;
     var box = mk('div', 'ed-easebox');
     if (!info.hasNext){ box.appendChild(mk('div', 'ed-hint', 'This is the last keyframe, so there is nothing after it to ease into.')); return box; }
-    var set = function (e){ var q = P.setKeyframeEase(E.hist.cur, c.id, prop, relNow(c), e); if (q === E.hist.cur) renderDock(); else commit(q); };
+    var set = function (e){ var q = all ? P.setKeyframeEaseAll(E.hist.cur, c.id, relNow(c), e) : P.setKeyframeEase(E.hist.cur, c.id, prop, relNow(c), e); if (q === E.hist.cur) renderDock(); else commit(q); };
     var bz = NANIM.bezierOf(info.ease), name = NANIM.easeName(info.ease), list = NANIM.EASES.map(function (x){ return { key: x.key, label: x.label }; });
     if (name === 'custom') list.push({ key: 'custom', label: 'Custom' });
     box.appendChild(mk('div', 'ed-hint', 'How it moves from this keyframe to the next:'));
@@ -1680,6 +1712,130 @@ opacity: { title: 'Opacity', build: function (body){
     u.fxbarT.style.height = u.fxbarB.style.height = bh; u.fxbarT.style.display = u.fxbarB.style.display = r.bars ? 'block' : 'none';
     var note = (r.badge || []).join(', ');
     u.fxbadge.textContent = note ? note + ': the full effect is in the exported video' : ''; u.fxbadge.style.display = note ? 'block' : 'none';
+  }
+    // ----- scroll cues: arrows and soft edges on every row that scrolls sideways, so you can tell there is more to the left or the right -----
+  G.fwd = svg('<path d="M9 5l7 7-7 7"/>');
+  G.pick = svg('<path d="M20.5 3.5a2.1 2.1 0 00-3 0L14 7l-1-1-1.5 1.5 1 1L5 15.5V19h3.5l7-7 1 1L18 11.5l-1-1 3.5-3.5a2.1 2.1 0 000-3z"/>');
+  var KFD_OFF = svg('<path d="M12 3l8 9-8 9-8-9z"/>'), KFD_ON = svg('<path d="M12 3l8 9-8 9-8-9z"/>', true);
+  function cueScroller(sc, big){
+    var w = mk('div', 'ed-sw' + (big ? ' big' : '')), l = btn(null, null, 'ed-sarr l', 'Scroll left'), r = btn(null, null, 'ed-sarr r', 'Scroll right');
+    l.innerHTML = G.back; r.innerHTML = G.fwd; l.tabIndex = -1; r.tabIndex = -1;
+    function upd(){ var max = sc.scrollWidth - sc.clientWidth; w.classList.toggle('can-l', sc.scrollLeft > 3); w.classList.toggle('can-r', max - sc.scrollLeft > 3); }
+    function by(dir){ return function (ev){ ev.preventDefault(); var d = Math.max(120, sc.clientWidth * 0.7) * dir; if (sc.scrollBy) sc.scrollBy({ left: d, behavior: 'smooth' }); else sc.scrollLeft += d; }; }
+    l.onclick = by(-1); r.onclick = by(1);
+    sc.addEventListener('scroll', upd, { passive: true });
+    add(w, sc, l, r);
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(upd).observe(sc);
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(upd);
+    setTimeout(upd, 80);
+    return w;
+  }
+  function chips(list, cur, pick){ return cueScroller(chipsRaw(list, cur, pick), false); }
+  // The first time a row of tools needs scrolling, it slides a little and back, to show that it moves.
+  function peekRow(sc){
+    if (!sc || !E.tool) return; E.peeked = E.peeked || {};
+    if (E.peeked[E.tool]) return;
+    setTimeout(function (){
+      if (!sc.parentNode || sc.scrollWidth <= sc.clientWidth + 24 || sc.scrollLeft > 0) return;
+      E.peeked[E.tool] = 1;
+      try { sc.scrollTo({ left: 56, behavior: 'smooth' }); setTimeout(function (){ try { sc.scrollTo({ left: 0, behavior: 'smooth' }); } catch (e) {} }, 650); } catch (e) {}
+    }, 350);
+  }
+  // When a clip is selected, its own tools come first and the "add something" tools go to the end, so Edit is never hidden off to the right.
+  (function (){
+    var CREATE = { overlay: ['edAddOverlay', 'edAddShape', 'edAddArrow', 'edAddSpot', 'edAddFrame'], sticker: ['edAddSticker'], fx: ['edAddFx'], text: ['edAddText', 'edTextTpl', 'edCaptions'] };
+    var WHICH = { overlay: function (){ return selOverlay(); }, sticker: function (){ return selSticker(); }, fx: function (){ return selFx(); }, text: function (){ return selText(); } };
+    Object.keys(CREATE).forEach(function (k){
+      var orig = ROWS[k];
+      ROWS[k] = function (){
+        var items = orig(); if (!WHICH[k]()) return items;
+        var a = [], b = []; items.forEach(function (it){ (CREATE[k].indexOf(it.id) >= 0 ? b : a).push(it); });
+        return a.concat(b);
+      };
+    });
+  })();
+
+  // ----- the keyframe bar (CapCut style): ◀ ◆ ▶ and the easing graph, always in reach while a clip is selected -----
+  function kfState(){
+    var f = E.sel && E.proj && P.findClip(E.proj, E.sel); if (!f || !P.keyframeProps) return null;
+    var c = f.clip, props = P.keyframeProps(E.proj, c.id); if (!props.length) return null;
+    var rel = relNow(c), times = P.keyframeTimes(E.proj, c.id), out = E.t < c.start || E.t > c.start + c.dur;
+    return { c: c, rel: rel, out: out, n: times.length, here: !out && P.keyframesHere(E.proj, c.id, rel).length > 0,
+      pt: P.neighbourKeyframe(E.proj, c.id, out ? (E.t < c.start ? -1 : c.dur + 1) : rel, -1), nt: P.neighbourKeyframe(E.proj, c.id, out ? (E.t < c.start ? -1 : c.dur + 1) : rel, 1) };
+  }
+  function kfBar(){
+    var st = kfState(); if (!st){ E.ui.kfparts = null; return null; }
+    var bar = mk('div', 'ed-kfbar'), prev = iconBtn('edKfPrev', G.back, 'Previous keyframe', 'ed-ibtn ed-kfb'), nxt = iconBtn('edKfNext', G.fwd, 'Next keyframe', 'ed-ibtn ed-kfb'),
+      dia = iconBtn('edKfDiamond', KFD_OFF, 'Add keyframe', 'ed-ibtn ed-kfb ed-kfd'), ez = iconBtn('edKfEase', G.curve, 'Easing', 'ed-ibtn ed-kfb'), lab = mk('span', 'ed-kfn');
+    prev.onclick = function (){ var s = kfState(); if (s && s.pt != null) seek(s.c.start + s.pt); };
+    nxt.onclick = function (){ var s = kfState(); if (s && s.nt != null) seek(s.c.start + s.nt); };
+    dia.onclick = function (){ var s = kfState(); if (s && !s.out) commit(P.toggleKeyframes(E.hist.cur, s.c.id, s.rel)); };
+    ez.onclick = function (){ openPanel('keyease'); };
+    add(bar, prev, dia, nxt, ez, lab);
+    E.ui.kfparts = { bar: bar, prev: prev, nxt: nxt, dia: dia, ez: ez, lab: lab, here: null, text: '' };
+    updateKfBar();
+    return bar;
+  }
+  // Called whenever the playhead moves, so the diamond fills in on a keyframe and the arrows know where the next one is.
+  function updateKfBar(){
+    var k = E.ui.kfparts; if (!k || !k.bar.parentNode) return;
+    var st = kfState(); if (!st) return;
+    k.prev.disabled = st.pt == null; k.nxt.disabled = st.nt == null; k.dia.disabled = st.out; k.ez.disabled = !st.here;
+    if (k.here !== st.here){ k.here = st.here; k.dia.classList.toggle('on', st.here); k.dia.innerHTML = st.here ? KFD_ON : KFD_OFF; k.dia.setAttribute('aria-label', st.here ? 'Remove keyframe' : 'Add keyframe'); }
+    var text = st.out ? 'Move the playhead onto this clip' : st.n ? st.n + ' keyframe' + (st.n === 1 ? '' : 's') + (st.here ? ' \u00b7 on one now' : '') : 'Tap the diamond to add a keyframe';
+    if (k.text !== text){ k.text = text; k.lab.textContent = text; }
+  }
+
+  // ----- the colour picker for Chroma key: a ring you drag over the picture, like CapCut's -----
+  // The colour under the ring, read from the overlay itself (before it is keyed), as #rrggbb; null when the ring is not on the overlay.
+  function samplePoint(c, fx, fy){
+    var d = E.overlayEls && E.overlayEls[c.id]; if (!d) return null;
+    var sw = d.videoWidth || d.naturalWidth || 0, sh = d.videoHeight || d.naturalHeight || 0, lay = E.ui.overlaylayer, W = lay.clientWidth, H = lay.clientHeight;
+    if (!sw || !sh || !W || !H) return null;
+    var s = NANIM.overlayState(c, E.t - c.start), bw = s.size * W, bh = bw * sh / sw, a = s.rot * Math.PI / 180, dx = fx * W - s.x * W, dy = fy * H - s.y * H;
+    var lx = dx * Math.cos(a) + dy * Math.sin(a), ly = -dx * Math.sin(a) + dy * Math.cos(a), u = lx / bw + 0.5, v = ly / bh + 0.5;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return null;
+    var cv = E.pickCv || (E.pickCv = document.createElement('canvas')); cv.width = cv.height = 5;
+    try {
+      var g = cv.getContext('2d', { willReadFrequently: true });
+      g.drawImage(d, clamp(u * sw - 2.5, 0, sw - 5), clamp(v * sh - 2.5, 0, sh - 5), 5, 5, 0, 0, 5, 5);
+      var px = g.getImageData(0, 0, 5, 5).data, r = 0, gg = 0, b = 0, n = 0;
+      for (var i = 0; i < px.length; i += 4){ if (px[i + 3] < 10) continue; r += px[i]; gg += px[i + 1]; b += px[i + 2]; n++; }
+      if (!n) return null;
+      var hx = function (x){ var t = Math.round(x / n).toString(16); return t.length < 2 ? '0' + t : t; };
+      return '#' + hx(r) + hx(gg) + hx(b);
+    } catch (e) { return null; }
+  }
+  function syncPicker(){
+    var lay = E.ui.overlaylayer; if (!lay) return;
+    var c = (E.panel === 'chromakey' && E.pickOn) ? selOverlay() : null, pk = E.ui.picker;
+    if (!c || !c.chroma || c.gen){ if (pk) pk.style.display = 'none'; return; }
+    if (!pk){ pk = E.ui.picker = mk('div', 'ed-picker'); pk.appendChild(mk('i')); pk.addEventListener('pointerdown', pickerDown); }
+    if (pk.parentNode !== lay) lay.appendChild(pk);
+    if (E.pickId !== c.id || !E.pickPos){
+      E.pickId = c.id;
+      var s = NANIM.overlayState(c, E.t - c.start), W = lay.clientWidth || 1, H = lay.clientHeight || 1, d = E.overlayEls && E.overlayEls[c.id], dw = d && (d.videoWidth || d.naturalWidth), dh = d && (d.videoHeight || d.naturalHeight), asp = dw && dh ? dh / dw : 9 / 16;
+      E.pickPos = { x: clamp(s.x - 0.4 * s.size, 0.04, 0.96), y: clamp(s.y - 0.4 * s.size * asp * W / H, 0.04, 0.96) };
+    }
+    pk.style.display = 'block'; pk.style.left = (E.pickPos.x * 100) + '%'; pk.style.top = (E.pickPos.y * 100) + '%';
+  }
+  function pickerDown(ev){
+    var c = selOverlay(); if (!c) return;
+    ev.preventDefault(); ev.stopPropagation();
+    var lay = E.ui.overlaylayer, fx = function (o){ return P.setOverlayFx(E.hist.cur, c.id, o); };
+    function at(e){
+      var r = lay.getBoundingClientRect();
+      E.pickPos = { x: clamp((e.clientX - r.left) / (r.width || 1), 0, 1), y: clamp((e.clientY - r.top) / (r.height || 1), 0, 1) };
+      E.ui.picker.style.left = (E.pickPos.x * 100) + '%'; E.ui.picker.style.top = (E.pickPos.y * 100) + '%';
+      return samplePoint(c, E.pickPos.x, E.pickPos.y);
+    }
+    function mv(e){ var col = at(e); if (col){ live(fx({ chroma: { color: col } })); E.ui.picker.firstChild.style.background = col; } }
+    function up(e){
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+      var col = at(e); if (col) commit(fx({ chroma: { color: col } }));
+    }
+    mv(ev);
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   }
   // ----- sound effects -----
   function placeSfx(info){
@@ -1975,6 +2131,8 @@ opacity: { title: 'Opacity', build: function (body){
   // ---------- touch, mouse and pen on the timeline ----------
   function onDown(ev){
     var tg = ev.target, clipE = tg.closest && tg.closest('.ed-clip'), handle = tg.closest && tg.closest('.ed-h');
+    var kfD = tg.closest && tg.closest('.ed-kf');
+    if (kfD && clipE){ var kf0 = P.findClip(E.proj, clipE.dataset.id); if (kf0){ E.sel = kf0.clip.id; seek(kf0.clip.start + (+kfD.dataset.t || 0)); renderSelectionOnly(); return; } }
     if (ev.pointerType === 'touch'){
       E.pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
       if (Object.keys(E.pointers).length === 2){ endDrag(true); startPinch(); return; }
@@ -2114,7 +2272,7 @@ opacity: { title: 'Opacity', build: function (body){
     showSaved(c.restored || c.hist.past.length ? 'Saved' : '');
     E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; E.boxKey = null; E.boxMode = '';
     E.curAsset = 'movie'; E.swapping = false; E.skipMsg = false;
-    E.tool = null; E.panel = null; E.autoDock = false; E.rowScroll = null; E.chip = {}; renderDock();
+    E.tool = null; E.panel = null; E.autoDock = false; E.rowScroll = null; E.chip = {}; E.pickOn = false; E.pickPos = null; renderDock();
     E.root.hidden = false; E.isOpen = true;
     document.addEventListener('keydown', onKey);
     layoutTextLayer(); fit(); readout(); syncMedia();
