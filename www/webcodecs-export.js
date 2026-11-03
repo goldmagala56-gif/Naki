@@ -27,6 +27,7 @@ var WebCodecsExport = (function () {
   var FM = (typeof module !== 'undefined' && module.exports) ? require('./format.js') : (typeof window !== 'undefined' ? window.NakiFormat : null);
   var FPS = 30;
   var AUDIO_SR = 48000;
+  if (typeof window !== 'undefined') { window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['webcodecs-export.js'] = 'fx-export'; }
   var WINDOW_S = 20;   // seconds of sound rendered at a time
   // How much video data to spend. This engine encodes on the phone's video chip, which is fast, so it can afford far more than the old settings did
   // (they gave only about 1.5 Mbit/s for 720p, which looks blocky on a movie). BPP = bits per pixel per frame: "faster" is a good quality for

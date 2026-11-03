@@ -23,6 +23,7 @@ var _MO = (typeof module !== 'undefined' && module.exports) ? require('./motion.
 var _L2 = (typeof module !== 'undefined' && module.exports) ? require('./look2.js') : (typeof window !== 'undefined' ? window.NakiLook2 : null);
 var FPS = 30;
 var SR = 48000;
+if (typeof window !== 'undefined') { window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['export-engine.js'] = 'fx-export'; }
 var GAIN_HZ = 1000;
 var _LK = ((typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook) || { ffmpegExtras: function () { return []; } };
 
@@ -530,7 +531,7 @@ var SELF_SCRIPT_URL = (typeof document !== 'undefined' && document.currentScript
 var VENDOR_CACHE_NAME = 'naki-ffmpeg-vendor-v1';
 
 var NakiExport = (function () {
-  var loaded = null;
+  var loaded = null, logSink = null;
 
   function vendorURL(name) {
     return new URL('vendor/ffmpeg/' + name, SELF_SCRIPT_URL).href;
@@ -560,7 +561,7 @@ var NakiExport = (function () {
     if (loaded) return loaded;
     if (!window.FFmpegWASM) await loadScript(vendorURL('ffmpeg.js'));
     var ffmpeg = new window.FFmpegWASM.FFmpeg();
-    if (onLog) ffmpeg.on('log', function (e) { onLog(e.message || ''); });
+    ffmpeg.on('log', function (e) { if (logSink) logSink(e.message || ''); });
     await ffmpeg.load({ coreURL: vendorURL('ffmpeg-core.js'), wasmURL: vendorURL('ffmpeg-core.wasm') });
     loaded = ffmpeg;
     cacheVendorFilesForOffline();
@@ -582,7 +583,7 @@ var NakiExport = (function () {
     callbacks = callbacks || {};
     var say = callbacks.onStatus || function () {};
     var prog = callbacks.onProgress || function () {};
-    var log = callbacks.onLog || function () {};
+    var log = callbacks.onLog || function () {}; logSink = log;
     opts = opts || {};
 
     say('Starting the video engine (first time only, this can take a moment)...');
