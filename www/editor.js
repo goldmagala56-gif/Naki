@@ -133,7 +133,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       b.innerHTML = t.icon + '<span>' + t.label + '</span>'; b.dataset.tool = t.name;
       b.onclick = t.go; tb.appendChild(b); u.tools[t.name] = b;
     });
-    u.toolbar = tb; u.dock = mk('div', 'ed-dock'); u.dock.appendChild(tb);
+    u.toolbar = cueScroller(tb, false); u.dock = mk('div', 'ed-dock'); u.dock.appendChild(u.toolbar);   // the toolbar scrolls sideways, with arrows
 
     add(root, top, u.stage, u.insp, bar, u.note, tl, u.dock);
     document.body.appendChild(root); E.root = root;
