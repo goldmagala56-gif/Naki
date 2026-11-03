@@ -793,14 +793,11 @@ el.movie.addEventListener('error', function(){ toast('The movie stopped because 
 
 function updateStudioUI(){
   var on = S.rec.on;
-  $('bPlayIcon').innerHTML = el.movie.paused ? ICON_PLAY : ICON_PAUSE;
-  $('bPlay').setAttribute('aria-label', el.movie.paused ? 'Play' : 'Pause');
-  $('bPlayLabel').textContent = el.movie.paused ? 'Play' : 'Pause';
-  $('bRecIcon').innerHTML = on ? ICON_STOP : ICON_RECORD;
-  $('bRec').setAttribute('aria-label', on ? 'Stop' : 'Record');
-  $('bRecLabel').textContent = on ? 'Stop' : 'Record';
-  $('bRec').className = 'icon-btn lg danger' + (on ? ' on' : '');
-  $('bRec').disabled = S.rec.starting;
+  var pIcon = $('bPlayIcon'); if (pIcon) pIcon.innerHTML = el.movie.paused ? ICON_PLAY : ICON_PAUSE;
+  var pBtn = $('bPlay'); if (pBtn) pBtn.setAttribute('aria-label', el.movie.paused ? 'Play' : 'Pause');
+  var pLabel = $('bPlayLabel'); if (pLabel) pLabel.textContent = el.movie.paused ? 'Play' : 'Pause';
+  var rIcon = $('bRecIcon'); if (rIcon) rIcon.innerHTML = on ? ICON_STOP : ICON_RECORD;
+  var rBtn = $('bRec'); if (rBtn) rBtn.setAttribute('aria-label', on ? 'Stop' : 'Record');
   $('bTakeBack').hidden = !on;
   $('seek').disabled = on;
   $('recDot').className = 'recdot' + (on ? ' on' : '');
