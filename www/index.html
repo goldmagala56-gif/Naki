@@ -389,6 +389,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="projtemplate.js"></script>
 <script src="beatsync.js"></script>
 <script src="cover.js"></script>
+<script src="removebg.js"></script>
 <script src="editor.js"></script>
 <script>
 'use strict';
@@ -1596,7 +1597,7 @@ $('bExport').onclick = function(){
       var s = S.sess; if (!s) return;
       Promise.resolve(s.editsReady).then(function(){ if (S.sess === s) runExport0(); });
     };
-  })();a
+    })();
 $('bReport').onclick = function(){
   storageLine().then(function(line){
     var L = deviceLines(); if (line) L.push(line);

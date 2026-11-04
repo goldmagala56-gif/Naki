@@ -21,6 +21,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   var NL2 = (typeof module !== 'undefined' && module.exports) ? require('./look2.js') : (typeof window !== 'undefined' ? window.NakiLook2 : null);
   var NPT = (typeof module !== 'undefined' && module.exports) ? require('./projtemplate.js') : (typeof window !== 'undefined' ? window.NakiProjTpl : null);
   var NTPL = (typeof module !== 'undefined' && module.exports) ? require('./templates.js') : (typeof window !== 'undefined' ? window.NakiTemplates : null);
+  var NRB = (typeof module !== 'undefined' && module.exports) ? require('./removebg.js') : (typeof window !== 'undefined' ? window.NakiRemoveBg : null);
   var NBS = (typeof module !== 'undefined' && module.exports) ? require('./beatsync.js') : (typeof window !== 'undefined' ? window.NakiBeats : null);
   var NMO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
   var TRANSITIONS = [{ key: 'none', label: 'None' }, { key: 'fade', label: 'Fade' }, { key: 'fadeblack', label: 'Dip to black' }, { key: 'wipeleft', label: 'Wipe' }, { key: 'slideleft', label: 'Slide' }, { key: 'zoomin', label: 'Zoom' }, { key: 'circleopen', label: 'Circle' }];
@@ -745,6 +746,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edAddFrame', label: 'Frames', icon: G.frame, run: function (){ openPanel('framepick'); } },
         { id: 'edOverlayEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel(selGen() ? 'genedit' : 'overlayedit'); }, disabled: !isO },
         { id: 'edOverlayFx', label: 'Blend', icon: G.adjust, run: function (){ openPanel('overlayfx'); }, disabled: !isO },
+        { id: 'edOverlayRemoveBg', label: 'Remove BG', icon: G.rembg, run: function (){ openPanel('removebg'); }, disabled: !isO || !!selGen() },
         { id: 'edOverlayChroma', label: 'Chroma key', icon: G.pick, run: function (){ openPanel('chromakey'); }, disabled: !isO || !!selGen() },
         { id: 'edOverlayMotion', label: 'Motion', icon: G.motion, run: function (){ openPanel('motion'); }, disabled: !isO },
         { id: 'edOverlayDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isO },
@@ -1349,7 +1351,11 @@ opacity: { title: 'Opacity', build: function (body){
         body.appendChild(mk('div', 'ed-hint', 'Drag the ends of the effect on the timeline to change how long it lasts. Several effects can be on at once (each on its own row).'));
       }
     } },
-        chromakey: { title: 'Chroma key', build: function (body){
+        removebg: { title: 'Remove background', build: function (body){
+      if (!NRB){ body.appendChild(mk('div', 'ed-hint', 'removebg.js is not loaded.')); return; }
+      NRB.buildPanel(body, { clip: selOverlay(), hooks: E.hooks, store: E.rbg || (E.rbg = {}), mk: mk, sliderRow: sliderRow, actions: actions, toast: toast, refresh: renderDock, redraw: function (){ renderTimeline(); syncMedia(); } });
+    } },
+    chromakey: { title: 'Chroma key', build: function (body){
       var c = selOverlay();
       if (!c || c.gen || !NFX){ body.appendChild(mk('div', 'ed-hint', 'Tap a picture or a video overlay on the timeline or the picture first.')); return; }
       var ch = c.chroma, fx = function (o){ return P.setOverlayFx(E.hist.cur, c.id, o); };
@@ -1786,6 +1792,7 @@ opacity: { title: 'Opacity', build: function (body){
   G.arrow = svg('<path d="M4 12h15M13 6l6 6-6 6"/>');
   G.spot = svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>');
   G.frame = svg('<rect x="3" y="4" width="18" height="16" rx="1.5"/><rect x="7" y="8" width="10" height="8" rx="1"/>');
+  G.rembg = svg('<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20a6.5 6.5 0 0113 0"/><path d="M3 3l2 2M21 3l-2 2M3 21l2-2M21 21l-2-2"/>');
   function selGen(){ var c = selOverlay(); return c && c.gen ? c : null; }
   function addGenHere(gen){
     var out = {}, q = P.addGen(E.hist.cur, Math.round(E.t), gen, out);
@@ -2398,7 +2405,7 @@ opacity: { title: 'Opacity', build: function (body){
     showSaved(c.restored || c.hist.past.length ? 'Saved' : '');
     E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; E.boxKey = null; E.boxMode = '';
     E.curAsset = 'movie'; E.swapping = false; E.skipMsg = false;
-    E.tool = null; E.panel = null; E.autoDock = false; E.rowScroll = null; E.chip = {}; E.pickOn = false; E.pickPos = null; renderDock();
+    E.tool = null; E.panel = null; E.autoDock = false; E.rowScroll = null; E.chip = {}; E.pickOn = false; E.pickPos = null; E.rbg = {}; renderDock();
     E.root.hidden = false; E.isOpen = true;
     document.addEventListener('keydown', onKey);
     layoutTextLayer(); fit(); readout(); syncMedia();
