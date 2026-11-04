@@ -16,6 +16,7 @@ var NakiSkin = (function () {
     'opacity': 'droplet', 'fade': 'blend', 'replace': 'repeat', 'transition': 'blend', 'transitions': 'blend', 'animate': 'wand-sparkles', 'animation': 'wand-sparkles', 'motion': 'spline',
     'zoom': 'zoom-in', 'rotate': 'rotate-cw', 'turn': 'rotate-cw', 'flip': 'flip-horizontal-2', 'style': 'palette', 'format': 'ratio', 'layout': 'layout-grid',
     'sticker': 'sticker', 'stickers': 'sticker', 'overlay': 'layers', 'shapes': 'shapes', 'arrows': 'arrow-right', 'spotlight': 'spotlight', 'frames': 'frame', 'blend & mask': 'blend', 'video effects': 'wand-sparkles',
+    'add keyframe': 'diamond', 'remove keyframe': 'diamond', 'previous keyframe': 'chevron-left', 'next keyframe': 'chevron-right', 'easing': 'spline',
     'add video': 'video', 'add': 'plus', 'edit': 'pencil', 'duplicate': 'copy', 'copy': 'copy', 'delete': 'trash-2', 'remove': 'trash-2', 'split': 'split', 'cut': 'scissors', 'trim': 'scissors',
     'join': 'merge', 'close gaps': 'move-horizontal', 'detach audio': 'unlink', 'picture': 'film', 'movie sound': 'volume-2', 'your voice': 'mic', 'voice': 'mic', 'voice timing': 'mic',
     'undo': 'undo-2', 'redo': 'redo-2', 'fit': 'maximize', 'fit the whole video': 'maximize', 'zoom in': 'zoom-in', 'zoom out': 'zoom-out', 'close': 'x', 'back': 'chevron-left', 'done': 'check',
