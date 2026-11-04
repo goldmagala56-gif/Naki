@@ -747,6 +747,8 @@ function canMerge(a, b){
   if (a.vFadeOut || b.vFadeIn) return false;
   if (a.fadeOut > 0 && !(a.fadeOutOff > 0)) return false;
   if (b.fadeIn > 0 && !(b.fadeInOff > 0)) return false;
+  if (a.kf || b.kf || a.curve || b.curve) return false;
+  if (b.transition) return false;
   return true;
 }
 function mergeInto(a, b){
@@ -1228,7 +1230,7 @@ function fxAt(p, t){
 // another row of its own kind, or to a new row above or below them. Picture, voice, music and captions each have a row that stays as it is.
 function rowFamily(tr){
   if (!tr) return null;
-  if (tr.kind === 'sticker' || tr.kind === 'overlay' || tr.kind === 'effect') return tr.kind;
+  if (tr.kind === 'sticker' || tr.kind === 'overlay' || tr.kind === 'fx') return tr.kind;
   if (tr.kind === 'audio' && tr.role === 'sfx') return 'sfx';
   if (tr.kind === 'text' && tr.role === 'text') return 'text';
   return null;
@@ -1249,7 +1251,7 @@ function moveClipToRow(p, id, target, newStart, pos){
   }
   src.clips = src.clips.filter(function (x){ return x.id !== id; });
   if (!dest){
-    var prefix = { sticker: 't-stk', overlay: 't-ov', effect: 't-vfx', sfx: 't-fx', text: 't-text' }[fam], k = 1;
+    var prefix = { sticker: 't-stk', overlay: 't-ov', fx: 't-vfx', sfx: 't-fx', text: 't-text' }[fam], k = 1;
     while (q.tracks.some(function (x){ return x.id === prefix + k; })) k++;
     dest = { id: prefix + k, kind: src.kind, role: src.role, muted: false, hidden: false, volume: src.volume != null ? src.volume : 1, locked: false, clips: [] };
     var idx = []; q.tracks.forEach(function (t, i){ if (rowFamily(t) === fam) idx.push(i); });

@@ -206,7 +206,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
               <span class="icon-label">10s</span>
             </div>
             <div class="icon-col">
-              <button id="bPlay" class="icon-btn lg accent" aria-label="Play"><svg id="bPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+              <button id="bPlay" data-noskin class="icon-btn lg accent" aria-label="Play">
               <span id="bPlayLabel" class="icon-label">Play</span>
             </div>
             <div class="icon-col">
@@ -215,7 +215,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             </div>
           </div>
           <div class="icon-col" style="margin:8px auto 4px">
-            <button id="bRec" class="icon-btn lg danger" aria-label="Record"><svg id="bRecIcon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6.2"/></svg></button>
+            <button id="bRec" data-noskin class="icon-btn lg danger" aria-label="Record">
             <span id="bRecLabel" class="icon-label">Record</span>
           </div>
           <div class="row wrap" style="justify-content:center;margin-top:2px">
@@ -262,7 +262,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <span id="pDur" class="num">0:00</span>
           </div>
           <div class="icon-col" style="margin:8px auto 6px">
-            <button id="pPlay" class="icon-btn lg accent" aria-label="Play session"><svg id="pPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+            <button id="pPlay" data-noskin class="icon-btn lg accent" aria-label="Play session">
             <span id="pPlayLabel" class="icon-label">Play session</span>
           </div>
           <div class="field">
@@ -275,6 +275,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <button id="bAgain" class="btn">Record again</button>
             <button id="bTakeBackHere" class="btn">Take back from here</button>
             <button id="bEdit" class="btn primary">Edit video</button>
+            <button id="bCover" class="btn">Cover image</button>
             <button id="bHome" class="btn">Home</button>
           </div>
           <h3>Export</h3>
@@ -387,6 +388,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="icons.js"></script>
 <script src="projtemplate.js"></script>
 <script src="beatsync.js"></script>
+<script src="cover.js"></script>
 <script src="editor.js"></script>
 <script>
 'use strict';
@@ -814,10 +816,7 @@ function showCount(n){ var c = $('count'); c.hidden = (n == null); if (n != null
 // both are "keep recording into this same session", just starting from a different point.
 // isFirst controls whether this recorder is allowed to set sess.voiceOffsetMs/voiceMime (only
 // true the very first time, so a later resume never re-anchors already-kept audio).
-/*"function attachRecorder(sess, isFirst){"
-   and ENDS with the closing brace of "function takeBackFromPreview(cutT) {". That is four functions:
-   attachRecorder, applyTakeBack, takeBackLive, takeBackFromPreview (plus their comments).
-   Delete that whole block and put ALL of this in its place. */
+
  
 // Loads the same mediabunny file the export uses (it is saved on the phone for offline use).
 var voiceLibPromise = null;
@@ -1567,7 +1566,8 @@ $('bExport').onclick = function(){
     onStatus: function(t){ statusEl.textContent = t; },
     onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
   }).then(function(blob){
-    var url = URL.createObjectURL(blob);
+    if (S.exportUrl) { try { URL.revokeObjectURL(S.exportUrl); } catch (e) {} }
+    var url = URL.createObjectURL(blob); S.exportUrl = url;
     var filename = safeName(S.sess.name) + '_naki.mp4';
     preview.src = url;
     dl.href = url; dl.download = filename;
@@ -1590,6 +1590,13 @@ $('bExport').onclick = function(){
     $('bExport').disabled = false;
   });
 };
+  (function(){
+    var runExport0 = $('bExport').onclick;
+    $('bExport').onclick = function(){
+      var s = S.sess; if (!s) return;
+      Promise.resolve(s.editsReady).then(function(){ if (S.sess === s) runExport0(); });
+    };
+  })();a
 $('bReport').onclick = function(){
   storageLine().then(function(line){
     var L = deviceLines(); if (line) L.push(line);
@@ -1808,8 +1815,9 @@ function pickVideo(){
 
 function loadEdits(s){
   s.savedProject = null;
+  s.editsReady = Promise.resolve();
   if (!DB.ok) return;
-  DB.loadProject(s.id).then(function(r){ s.savedProject = r; });
+  s.editsReady = DB.loadProject(s.id).then(function(r){ s.savedProject = r; }, function(){});
   loadOverlays(s);
   loadSfx(s);
   loadVideos(s);
@@ -1877,9 +1885,46 @@ NakiEditor.init({
 });
 $('bEdit').onclick = function(){
   if (!S.sess) return;
+  var sess = S.sess;
   el.voice.pause(); el.movie.pause();
-  var d = el.voice.duration;
-    NakiEditor.open(S.sess, { voiceDurMs: isFinite(d) && d > 0 ? Math.round(d * 1000) : null, saved: S.sess.savedProject });
+  Promise.resolve(sess.editsReady).then(function(){
+    if (S.sess !== sess) return;
+    var d = el.voice.duration;
+    NakiEditor.open(sess, { voiceDurMs: isFinite(d) && d > 0 ? Math.round(d * 1000) : null, saved: sess.savedProject });
+  });
+};
+
+// Cover image: a still from the edited video
+S.coverVid = null;
+function coverFrameAt(ms){
+  var s = S.sess; if (!s || !S.movieUrl) return Promise.resolve(null);
+  var plan = NakiEditor.planFor(s, { voiceDurMs: null, saved: s.savedProject }), sp = null;
+  plan.video.forEach(function(x){ if (ms >= x.sessionStart && ms < x.sessionEnd) sp = x; });
+  if (!sp || sp.type === 'black' || sp.asset || sp.reverse) return Promise.resolve(null);
+  var at = sp.type === 'freeze' ? sp.movieAt : sp.movieStart + (ms - sp.sessionStart) * (sp.speed || 1);
+  var v = S.coverVid;
+  if (!v){ v = S.coverVid = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.setAttribute('playsinline', ''); }
+  return new Promise(function(res, rej){
+    function seek(){
+      v.onseeked = function(){
+        var c = document.createElement('canvas'); c.width = v.videoWidth; c.height = v.videoHeight;
+        c.getContext('2d').drawImage(v, 0, 0); res({ canvas: c, w: c.width, h: c.height });
+      };
+      v.onerror = function(){ rej(new Error('cannot read')); };
+      v.currentTime = Math.max(0, at / 1000);
+    }
+    if (v.src !== S.movieUrl){ v.onloadedmetadata = seek; v.src = S.movieUrl; } else seek();
+  });
+}
+$('bCover').onclick = function(){
+  var s = S.sess; if (!s) return;
+  if (!S.movieFile){ toast('Choose the movie for this session first.'); return; }
+  el.voice.pause(); el.movie.pause();
+  Promise.resolve(s.editsReady).then(function(){
+    var plan = NakiEditor.planFor(s, { voiceDurMs: null, saved: s.savedProject }), first = plan.video.filter(function(x){ return x.type === 'play'; })[0];
+    NakiCover.open({ durationMs: plan.durationMs, startMs: first ? first.sessionStart + 1000 : 0, title: s.name, fileBase: safeName(s.name),
+      fonts: NakiLook.fontList(), fontFamily: NakiLook.fontCss, loadFonts: NakiLook.loadFonts, frameAt: coverFrameAt, toast: toast });
+  });
 };
 
 placeThr();
