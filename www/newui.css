@@ -1,0 +1,57 @@
+/* Naki new interface: side rail (computer) / bottom bar (phone), the new Home, project cards. Loaded after theme.css. Remove its <link> to undo. */
+:root{--rail:76px;--nav:64px}
+.rail,.bottomnav{display:none}
+.rail .nb,.bottomnav .nb{appearance:none;background:none;border:0;color:var(--dim);cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;font-size:11px;font-weight:650;border-radius:12px;padding:9px 0 7px;position:relative;touch-action:manipulation}
+.rail .nb{width:64px}
+.rail .nb:hover,.bottomnav .nb:hover{background:var(--panel-2);color:var(--chalk)}
+.nb.on{color:var(--chalk);background:var(--panel-2)}
+.nb.on svg{color:var(--mango)}
+.rail .nb.on::before{content:"";position:absolute;left:-6px;top:12px;bottom:12px;width:3px;border-radius:3px;background:var(--mango)}
+.rail .logo{width:40px;height:40px;border-radius:12px;background:var(--mango);color:var(--on-accent);display:grid;place-items:center;font-weight:800;font-size:20px;margin-bottom:14px}
+.rail .spacer{flex:1}
+@media (min-width:900px){
+  .rail{display:flex;position:fixed;left:0;top:0;bottom:0;width:var(--rail);flex-direction:column;align-items:center;padding:12px 0;gap:4px;background:var(--panel);border-right:1px solid var(--line);z-index:6}
+  body{padding-left:calc(var(--rail) + env(safe-area-inset-left))}
+  html[data-view="work"] .rail{display:none}
+  html[data-view="work"] body{padding-left:env(safe-area-inset-left)}
+}
+@media (max-width:899px){
+  .bottomnav{display:grid;grid-template-columns:repeat(4,1fr);position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom);z-index:6}
+  .bottomnav .nb{border-radius:0;padding-top:10px}
+  .bottomnav .nb.on{background:none}
+  .bottomnav .nb.on::before{content:"";position:absolute;left:30%;right:30%;top:0;height:3px;border-radius:3px;background:var(--mango)}
+  html:not([data-view="work"]) main{padding-bottom:calc(var(--nav) + 20px)}
+  html[data-view="work"] .bottomnav{display:none}
+}
+/* accent colour: dark text on every accent-coloured control */
+.btn.primary,.ed-btn.primary,.ed-btn.on,.icon-btn.accent,.ed-chip.on,.ed-play,.ed-pdone,.ed-ibtn.on,.btn[aria-pressed="true"],.ed-kfd.on,.ed-clip.sel .ed-h::after{color:var(--on-accent)}
+.ed-clip.sel .ed-h::after{color:inherit}
+.ed-drop{background:rgba(46,230,214,.12)}
+.ed-add{background:var(--panel-3,#272b31);color:var(--chalk)}
+/* Home */
+#view-home h1{font-size:30px;letter-spacing:-.01em}
+.hero{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:18px 0 6px}
+.act{border:1px solid var(--line);border-radius:var(--r-lg);padding:22px;background:linear-gradient(150deg,#1c1f24,#131518);display:flex;flex-direction:column;gap:12px;min-height:200px}
+.act:hover{border-color:#3a3e46}
+.act .tile{width:48px;height:48px;border-radius:14px;display:grid;place-items:center;background:rgba(46,230,214,.12);color:var(--mango)}
+.act.alt .tile{background:rgba(255,171,46,.13);color:#ffab2e}
+.act h3{margin:6px 0 0;font-size:19px}
+.act p{margin:0;color:var(--dim);flex:1}
+.act .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.act .btn.primary{color:var(--on-accent)}
+.home-sub{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:14px}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--dim);min-height:40px}
+@media (max-width:899px){
+  .hero{grid-template-columns:1fr}.act{min-height:0}
+  #view-home h1{font-size:26px}
+}
+/* project cards */
+#sessList{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:14px}
+#sessList>.card{max-width:none;margin:0;overflow:hidden}
+#sessList>.card::before{content:"";display:block;aspect-ratio:16/9;margin:-12px -14px 10px;background:linear-gradient(135deg,#2a4b8d,#7c3aed)}
+#sessList>.card:nth-child(4n+2)::before{background:linear-gradient(135deg,#0f766e,#22c55e)}
+#sessList>.card:nth-child(4n+3)::before{background:linear-gradient(135deg,#b45309,#ef4444)}
+#sessList>.card:nth-child(4n+4)::before{background:linear-gradient(135deg,#334155,#0ea5e9)}
+#sessList>.card .row{margin:10px 0 0}
+#sessList>.card .row .btn{min-height:40px;padding:0 10px}
+@media (max-width:520px){#sessList{grid-template-columns:1fr 1fr;gap:10px}}

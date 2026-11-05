@@ -8,8 +8,8 @@
   --line: #2a2d33;         /* every border */
   --chalk: #f4f5f7;        /* main text */
   --dim: #9097a3;          /* second-line text */
-  --mango: #ff9f1c;        /* THE ACCENT COLOUR: change this one line to recolour the whole app (the old orange was #ff9f0a) */
-  --on-accent: #022925;    /* text on the accent colour */
+  --mango: #2ee6d6;        /* THE ACCENT COLOUR: change this one line to recolour the whole app (the old orange was #ff9f0a) */
+  --on-accent: #03201d;    /* text on the accent colour */
   --hibiscus: #f50c28;     /* delete and warnings */
   --r: 10px; --r-sm: 8px; --r-lg: 14px;
 }

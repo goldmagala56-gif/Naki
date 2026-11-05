@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#111b24">
+<meta name="theme-color" content="#0c0d0f">
 <meta name="naki-build" content="__BUILD__">
 <meta name="description" content="Narrate a movie live. Pause to explain. Works offline.">
 <link rel="manifest" href="manifest.webmanifest">
@@ -143,8 +143,22 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 </style>
 <link rel="stylesheet" href="fonts/fonts.css">
 <link rel="stylesheet" href="theme.css">
+<link rel="stylesheet" href="newui.css">
 </head>
 <body>
+<nav class="rail" id="rail" aria-label="Main">
+    <div class="logo">N</div>
+    <button class="nb" data-noskin data-go="home" aria-label="Home"><span data-ic="house"></span>Home</button>
+    <button class="nb" data-noskin data-go="session" aria-label="Session"><span data-ic="mic-vocal"></span>Session</button>
+    <button class="nb" data-noskin data-go="editor" aria-label="Editor"><span data-ic="scissors"></span>Editor</button>
+    <button class="nb" data-noskin data-go="settings" aria-label="Settings"><span data-ic="settings"></span>Settings</button>
+  </nav>
+<nav class="bottomnav" id="bottomnav" aria-label="Main">
+    <button class="nb" data-noskin data-go="home" aria-label="Home"><span data-ic="house"></span>Home</button>
+    <button class="nb" data-noskin data-go="session" aria-label="Session"><span data-ic="mic-vocal"></span>Session</button>
+    <button class="nb" data-noskin data-go="editor" aria-label="Editor"><span data-ic="scissors"></span>Editor</button>
+    <button class="nb" data-noskin data-go="settings" aria-label="Settings"><span data-ic="settings"></span>Settings</button>
+  </nav>
 <header class="top">
   <button id="btnBack" class="back" hidden aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4.5l-7.5 7.5 7.5 7.5"/></svg></button>
   <div class="brand">Naki<i></i></div>
@@ -153,17 +167,17 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <main>
   <!-- Home -->
   <section id="view-home">
-    <h1>Narrate your movie live.</h1>
-    <p class="lead">Play a movie, talk over it, and pause whenever you want to explain more. Naki records your voice and every pause, and works without internet.</p>
-    <div class="stack">
-      <button id="btnNew" class="btn primary big">New session</button>
-      <button id="btnCheck" class="btn">Check this device</button>
-      <button id="btnInstall" class="btn" hidden>Install Naki on this phone</button>
+    <h1>What do you want to make today?</h1>
+    <p class="lead">Narrate a movie live, or edit a saved project on the timeline. Everything is saved on this device and works without internet.</p>
+    <div class="hero">
+      <div class="act"><div class="tile" data-ic="mic-vocal" data-s="26"></div><h3>Session</h3><p>Play a movie, talk over it and pause whenever you want to explain. Then export it, or send it to the editor.</p><button id="btnNew" data-noskin class="btn primary big"><span data-ic="mic"></span>Start a session</button></div>
+      <div class="act alt"><div class="tile" data-ic="clapperboard" data-s="26"></div><h3>Editor</h3><p>Open your latest project and edit it: cut, text, captions, effects, sounds, music and more.</p><button id="btnEditor" data-noskin class="btn big"><span data-ic="scissors"></span>Edit latest project</button></div>
     </div>
     <div class="tip">Wear headphones or earphones while you record. Without them, the movie sound leaks into your microphone.</div>
-    <h2>Your sessions</h2>
+    <h2>Your projects</h2>
     <div id="sessList"></div>
-    <p id="verLine" class="dim small" style="margin-top:28px"></p>
+    <div class="home-sub"><button id="btnCheck" class="btn ghost">Check this device</button><button id="btnInstall" class="btn" hidden>Install Naki on this phone</button></div>
+    <p id="verLine" class="dim small" style="margin-top:20px"></p>
   </section>
 
   <!-- Device check -->
@@ -580,6 +594,7 @@ function show(view){
   S.view = view;
   ['home', 'check', 'work'].forEach(function(v){ $('view-' + v).hidden = (v !== view); });
   $('btnBack').hidden = (view === 'home');
+  document.documentElement.setAttribute('data-view', view); if (window.markNav) window.markNav(view);
 }
 function setMode(m){
   S.mode = m;
@@ -1190,6 +1205,7 @@ function refreshHome(){
         h('div', { class: 'meta' }, h('span', null, new Date(s.created).toLocaleString()), h('span', null, fmt(s.durationMs || 0)), h('span', null, label)),
         h('div', { class: 'row' },
           h('button', { class: 'btn', onclick: function(){ openSaved(s.id); } }, 'Open'),
+          h('button', { class: 'btn', onclick: function(){ openAndEdit(s.id); } }, 'Edit'),
           h('button', { class: 'btn', onclick: function(){ delSaved(s); } }, 'Delete'))));
     });
   }).catch(function(){ list.appendChild(h('p', { class: 'dim' }, 'Could not read saved sessions.')); });
@@ -1930,6 +1946,51 @@ $('bCover').onclick = function(){
 
 placeThr();
 DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show('home'); return refreshHome(); });
+</script>
+<script>
+/* new interface: navigation, icons, Edit buttons */
+(function(){
+  function icons(){
+    var I = window.NakiIcons; if (!I) return;
+    [].forEach.call(document.querySelectorAll('[data-ic]'), function(e){
+      var n = e.getAttribute('data-ic'); if (!I.has(n)) return;
+      e.innerHTML = I.svg(n, { size: +e.getAttribute('data-s') || 22 }); e.removeAttribute('data-ic');
+    });
+  }
+  window.markNav = function(view){
+    var on = view === 'home' ? 'home' : view === 'check' ? 'settings' : '';
+    [].forEach.call(document.querySelectorAll('.nb'), function(b){ b.classList.toggle('on', b.getAttribute('data-go') === on); });
+  };
+  // open a saved project and go straight into the editor
+  window.openAndEdit = function(id){
+    openSaved(id);
+    var n = 0, iv = setInterval(function(){
+      if (S.sess && S.sess.id === id && S.mode === 'preview' && S.view === 'work'){ clearInterval(iv); $('bEdit').click(); }
+      else if (++n > 100) clearInterval(iv);
+    }, 100);
+  };
+  function latest(){
+    if (!DB.ok) return Promise.resolve(null);
+    return DB.all('sessions').then(function(all){ all.sort(function(a, b){ return b.created - a.created; }); return all[0] || null; }, function(){ return null; });
+  }
+  $('btnEditor').onclick = function(){
+    latest().then(function(s){
+      if (!s){ toast('No projects yet. Start a session first, then you can edit it.', 5000); return; }
+      openAndEdit(s.id);
+    });
+  };
+  [].forEach.call(document.querySelectorAll('.nb'), function(b){
+    b.addEventListener('click', function(){
+      var g = b.getAttribute('data-go');
+      if (S.rec.on || S.rec.starting){ toast('Stop the recording first.'); return; }
+      if (g === 'home'){ if (S.view !== 'home') $('btnBack').click(); }
+      else if (g === 'session'){ if (S.view !== 'home') $('btnBack').click(); $('btnNew').click(); }
+      else if (g === 'editor'){ if (S.view !== 'home') $('btnBack').click(); $('btnEditor').click(); }
+      else if (g === 'settings'){ runCheck(); }
+    });
+  });
+  icons(); window.markNav(S.view); document.documentElement.setAttribute('data-view', S.view);
+})();
 </script>
 <script src="skin.js"></script>
 </body>

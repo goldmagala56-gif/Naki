@@ -1,0 +1,41 @@
+/* Naki theme: a calm dark look in the style of CapCut and other modern editors: near-black surfaces, thin even borders, rounded controls, one accent colour.
+   It only changes colours, borders and the shape of controls (never where things sit), so it can be removed by taking out its <link>. */
+:root {
+  color-scheme: dark;
+  --ink: #0c0d0f;          /* the app background */
+  --panel: #15171a;        /* bars, panels and sheets */
+  --panel-2: #1e2125;      /* buttons and fields */
+  --line: #2a2d33;         /* every border */
+  --chalk: #f4f5f7;        /* main text */
+  --dim: #9097a3;          /* second-line text */
+  --mango: #ff9f1c;        /* THE ACCENT COLOUR: change this one line to recolour the whole app (the old orange was #ff9f0a) */
+  --on-accent: #022925;    /* text on the accent colour */
+  --hibiscus: #f50c28;     /* delete and warnings */
+  --r: 10px; --r-sm: 8px; --r-lg: 14px;
+}
+html, body { background: var(--ink); color: var(--chalk); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+* { scrollbar-width: thin; scrollbar-color: #3a3e46 transparent; }
+*::-webkit-scrollbar { width: 8px; height: 8px; } *::-webkit-scrollbar-thumb { background: #3a3e46; border-radius: 8px; } *::-webkit-scrollbar-track { background: transparent; }
+:focus-visible { outline: 2px solid var(--mango); outline-offset: 2px; }
+input[type=range] { accent-color: var(--mango); }
+::selection { background: rgba(46, 230, 214, .28); }
+
+/* buttons everywhere: even borders, rounded, a soft hover, a press */
+button { font-family: inherit; }
+.ed-btn { border-radius: var(--r-sm); background: var(--panel-2); border-color: var(--line); transition: background .12s, border-color .12s, transform .06s; }
+.ed-btn:hover:not(:disabled) { background: #262a30; border-color: #3a3e46; }
+.ed-btn.primary, .ed-btn.on { background: var(--mango); border-color: transparent; color: var(--on-accent); }
+.ed-btn.primary:hover:not(:disabled), .ed-btn.on:hover:not(:disabled) { background: var(--mango); filter: brightness(1.08); }
+.ed-danger { border-color: var(--hibiscus); color: var(--hibiscus); background: transparent; }
+
+/* the editor: top bar, preview, side panel */
+.ed-top { background: var(--panel); min-height: 52px; border-bottom: 1px solid var(--line); }
+.ed-title { font-weight: 700; letter-spacing: .01em; }
+.ed-stage { background: #000; border-bottom: 1px solid var(--line); }
+.ed-insp { background: var(--panel); border-left: 1px solid var(--line); }
+.ed-insp h3 { color: var(--dim); letter-spacing: .08em; }
+
+/* icons put on buttons by skin.js */
+button .lc { flex: none; pointer-events: none; }
+button.skin-inline { display: inline-flex; align-items: center; justify-content: center; gap: 8px; }
+html.naki-skin .ed-btn.ed-sq .lc { width: 18px; height: 18px; }
