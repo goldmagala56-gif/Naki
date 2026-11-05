@@ -162,6 +162,10 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <header class="top">
   <button id="btnBack" class="back" hidden aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4.5l-7.5 7.5 7.5 7.5"/></svg></button>
   <div class="brand">Naki<i></i></div>
+  <div id="topTitle" class="ttl"></div>
+  <span id="recPill" class="rec" hidden><i></i><span id="recPillT">Recording</span></span>
+  <span id="offlineChip" class="chip2" hidden><span data-ic="wifi-off" data-s="14"></span>Works offline</span>
+  <button id="btnSettingsTop" class="back" data-noskin aria-label="Device check"><span data-ic="settings"></span></button>
 </header>
 
 <main>
@@ -171,9 +175,9 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
     <p class="lead">Narrate a movie live, or edit a saved project on the timeline. Everything is saved on this device and works without internet.</p>
     <div class="hero">
       <div class="act"><div class="tile" data-ic="mic-vocal" data-s="26"></div><h3>Session</h3><p>Play a movie, talk over it and pause whenever you want to explain. Then export it, or send it to the editor.</p><button id="btnNew" data-noskin class="btn primary big"><span data-ic="mic"></span>Start a session</button></div>
-      <div class="act alt"><div class="tile" data-ic="clapperboard" data-s="26"></div><h3>Editor</h3><p>Open your latest project and edit it: cut, text, captions, effects, sounds, music and more.</p><button id="btnEditor" data-noskin class="btn big"><span data-ic="scissors"></span>Edit latest project</button></div>
+      <div class="act alt"><div class="tile" data-ic="clapperboard" data-s="26"></div><h3>Editor</h3><p>Open your latest project and edit it: cut, text, captions, effects, sounds, music and more.</p><button id="btnEditor" data-noskin class="btn big"><span data-ic="scissors"></span>Open the editor</button></div>
     </div>
-    <div class="tip">Wear headphones or earphones while you record. Without them, the movie sound leaks into your microphone.</div>
+    <div class="drop"><div class="tile" data-ic="file-up"></div><div class="dtx"><b>Start from a movie file</b>Choose a movie from this device to narrate.</div><button id="btnImport" data-noskin class="btn"><span data-ic="upload"></span>Choose movie</button></div>
     <h2>Your projects</h2>
     <div id="sessList"></div>
     <div class="home-sub"><button id="btnCheck" class="btn ghost">Check this device</button><button id="btnInstall" class="btn" hidden>Install Naki on this phone</button></div>
@@ -290,47 +294,9 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
             <button id="bTakeBackHere" class="btn">Take back from here</button>
             <button id="bEdit" class="btn primary">Edit video</button>
             <button id="bCover" class="btn">Cover image</button>
+            <button id="bOpenExport" data-noskin class="btn"><span data-ic="download"></span>Export</button>
             <button id="bHome" class="btn">Home</button>
           </div>
-          <h3>Export</h3>
-          <div class="row wrap" style="margin-bottom:4px">
-            <button type="button" id="bShapeLandscape" class="btn" aria-pressed="true">Landscape</button>
-            <button type="button" id="bShapeVertical" class="btn">Vertical (TikTok)</button>
-          </div>
-          <div class="row wrap" style="margin-bottom:4px">
-            <button type="button" id="bQualityFaster" class="btn" aria-pressed="true">Faster export</button>
-            <button type="button" id="bQualitySharper" class="btn">Sharper (slower)</button>
-          </div>
-          <p class="dim small" style="margin:2px 0 8px">Faster finishes in roughly the time it used to. Sharper looks noticeably better but can take much longer on an older phone -- try Faster first if you're not sure.</p>
-          <div class="row wrap" style="margin-bottom:10px">
-            <button type="button" id="bPickLogo" class="btn">Add logo (optional)</button>
-            <span id="logoName" class="dim small" style="align-self:center"></span>
-            <button type="button" id="bClearLogo" class="btn" hidden>Remove logo</button>
-          </div>
-          <div class="icon-col" style="margin:6px auto 4px">
-            <button id="bExport" class="icon-btn lg accent" aria-label="Export"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v11.5m0 0l-4-4m4 4l4-4"/><path d="M5 16.5V19a2 2 0 002 2h10a2 2 0 002-2v-2.5"/></svg></button>
-            <span class="icon-label">Export</span>
-          </div>
-          <div id="exportBox" hidden>
-            <div class="field">
-              <label for="exportStatus" style="margin-bottom:6px">
-                <span id="exportStatus">Working...</span>
-                <span id="exportPct" class="num"></span>
-              </label>
-              <div class="meter"><div id="exportBar" style="position:absolute;left:0;top:0;bottom:0;width:0;background:var(--mango);border-radius:8px"></div></div>
-            </div>
-            <div id="exportDone" hidden>
-              <video id="exportPreview" controls playsinline style="width:100%;border-radius:12px;background:#000;margin:10px 0"></video>
-              <div class="row wrap">
-                <button id="bShareVideo" class="btn primary" hidden>
-                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" style="width:18px;height:18px;vertical-align:-4px;margin-right:6px"><path d="M12 15V4.5m0 0L8.2 8.3M12 4.5l3.8 3.8"/><path d="M5 12v6.5a2 2 0 002 2h10a2 2 0 002-2V12"/></svg>Share / save to gallery
-                </button>
-                <a id="exportDownload" class="btn" download="naki.mp4">Download file</a>
-              </div>
-              <p class="dim small">You can review your video right here before saving it anywhere. If "Share" isn't available on this device, use Download instead — it saves to your normal Downloads.</p>
-            </div>
-          </div>
-          <p class="dim small">Builds your finished video on this device and saves it. The first time, it needs internet once (about 30&nbsp;MB); after that it works offline.</p>
           <details class="opts">
             <summary>Advanced (not needed for normal use)</summary>
             <p class="dim small">These are extra tools for troubleshooting and for computer-based export. Most people never need this section.</p>
@@ -349,6 +315,31 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
   </section>
 </main>
 
+<div id="exportSheet" class="veil" hidden><div class="sheet" role="dialog" aria-label="Export">
+  <h3>Export <button id="bSheetClose" class="btn icon ghost" data-noskin aria-label="Close"><span data-ic="x"></span></button></h3>
+  <div class="pv"><div class="pvth"></div><div style="min-width:0"><b id="shName"></b><div id="shMeta" class="dim small"></div></div></div>
+  <div class="opt"><label>Shape <span>TikTok is tall</span></label><div class="seg"><button type="button" id="bShapeLandscape" aria-pressed="true">Landscape</button><button type="button" id="bShapeVertical" aria-pressed="false">Vertical (TikTok)</button></div></div>
+  <div class="opt"><label>Resolution <span>Original = the movie's own size</span></label><div class="seg" id="segRes"><button type="button" data-res="480" aria-pressed="false">480p</button><button type="button" data-res="720" aria-pressed="true">720p</button><button type="button" data-res="1080" aria-pressed="false">1080p</button><button type="button" data-res="orig" aria-pressed="false">Original</button></div></div>
+  <div class="opt"><label>Quality <span>bigger file, sharper picture</span></label><div class="seg"><button type="button" id="bQualityFaster" aria-pressed="true">Recommended</button><button type="button" id="bQualitySharper" aria-pressed="false">Higher (slower)</button></div></div>
+  <div class="opt"><label>Logo <span>optional</span></label><div class="row wrap" style="margin:0"><button type="button" id="bPickLogo" class="btn">Add logo</button><span id="logoName" class="dim small" style="align-self:center"></span><button type="button" id="bClearLogo" class="btn" hidden>Remove logo</button></div></div>
+  <div class="est"><span data-ic="info" data-s="18"></span><span id="shEst"></span></div>
+  <div id="exportBox" hidden>
+    <div class="field">
+      <label for="exportStatus" style="margin-bottom:6px"><span id="exportStatus">Working...</span> <span id="exportPct" class="num"></span></label>
+      <div class="meter"><div id="exportBar" style="position:absolute;left:0;top:0;bottom:0;width:0;background:var(--mango);border-radius:8px"></div></div>
+    </div>
+    <div id="exportDone" hidden>
+      <video id="exportPreview" controls playsinline style="width:100%;border-radius:12px;background:#000;margin:10px 0"></video>
+      <div class="row wrap">
+        <button id="bShareVideo" class="btn primary" hidden>Share / save to gallery</button>
+        <a id="exportDownload" class="btn" download="naki.mp4">Download file</a>
+      </div>
+      <p class="dim small">Watch it here before saving it anywhere. If "Share" isn't available on this device, use Download.</p>
+    </div>
+  </div>
+  <p class="dim small">Builds your finished video on this device. The first time it needs internet once (about 30&nbsp;MB); after that it works offline. The size above is an estimate.</p>
+  <div class="foot"><button id="bSheetCancel" class="btn">Close</button><button id="bExport" data-noskin class="btn primary big"><span data-ic="download"></span>Export video</button></div>
+</div></div>
 <input type="file" id="filePick" accept="video/*,.mkv,.avi,.mov,.mp4,.webm" hidden>
 <input type="file" id="logoPick" accept="image/*" hidden>
 <input type="file" id="replacePick" accept="video/*,.mkv,.avi,.mov,.mp4,.webm" hidden>
@@ -1198,15 +1189,15 @@ function refreshHome(){
   return DB.all('sessions').then(function(all){
     all.sort(function(a, b){ return b.created - a.created; });
     if (!all.length){ list.appendChild(h('p', { class: 'dim' }, 'No sessions yet. Start one and it will appear here.')); return; }
-    all.forEach(function(s){
+    all.forEach(function(s, i){
       var label = s.status === 'stopped' ? 'Saved' : 'Recovered';
-      list.appendChild(h('div', { class: 'card' },
-        h('div', { class: 'ct' }, s.name),
-        h('div', { class: 'meta' }, h('span', null, new Date(s.created).toLocaleString()), h('span', null, fmt(s.durationMs || 0)), h('span', null, label)),
-        h('div', { class: 'row' },
-          h('button', { class: 'btn', onclick: function(){ openSaved(s.id); } }, 'Open'),
-          h('button', { class: 'btn', onclick: function(){ openAndEdit(s.id); } }, 'Edit'),
-          h('button', { class: 'btn', onclick: function(){ delSaved(s); } }, 'Delete'))));
+      list.appendChild(h('div', { class: 'pj' },
+        h('div', { class: 'th g' + (i % 4), role: 'button', tabindex: '0', 'aria-label': 'Open ' + s.name, onclick: function(){ openSaved(s.id); } },
+          h('span', { class: 'kind' }, label), h('span', { class: 'dur' }, fmt(s.durationMs || 0))),
+        h('div', { class: 'pm' },
+          h('div', { class: 't' }, h('b', null, s.name), h('span', null, new Date(s.created).toLocaleDateString() + ' \u00b7 ' + fmt(s.durationMs || 0))),
+          h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Edit', onclick: function(){ openAndEdit(s.id); } }, h('span', { 'data-ic': 'pencil', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Edit'))),
+          h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Delete', onclick: function(){ delSaved(s); } }, h('span', { 'data-ic': 'trash-2', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Delete'))))));
     });
   }).catch(function(){ list.appendChild(h('p', { class: 'dim' }, 'Could not read saved sessions.')); });
 }
@@ -1536,8 +1527,8 @@ $('bExport').onclick = function(){
   // same target size is used for both so Faster/Sharper mean the same thing either way).
   var sourceH = el.movie.videoHeight || 720;
   var sharper = S.exportQuality === 'sharper';
-  var cap = sharper ? 1080 : 720;
-  var targetH = Math.max(480, Math.min(cap, sourceH));
+  var targetH = S.exportRes === 'orig' ? sourceH : Math.max(240, Math.min(+S.exportRes || 720, sourceH));
+  targetH -= targetH % 2;
   var ffmpegOpts = { height: targetH, crf: sharper ? 20 : 23, preset: sharper ? 'veryfast' : 'superfast', vertical: S.exportVertical };
   var webcodecsOpts = { height: targetH, quality: S.exportQuality, vertical: S.exportVertical };
   // The shape chosen in the editor (Format) wins; otherwise the Landscape / Vertical buttons decide.
@@ -1876,11 +1867,7 @@ NakiEditor.init({
   ensureAudio: ensureAudio, getCtx: function(){ return S.audio.ctx; },
   setMovieGain: applyGain, replaceMovie: replaceMovie, movieReady: function(){ return !!S.movieFile; },
     toast: toast, onClose: function(){ if (S.sess) preparePreview(S.sess); },
-      onExport: function(){
-    var b = $('bExport'); if (!b || b.disabled) return;
-    b.click();
-    var box = $('exportBox'); if (box && box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  },
+      onExport: function(){ openExportSheet(); },
   music: $('music'),
   overlayUrl: overlayUrl, pickOverlay: pickOverlay, setOverlayFile: setOverlayFile,
   sfxUrl: sfxUrl, pickSfx: pickSfx, setSfxFile: setSfxFile, getVoiceBlob: getVoiceBlob,
@@ -1948,8 +1935,9 @@ placeThr();
 DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show('home'); return refreshHome(); });
 </script>
 <script>
-/* new interface: navigation, icons, Edit buttons */
+/* new interface: navigation, icons, project buttons, export sheet */
 (function(){
+  S.exportRes = '720';
   function icons(){
     var I = window.NakiIcons; if (!I) return;
     [].forEach.call(document.querySelectorAll('[data-ic]'), function(e){
@@ -1961,7 +1949,6 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
     var on = view === 'home' ? 'home' : view === 'check' ? 'settings' : '';
     [].forEach.call(document.querySelectorAll('.nb'), function(b){ b.classList.toggle('on', b.getAttribute('data-go') === on); });
   };
-  // open a saved project and go straight into the editor
   window.openAndEdit = function(id){
     openSaved(id);
     var n = 0, iv = setInterval(function(){
@@ -1979,17 +1966,61 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
       openAndEdit(s.id);
     });
   };
+  $('btnImport').onclick = function(){ $('btnNew').click(); };
+  $('btnSettingsTop').onclick = function(){ if (S.rec.on || S.rec.starting){ toast('Stop the recording first.'); return; } runCheck(); };
   [].forEach.call(document.querySelectorAll('.nb'), function(b){
     b.addEventListener('click', function(){
       var g = b.getAttribute('data-go');
       if (S.rec.on || S.rec.starting){ toast('Stop the recording first.'); return; }
-      if (g === 'home'){ if (S.view !== 'home') $('btnBack').click(); }
-      else if (g === 'session'){ if (S.view !== 'home') $('btnBack').click(); $('btnNew').click(); }
-      else if (g === 'editor'){ if (S.view !== 'home') $('btnBack').click(); $('btnEditor').click(); }
-      else if (g === 'settings'){ runCheck(); }
+      if (g === 'settings'){ runCheck(); return; }
+      if (S.view !== 'home') $('btnBack').click();
+      if (g === 'session') $('btnNew').click(); else if (g === 'editor') $('btnEditor').click();
     });
   });
+  // export sheet
+  function planMs(){
+    var s = S.sess, vd = el.voice.duration;
+    try { return NakiEditor.planFor(s, { voiceDurMs: isFinite(vd) && vd > 0 ? Math.round(vd * 1000) : null, saved: s.savedProject }).durationMs; } catch (e) { return s.durationMs || 0; }
+  }
+  function est(){
+    if (!S.sess) return;
+    var ms = planMs(), src = el.movie.videoHeight || 720;
+    var h0 = S.exportRes === 'orig' ? src : Math.min(+S.exportRes || 720, src);
+    var mbps = h0 >= 1000 ? 5 : h0 >= 700 ? 2.5 : h0 >= 500 ? 1.5 : 1;
+    if (S.exportQuality === 'sharper') mbps *= 1.5;
+    var mb = Math.max(1, Math.round(ms / 1000 * mbps / 8));
+    $('shEst').innerHTML = 'About <b>' + mb + ' MB</b> \u00b7 ' + h0 + 'p \u00b7 ' + (S.exportQuality === 'sharper' ? 'higher quality' : 'recommended quality');
+    $('shMeta').textContent = fmt(ms) + ' \u00b7 ' + (S.exportVertical ? 'vertical 9:16' : 'landscape');
+  }
+  window.openExportSheet = function(){
+    if (!S.sess){ toast('Open a session first.'); return; }
+    $('shName').textContent = S.sess.name; est(); $('exportSheet').hidden = false;
+  };
+  function closeSheet(){ $('exportSheet').hidden = true; }
+  $('bOpenExport').onclick = openExportSheet;
+  $('bSheetClose').onclick = $('bSheetCancel').onclick = closeSheet;
+  $('exportSheet').addEventListener('click', function(e){ if (e.target === this) closeSheet(); });
+  document.addEventListener('keydown', function(e){ if (e.key === 'Escape' && !$('exportSheet').hidden) closeSheet(); });
+  [].forEach.call(document.querySelectorAll('#segRes button'), function(b){
+    b.addEventListener('click', function(){
+      S.exportRes = b.getAttribute('data-res');
+      [].forEach.call(document.querySelectorAll('#segRes button'), function(x){ x.setAttribute('aria-pressed', String(x === b)); });
+      est();
+    });
+  });
+  ['bShapeLandscape', 'bShapeVertical', 'bQualityFaster', 'bQualitySharper'].forEach(function(id){ $(id).addEventListener('click', est); });
+  // title, recording pill, offline chip in the top bar
+  setInterval(function(){
+    var w = S.view === 'work', t = $('topTitle');
+    var name = w ? ((S.sess && S.sess.name) || (S.movieFile && S.movieFile.name.replace(/\.[^.]+$/, '')) || '') : '';
+    if (t.textContent !== name) t.textContent = name;
+    var rp = $('recPill'), on = !!(w && S.mode === 'studio' && S.rec.on);
+    if (rp.hidden === on) rp.hidden = !on;
+    if (on){ var tx = 'Recording ' + $('recTime').textContent; if ($('recPillT').textContent !== tx) $('recPillT').textContent = tx; }
+    var oc = $('offlineChip'), off = !IS_DEV && !!(navigator.serviceWorker && navigator.serviceWorker.controller); if (oc.hidden === off) oc.hidden = !off;
+  }, 300);
   icons(); window.markNav(S.view); document.documentElement.setAttribute('data-view', S.view);
+  new MutationObserver(icons).observe(document.body, { childList: true, subtree: true });
 })();
 </script>
 <script src="skin.js"></script>
