@@ -753,10 +753,10 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edAddSpot', label: 'Spotlight', icon: G.spot, run: function (){ openPanel('spotpick'); } },
         { id: 'edAddFrame', label: 'Frames', icon: G.frame, run: function (){ openPanel('framepick'); } },
         { id: 'edOverlayEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel(selGen() ? 'genedit' : 'overlayedit'); }, disabled: !isO },
-        { id: 'edOverlayMask', label: 'Mask', icon: G.shape, run: function (){ E.chip.overlayfx = 'mask'; openPanel('overlayfx'); }, disabled: !isO },
+        { id: 'edOverlayMask', label: 'Mask', icon: G.shape, run: function (){ openPanel('maskonly'); }, disabled: !isO },
 { id: 'edOverlayKf', label: 'Keyframe', icon: KFD_OFF, run: function (){ var c = selOverlay(); if (c) commit(P.toggleKeyframes(E.hist.cur, c.id, relNow(c))); }, disabled: !isO || !!selGen() },
 { id: 'edOverlayEase', label: 'Easing', icon: G.curve, run: function (){ openPanel('keyease'); }, disabled: !isO || !!selGen() },
-{ id: 'edOverlayFx', label: 'Blend', icon: G.adjust, run: function (){ E.chip.overlayfx = 'blend'; openPanel('overlayfx'); }, disabled: !isO },
+{ id: 'edOverlayFx', label: 'Blend', icon: G.adjust, run: function (){ openPanel('blendonly'); }, disabled: !isO },
         { id: 'edOverlayRemoveBg', label: 'Remove BG', icon: G.rembg, run: function (){ openPanel('removebg'); }, disabled: !isO || !!selGen() },
         { id: 'edOverlayChroma', label: 'Chroma key', icon: G.pick, run: function (){ openPanel('chromakey'); }, disabled: !isO || !!selGen() },
         { id: 'edOverlayMotion', label: 'Motion', icon: G.motion, run: function (){ openPanel('motion'); }, disabled: !isO },
@@ -1365,6 +1365,14 @@ opacity: { title: 'Opacity', build: function (body){
         removebg: { title: 'Remove background', build: function (body){
       if (!NRB){ body.appendChild(mk('div', 'ed-hint', 'removebg.js is not loaded.')); return; }
       NRB.buildPanel(body, { clip: selOverlay(), hooks: E.hooks, store: E.rbg || (E.rbg = {}), mk: mk, sliderRow: sliderRow, actions: actions, toast: toast, refresh: renderDock, redraw: function (){ renderTimeline(); syncMedia(); } });
+    } },
+        maskonly: { title: 'Mask', build: function (body){
+      E.chip.overlayfx = 'mask'; PANELS.overlayfx.build(body);
+      if (body.firstChild && body.firstChild.classList.contains('ed-sw')) body.removeChild(body.firstChild);   // drop the Blend / Mask / Chroma tabs
+    } },
+    blendonly: { title: 'Blend', build: function (body){
+      E.chip.overlayfx = 'blend'; PANELS.overlayfx.build(body);
+      if (body.firstChild && body.firstChild.classList.contains('ed-sw')) body.removeChild(body.firstChild);
     } },
     chromakey: { title: 'Chroma key', build: function (body){
       var c = selOverlay();
