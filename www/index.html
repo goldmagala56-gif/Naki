@@ -1138,7 +1138,7 @@ function preparePreview(s){
 function updatePreviewUI(){
   var ready = !!S.movieFile;
   $('pPlay').disabled = !ready;
-  $('pPlayIcon').innerHTML = el.voice.paused ? ICON_PLAY : ICON_PAUSE;
+  var ppi = $('pPlayIcon'); if (ppi) ppi.innerHTML = el.voice.paused ? ICON_PLAY : ICON_PAUSE;
   $('pPlay').setAttribute('aria-label', el.voice.paused ? 'Play session' : 'Pause session');
   $('pPlayLabel').textContent = el.voice.paused ? 'Play session' : 'Pause session';
   updateChip();

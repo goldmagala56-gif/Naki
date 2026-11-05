@@ -11,7 +11,7 @@ ok('every button name it knows points at an icon that really exists, and there a
 });
 ok('names are matched without caring about capitals, spaces or the diamond signs on keyframe buttons', () => {
   assert.strictEqual(S.iconFor('Split'), 'split'); assert.strictEqual(S.iconFor('  EXPORT  '), 'download'); assert.strictEqual(S.iconFor('Add   text'), 'type');
-  assert.strictEqual(S.iconFor('\u25c6 Remove keyframe'), null, 'an unknown name stays unknown'); assert.strictEqual(S.iconFor(''), null); assert.strictEqual(S.iconFor(null), null); assert.strictEqual(S.iconFor('toString'), null);
+  assert.strictEqual(S.iconFor('\u25c6 Something unknown'), null, 'an unknown name stays unknown'); assert.strictEqual(S.iconFor(''), null); assert.strictEqual(S.iconFor(null), null); assert.strictEqual(S.iconFor('toString'), null);
 });
 ok('rows: lock, hide and mute buttons are told apart from their opposites, and "Add ..." buttons get a plus', () => {
   assert.strictEqual(S.iconFor('Lock Picture'), 'lock'); assert.strictEqual(S.iconFor('Unlock Picture'), 'lock-open'); assert.strictEqual(S.iconFor('Hide Text'), 'eye-off'); assert.strictEqual(S.iconFor('Show Text'), 'eye');

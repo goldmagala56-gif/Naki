@@ -166,7 +166,7 @@ var WebCodecsExport = (function () {
       clip: (vertical && z > 1) ? box : null, fillFrame: !vertical
     };
   }
-    function filterCss(f) { f = f || {}; var b = f.brightness == null ? 1 : f.brightness, c = f.contrast == null ? 1 : f.contrast, s = f.saturate == null ? 1 : f.saturate; return 'brightness(' + b + ') contrast(' + c + ') saturate(' + s + ')'; }
+      function filterCss(f) { if (!f) return 'none'; return 'brightness(' + (f.brightness == null ? 1 : f.brightness) + ') contrast(' + (f.contrast == null ? 1 : f.contrast) + ') saturate(' + (f.saturate == null ? 1 : f.saturate) + ')'; }
 
   // Draws one picture (flip, turn, zoom, opacity, colour look) onto g. img is anything drawImage accepts.
   function drawPicture(g, img, iw, ih, W, H, vertical, sp) {
