@@ -248,3 +248,4 @@
 .ed-toolbar>.ed-tool{flex:1 0 58px}
 .ed-toolbar>.ed-tool:first-child{margin-left:auto}
 .ed-toolbar>.ed-tool:last-child{margin-right:auto}
+.ed-ibtn.on{background:var(--mango);color:#1d1300}

@@ -71,6 +71,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     { name: 'filters', label: 'Filters', icon: svg('<circle cx="9" cy="10" r="5"/><circle cx="15" cy="10" r="5"/><circle cx="12" cy="15" r="5"/>'), go: function (){ openPanel('filters'); } },
     { name: 'sticker', label: 'Stickers', icon: svg('<path d="M20 12a8 8 0 11-8-8h5a3 3 0 013 3z"/><path d="M9 10h.01M15 10h.01M8.5 14.5a4.5 4.5 0 007 0"/>'), go: function (){ openTool('sticker'); } },
     { name: 'overlay', label: 'Overlay', icon: svg('<rect x="3" y="5" width="14" height="11" rx="1.5"/><rect x="9" y="9" width="12" height="10" rx="1.5"/>'), go: function (){ openTool('overlay'); } },
+        { name: 'rembg', label: 'Remove BG', icon: svg('<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20a6.5 6.5 0 0113 0"/><path d="M3 3l2 2M21 3l-2 2M3 21l2-2M21 21l-2-2"/>'), go: function (){ if (!selOverlay()) toast('Tap a photo overlay on the timeline first.'); openPanel('removebg', 'overlay'); } },
     { name: 'fx', label: 'Effects', icon: svg('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/>'), go: function (){ openTool('fx'); } }
   ];
 
@@ -121,7 +122,13 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     u.time = mk('div', 'ed-time num');
     u.scrub = mk('input', 'ed-scrub'); u.scrub.type = 'range'; u.scrub.min = 0; u.scrub.max = 1000; u.scrub.value = 0; u.scrub.setAttribute('aria-label', 'Position');
     u.undo = iconBtn('edUndo', ICON.undo, 'Undo'); u.redo = iconBtn('edRedo', ICON.redo, 'Redo');
-    add(bar, u.play, u.time, u.scrub, u.undo, u.redo);
+        u.kfBtn = iconBtn('edBarKf', svg('<path d="M12 3l8 9-8 9-8-9z"/>'), 'Add keyframe');
+    u.kfBtn.onclick = function (){
+      var f = E.sel && P.findClip(E.proj, E.sel), c = f && f.clip;
+      if (!c || !P.keyframeProps(E.proj, c.id).length){ toast('Tap a picture or overlay clip first.'); return; }
+      commit(P.toggleKeyframes(E.hist.cur, c.id, relNow(c)));
+    };
+    add(bar, u.play, u.time, u.scrub, u.kfBtn, u.undo, u.redo);
 
     u.note = mk('div', 'ed-note');
     var tl = mk('div', 'ed-tl'); u.labels = mk('div', 'ed-labels'); u.scroll = mk('div', 'ed-scroll'); u.inner = mk('div', 'ed-inner');
@@ -332,6 +339,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   function updateButtons(){
     var u = E.ui;
     u.undo.disabled = !E.hist.past.length; u.redo.disabled = !E.hist.future.length;
+        if (u.kfBtn){ var ks = kfState(); u.kfBtn.disabled = !ks || ks.out; u.kfBtn.classList.toggle('on', !!(ks && ks.here)); }
     u.play.innerHTML = E.playing ? ICON.pause : ICON.play;
     if (u.bSplit) u.bSplit.disabled = !hasCrossing(Math.round(E.t));
     if (u.bCut) u.bCut.disabled = !E.sel; if (u.bDel) u.bDel.disabled = !E.sel;
