@@ -567,7 +567,7 @@ var WebCodecsExport = (function () {
   }
 
   return { isSupported: isSupported, canRender: canRender, hasHardwareEncoder: hasHardwareEncoder, run: run,
-    _test: { filterCss: filterCss, needsOtherEngine: function (plan) { return !canRender(plan); }, pickBitrate: pickBitrate, ownTier: ownTier, pickFps: pickFps, gainOfClip: gainOfClip, automate: automate, targetSize: targetSize, renderAudio: renderAudio,
+    _test: { textsAt: function (list, t) { return (list || []).filter(function (x) { return t >= x.startMs && t < x.startMs + x.durMs; }); }, fadeAlpha: function (sp, frame) { return fadeLevel(sp, frame * 1000 / 30); }, filterCss: filterCss, needsOtherEngine: function (plan) { return !canRender(plan); }, pickBitrate: pickBitrate, ownTier: ownTier, pickFps: pickFps, gainOfClip: gainOfClip, automate: automate, targetSize: targetSize, renderAudio: renderAudio,
       layout: layout, drawPicture: drawPicture, applyExtras: applyExtras, fadeLevel: fadeLevel, drawTitle: drawTitle,
       setFilterSupport: function (v) { filterOk = v; } } };
 })();
