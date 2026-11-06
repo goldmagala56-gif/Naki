@@ -21,7 +21,7 @@ h = swap(h, '<meta name="theme-color" content="#111b24">', '<meta name="theme-co
 // --- navigation + top bar
 const NAV = [['home', 'house', 'Home'], ['session', 'mic-vocal', 'Session'], ['editor', 'scissors', 'Editor'], ['settings', 'settings', 'Settings']];
 const nb = NAV.map(n => '<button class="nb" data-noskin data-go="' + n[0] + '" aria-label="' + n[2] + '"><span data-ic="' + n[1] + '"></span>' + n[2] + '</button>').join('\n    ');
-h = swap(h, '<body>\n<header class="top">', '<body>\n<nav class="rail" id="rail" aria-label="Main">\n    <div class="logo">N</div>\n    ' + nb + '\n  </nav>\n<nav class="bottomnav" id="bottomnav" aria-label="Main">\n    ' + nb + '\n  </nav>\n<header class="top">', 'body + header');
+h = swap(h, '<body>\n<header class="top">', '<body>\n<nav class="rail" id="rail" aria-label="Main">\n    <img class="logo" src="icon.svg" alt="Naki" onerror="this.remove()">\n    ' + nb + '\n  </nav>\n<nav class="bottomnav" id="bottomnav" aria-label="Main">\n    ' + nb + '\n  </nav>\n<header class="top">', 'body + header');
 h = swap(h, '<div class="brand">Naki<i></i></div>\n</header>',
   '<div class="brand">Naki<i></i></div>\n  <div id="topTitle" class="ttl"></div>\n  <span id="recPill" class="rec" hidden><i></i><span id="recPillT">Recording</span></span>\n  <span id="offlineChip" class="chip2" hidden><span data-ic="wifi-off" data-s="14"></span>Works offline</span>\n  <button id="btnSettingsTop" class="back" data-noskin aria-label="Device check"><span data-ic="settings"></span></button>\n</header>', 'brand + end of header');
 // --- Home
@@ -31,12 +31,12 @@ h = swap(h, '<div class="brand">Naki<i></i></div>\n</header>',
   ['id="btnNew"', 'id="btnCheck"', 'id="btnInstall"', 'id="sessList"', 'id="verLine"'].forEach(k => { if (old.indexOf(k) < 0) fail('the Home section does not contain ' + k); });
   h = h.slice(0, a) + `<section id="view-home">
     <h1>What do you want to make today?</h1>
-    <p class="lead">Narrate a movie live, or edit a saved project on the timeline. Everything is saved on this device and works without internet.</p>
+    <p class="lead">Narrate a movie live, or edit any video on the timeline. Everything is saved on this device and works without internet.</p>
     <div class="hero">
       <div class="act"><div class="tile" data-ic="mic-vocal" data-s="26"></div><h3>Session</h3><p>Play a movie, talk over it and pause whenever you want to explain. Then export it, or send it to the editor.</p><button id="btnNew" data-noskin class="btn primary big"><span data-ic="mic"></span>Start a session</button></div>
-      <div class="act alt"><div class="tile" data-ic="clapperboard" data-s="26"></div><h3>Editor</h3><p>Open your latest project and edit it: cut, text, captions, effects, sounds, music and more.</p><button id="btnEditor" data-noskin class="btn big"><span data-ic="scissors"></span>Open the editor</button></div>
+      <div class="act alt"><div class="tile" data-ic="clapperboard" data-s="26"></div><h3>Editor</h3><p>Open any video and edit it on the timeline: cut, text, captions, effects, music and more. No narration needed.</p><button id="btnEditor" data-noskin class="btn big"><span data-ic="scissors"></span>Edit a video</button></div>
     </div>
-    <div class="drop"><div class="tile" data-ic="file-up"></div><div class="dtx"><b>Start from a movie file</b>Choose a movie from this device to narrate.</div><button id="btnImport" data-noskin class="btn"><span data-ic="upload"></span>Choose movie</button></div>
+    <div class="drop"><div class="tile" data-ic="file-up"></div><div class="dtx"><b>Import a video</b>Choose a file (or drop it here), then pick: edit it, or narrate it.</div><button id="btnImport" data-noskin class="btn"><span data-ic="upload"></span>Choose video</button></div>
     <h2>Your projects</h2>
     <div id="sessList"></div>
     <div class="home-sub"><button id="btnCheck" class="btn ghost">Check this device</button><button id="btnInstall" class="btn" hidden>Install Naki on this phone</button></div>
@@ -78,6 +78,16 @@ const SHEET = `<div id="exportSheet" class="veil" hidden><div class="sheet" role
 </div></div>
 `;
 h = swap(h, '<input type="file" id="filePick"', SHEET + '<input type="file" id="filePick"', 'filePick input');
+h = swap(h, '<audio id="voice" preload="auto"></audio>', `<div id="importModal" class="modalWrap" hidden>
+  <div class="modalCard">
+    <h3 style="margin-top:0">What do you want to do?</h3>
+    <p id="importName" class="dim small" style="overflow-wrap:anywhere"></p>
+    <div class="row wrap"><button id="bImportEdit" class="btn primary" data-noskin>Edit it</button><button id="bImportNarrate" class="btn" data-noskin>Narrate it</button></div>
+    <p class="dim small">Edit opens the timeline with the video and its own sound. Narrate lets you record your voice over it.</p>
+    <div class="row"><button id="bImportCancel" class="btn ghost" data-noskin>Cancel</button></div>
+  </div>
+</div>
+<audio id="voice" preload="auto"></audio>`, 'voice audio element');
 // --- editor Export button now opens the sheet
 {
   const a = h.indexOf('onExport: function(){'), e = '  },\n  music: $(\'music\'),', b = h.indexOf(e, a);
@@ -94,7 +104,7 @@ h = swap(h, "  var cap = sharper ? 1080 : 720;\n  var targetH = Math.max(480, Ma
   h = h.slice(0, s0) + `all.forEach(function(s, i){
       var label = s.status === 'stopped' ? 'Saved' : 'Recovered';
       list.appendChild(h('div', { class: 'pj' },
-        h('div', { class: 'th g' + (i % 4), role: 'button', tabindex: '0', 'aria-label': 'Open ' + s.name, onclick: function(){ openSaved(s.id); } },
+        h('div', { class: 'th g' + (i % 4), 'data-sid': s.id, style: s.thumb ? 'background-image:url(' + s.thumb + ');background-size:cover;background-position:center' : '', role: 'button', tabindex: '0', 'aria-label': 'Open ' + s.name, onclick: function(){ openSaved(s.id); } },
           h('span', { class: 'kind' }, label), h('span', { class: 'dur' }, fmt(s.durationMs || 0))),
         h('div', { class: 'pm' },
           h('div', { class: 't' }, h('b', null, s.name), h('span', null, new Date(s.created).toLocaleDateString() + ' \\u00b7 ' + fmt(s.durationMs || 0))),
@@ -102,7 +112,12 @@ h = swap(h, "  var cap = sharper ? 1080 : 720;\n  var targetH = Math.max(480, Ma
           h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Delete', onclick: function(){ delSaved(s); } }, h('span', { 'data-ic': 'trash-2', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Delete'))))));
     });` + h.slice(b0 + e0.length);
 }
-// --- show(): tell the page which screen is showing
+// --- file picked (edit / import choose what happens), thumbnail saved with the session, show()
+h = swap(h, "    if (S.pickPurpose === 'new') return enterStudio();\n    $('needMovie').hidden = true; updatePreviewUI();\n  }).catch(function(){",
+  "    if (S.pickPurpose === 'new') return enterStudio();\n    if (S.pickPurpose === 'edit') return startEditOnly();\n    if (S.pickPurpose === 'import') return askImport();\n    $('needMovie').hidden = true; updatePreviewUI();\n  }).catch(function(){", 'file picked handler');
+h = swap(h, "      if (S.pickPurpose === 'new') return enterStudio();\n      $('needMovie').hidden = true; updatePreviewUI();\n      toast('Converted and ready.');",
+  "      if (S.pickPurpose === 'new') return enterStudio();\n      if (S.pickPurpose === 'edit') return startEditOnly();\n      if (S.pickPurpose === 'import') return askImport();\n      $('needMovie').hidden = true; updatePreviewUI();\n      toast('Converted and ready.');", 'converted handler');
+h = swap(h, "voiceRanges: s.voiceRanges || null };", "voiceRanges: s.voiceRanges || null, thumb: s.thumb || null };", 'sessionRecord end');
 h = swap(h, "  $('btnBack').hidden = (view === 'home');\n}", "  $('btnBack').hidden = (view === 'home');\n  document.documentElement.setAttribute('data-view', view); if (window.markNav) window.markNav(view);\n}", 'end of show()');
 // --- wiring
 const JS = `<script>
@@ -127,17 +142,115 @@ const JS = `<script>
       else if (++n > 100) clearInterval(iv);
     }, 100);
   };
-  function latest(){
-    if (!DB.ok) return Promise.resolve(null);
-    return DB.all('sessions').then(function(all){ all.sort(function(a, b){ return b.created - a.created; }); return all[0] || null; }, function(){ return null; });
+  /* ---- video only: edit a video with no narration ---- */
+  function silentWav(sec){
+    var sr = 8000, n = sr * sec, b = new ArrayBuffer(44 + n * 2), v = new DataView(b);
+    function w(o, t){ for (var i = 0; i < t.length; i++) v.setUint8(o + i, t.charCodeAt(i)); }
+    w(0, 'RIFF'); v.setUint32(4, 36 + n * 2, true); w(8, 'WAVEfmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+    v.setUint32(24, sr, true); v.setUint32(28, sr * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true); w(36, 'data'); v.setUint32(40, n * 2, true);
+    return new Blob([b], { type: 'audio/wav' });
   }
-  $('btnEditor').onclick = function(){
-    latest().then(function(s){
-      if (!s){ toast('No projects yet. Start a session first, then you can edit it.', 5000); return; }
-      openAndEdit(s.id);
+  function dropVoiceClips(){
+    var guard = 0;
+    (function step(){
+      var c = null; NakiEditor.project().tracks.forEach(function(t){ if (!c && t.role === 'voice' && t.clips.length) c = t.clips[0]; });
+      if (!c || ++guard > 20) return;
+      NakiEditor.select(c.id); NakiEditor.deleteSel(); step();
+    })();
+  }
+  window.startEditOnly = function(){
+    if (!S.movieFile){ toast('Choose a video first.'); return; }
+    var dur = S.movieDurMs || 0; if (dur < 300){ toast('This video has no length that Naki can read.'); return; }
+    el.voice.pause(); S.sess = null;
+    var sess = newSession(), nLv = Math.ceil(dur / LEVEL_STEP_MS) + 1, lv = [];
+    for (var i = 0; i < nLv; i++) lv.push(0);
+    var wav = silentWav(1);
+    sess.status = 'stopped'; sess.durationMs = dur; sess.levels = lv; sess.voiceMime = 'audio/wav'; sess.voiceBlob = wav; sess.chunks = [wav]; sess.chunkTimes = [dur];
+    sess.events = [{ t: 0, type: 'rec_start', movieMs: 0 }, { t: 0, type: 'vol', value: 1 }, { t: 0, type: 'duck', enabled: false, thresholdDb: -42, duckedGain: 1 },
+      { t: 0, type: 'play', movieMs: 0 }, { t: dur, type: 'pause', movieMs: dur }, { t: dur, type: 'rec_stop' }];
+    sess.warnings = [{ t: 0, type: 'no_narration' }];
+    if (DB.ok){
+      DB.put('movies', { sid: sess.id, name: S.movieFile.name, size: S.movieFile.size, blob: S.movieFile }).catch(function(){
+        sess.warnings.push({ t: 0, type: 'movie_not_remembered' });
+        toast('This video is too large to remember on this device. You will need to choose it again next time you open this project.', 8000);
+      });
+    } else sess.warnings.push({ t: 0, type: 'movie_not_remembered_no_db' });
+    persistTrimmed(sess).then(function(){
+      openPreview(sess); $('bEdit').click();
+      var n = 0, iv = setInterval(function(){
+        if (NakiEditor.isOpen()){ clearInterval(iv); try { dropVoiceClips(); } catch (e) { console.warn('could not remove the empty voice row', e); } }
+        else if (++n > 60) clearInterval(iv);
+      }, 100);
     });
   };
-  $('btnImport').onclick = function(){ $('btnNew').click(); };
+  window.askImport = function(){
+    $('importName').textContent = S.movieFile ? S.movieFile.name : '';
+    $('importModal').hidden = false;
+  };
+  $('bImportEdit').onclick = function(){ $('importModal').hidden = true; startEditOnly(); };
+  $('bImportNarrate').onclick = function(){ $('importModal').hidden = true; enterStudio(); };
+  $('bImportCancel').onclick = function(){ $('importModal').hidden = true; };
+  // the empty "Your voice" row is hidden when a project has no narration
+  setInterval(function(){
+    if (!NakiEditor.isOpen() || !S.sess || !(S.sess.warnings || []).some(function(w){ return w.type === 'no_narration'; })) return;
+    var ed = document.getElementById('editor'); if (!ed) return;
+    var rows = ed.querySelectorAll('.ed-row'), labs = ed.querySelectorAll('.ed-labels .ed-label');
+    for (var i = 0; i < rows.length; i++){
+      var empty = rows[i].classList.contains('k-voice') && !rows[i].querySelector('.ed-clip'), d = empty ? 'none' : '';
+      if (rows[i].style.display !== d) rows[i].style.display = d;
+      if (labs[i] && labs[i].style.display !== d) labs[i].style.display = d;
+    }
+  }, 400);
+  $('btnEditor').onclick = function(){ chooseMovie('edit'); };
+  $('btnImport').onclick = function(){ chooseMovie('import'); };
+  var dz = document.querySelector('.drop');
+  ['dragenter', 'dragover'].forEach(function(t){ dz.addEventListener(t, function(e){ e.preventDefault(); dz.classList.add('over'); }); });
+  ['dragleave', 'drop'].forEach(function(t){ dz.addEventListener(t, function(e){ e.preventDefault(); dz.classList.remove('over'); }); });
+  dz.addEventListener('drop', function(e){
+    var f = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0]; if (!f) return;
+    S.pickPurpose = 'import';
+    try { el.pick.files = e.dataTransfer.files; el.pick.dispatchEvent(new Event('change')); } catch (er) { toast('Could not take that file. Use Choose video instead.'); }
+  });
+  /* ---- real frames instead of placeholder colours on the project cards ---- */
+  function captureThumb(blob){
+    return new Promise(function(res){
+      var v = document.createElement('video'), u = URL.createObjectURL(blob), done = false;
+      function fin(x){ if (done) return; done = true; try { URL.revokeObjectURL(u); } catch (e) {} res(x); }
+      v.muted = true; v.preload = 'auto'; v.setAttribute('playsinline', '');
+      v.onerror = function(){ fin(null); };
+      v.onloadedmetadata = function(){ try { v.currentTime = Math.min(1, (v.duration || 2) * 0.1); } catch (e) { fin(null); } };
+      v.onseeked = function(){
+        try {
+          var w = 320, h = Math.max(1, Math.round(w * (v.videoHeight || 9) / (v.videoWidth || 16))), c = document.createElement('canvas');
+          c.width = w; c.height = h; c.getContext('2d').drawImage(v, 0, 0, w, h); fin(c.toDataURL('image/jpeg', 0.7));
+        } catch (e) { fin(null); }
+      };
+      setTimeout(function(){ fin(null); }, 8000);
+      v.src = u;
+    });
+  }
+  var tried = {};
+  function fillThumbs(){
+    if (!DB.ok) return;
+    DB.all('sessions').then(function(all){
+      var todo = all.filter(function(x){ return !x.thumb && x.status !== 'recording' && !tried[x.id]; });
+      (function next(){
+        var x = todo.shift(); if (!x) return; tried[x.id] = 1;
+        DB.get('movies', x.id).then(function(rec){ return rec && rec.blob ? captureThumb(rec.blob) : null; }).then(function(t){
+          if (!t) return;
+          return DB.get('sessions', x.id).then(function(r){
+            if (!r) return; r.thumb = t;
+            return DB.put('sessions', r).then(function(){
+              var card = document.querySelector('[data-sid="' + x.id + '"]');
+              if (card){ card.style.backgroundImage = 'url(' + t + ')'; card.style.backgroundSize = 'cover'; card.style.backgroundPosition = 'center'; }
+            });
+          });
+        }).then(next, next);
+      })();
+    }, function(){});
+  }
+  var rh0 = refreshHome;
+  refreshHome = function(){ return Promise.resolve(rh0.apply(this, arguments)).then(fillThumbs); };
   $('btnSettingsTop').onclick = function(){ if (S.rec.on || S.rec.starting){ toast('Stop the recording first.'); return; } runCheck(); };
   [].forEach.call(document.querySelectorAll('.nb'), function(b){
     b.addEventListener('click', function(){
