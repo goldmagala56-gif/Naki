@@ -7,11 +7,11 @@ const { WebCodecsExport } = require('../www/webcodecs-export.js'), T = WebCodecs
 let n = 0; const jobs = [];
 const ok = (name, fn) => { jobs.push(Promise.resolve(fn()).then(() => { n++; console.log('  ok  ' + name); })); };
 
-ok('bitrate: a movie gets far more than the old presets gave (about 1.5 Mbit/s at 720p), more on "sharper", and never silly amounts', () => {
+ok('bitrate: a movie gets far more than the old presets gave (about 4.7 Mbit/s at 720p), more on "sharper", and never silly amounts', () => {
   const f720 = T.pickBitrate(1280, 720, 'faster', 300, 30), s720 = T.pickBitrate(1280, 720, 'sharper', 300, 30);
-  assert(f720 >= 3000000 && f720 <= 4000000, 'faster 720p: ' + f720); assert(s720 > f720 * 1.5, 'sharper 720p: ' + s720);
+    assert(f720 >= 4500000 && f720 <= 5000000, 'faster 720p: ' + f720); assert(s720 > f720 * 1.5, 'sharper 720p: ' + s720);
   const f1080 = T.pickBitrate(1920, 1080, 'faster', 300, 30), s1080 = T.pickBitrate(1920, 1080, 'sharper', 300, 30);
-  assert(f1080 >= 7000000 && f1080 <= 8000000, 'faster 1080p: ' + f1080); assert(s1080 > f1080 && s1080 <= 16000000, 'sharper 1080p: ' + s1080);
+    assert(f1080 >= 10000000 && f1080 <= 11000000, 'faster 1080p: ' + f1080); assert(s1080 > f1080 && s1080 <= 16000000, 'sharper 1080p: ' + s1080);
   assert.strictEqual(T.pickBitrate(1280, 720, undefined, 300, 30), f720, 'no choice means "faster"'); assert(T.pickBitrate(1920, 1080, 'sharper', 60, 60) === 16000000, 'the top is capped');
   assert(T.pickBitrate(1080, 1920, 'faster', 300, 30) === f1080, 'a tall frame has the same number of pixels');
 });

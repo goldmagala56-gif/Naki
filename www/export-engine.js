@@ -457,7 +457,7 @@ function finalMixArgs(laneNames, totalMs) {
       : labels + 'alimiter=limit=0.95[aout]');
   }
   return args.concat(['-filter_complex', fc.join(';'),
-    '-map', '0:v', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '128k',
+    '-map', '0:v', '-map', '[aout]', '-c:v', 'copy', '-c:a', 'aac', '-b:a', '192k',
     '-t', (totalMs / 1000).toFixed(3), '-movflags', '+faststart', 'out.mp4']);
 }
 
@@ -691,7 +691,7 @@ var NakiExport = (function () {
     var offProgress = function (e) { if (e && typeof e.progress === 'number') prog(Math.min(1, Math.max(0, e.progress))); };
     ffmpeg.on('progress', offProgress);
     await ffmpeg.exec(['-i', 'in.src', '-map', '0:v:0', '-map', '0:a:0?',
-      '-c:v', 'libx264', '-preset', opts.preset || 'veryfast', '-crf', String(opts.crf != null ? opts.crf : 23),
+      '-c:v', 'libx264', '-preset', opts.preset || 'veryfast', '-crf', String(opts.crf != null ? opts.crf : 18),
       '-pix_fmt', 'yuv420p', '-c:a', 'aac', '-b:a', '160k', '-movflags', '+faststart', 'out.mp4']);
     ffmpeg.off('progress', offProgress);
 

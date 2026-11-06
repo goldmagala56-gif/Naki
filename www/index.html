@@ -105,7 +105,7 @@ input[type=range]{accent-color:var(--mango);height:32px}
 /* icon-based navigation: circular icon buttons with a small caption underneath, used for
    Studio/Preview transport controls, so the main controls read as an app toolbar rather
    than a stack of big colored text buttons. */
-.btn[aria-pressed="true"]{background:var(--mango);color:#1d1300;border-color:transparent}
+.btn[aria-pressed="false"]{background:var(--mango);color:#1d1300;border-color:transparent}
 .icon-btn{display:flex;align-items:center;justify-content:center;border:0;border-radius:50%;
   background:var(--panel-2);color:var(--chalk);cursor:pointer;touch-action:manipulation;flex:none;padding:0}
 .icon-btn svg{width:46%;height:46%;display:block}
@@ -321,7 +321,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
   <h3>Export <button id="bSheetClose" class="btn icon ghost" data-noskin aria-label="Close"><span data-ic="x"></span></button></h3>
   <div class="pv"><div class="pvth"></div><div style="min-width:0"><b id="shName"></b><div id="shMeta" class="dim small"></div></div></div>
   <div class="opt"><label>Shape <span>TikTok is tall</span></label><div class="seg"><button type="button" id="bShapeLandscape" aria-pressed="true">Landscape</button><button type="button" id="bShapeVertical" aria-pressed="false">Vertical (TikTok)</button></div></div>
-  <div class="opt"><label>Resolution <span>Original = the movie's own size</span></label><div class="seg" id="segRes"><button type="button" data-res="480" aria-pressed="false">480p</button><button type="button" data-res="720" aria-pressed="true">720p</button><button type="button" data-res="1080" aria-pressed="false">1080p</button><button type="button" data-res="orig" aria-pressed="false">Original</button></div></div>
+  <div class="opt"><label>Resolution <span>Original = the movie's own size</span></label><div class="seg" id="segRes"><button type="button" data-res="480" aria-pressed="false">480p</button><button type="button" data-res="720" aria-pressed="true">720p</button><button type="button" data-res="1080" aria-pressed="true">1080p</button><button type="button" data-res="orig" aria-pressed="false">Original</button></div></div>
   <div class="opt"><label>Quality <span>bigger file, sharper picture</span></label><div class="seg"><button type="button" id="bQualityFaster" aria-pressed="true">Recommended</button><button type="button" id="bQualitySharper" aria-pressed="false">Higher (slower)</button></div></div>
   <div class="opt"><label>Logo <span>optional</span></label><div class="row wrap" style="margin:0"><button type="button" id="bPickLogo" class="btn">Add logo</button><span id="logoName" class="dim small" style="align-self:center"></span><button type="button" id="bClearLogo" class="btn" hidden>Remove logo</button></div></div>
   <div class="est"><span data-ic="info" data-s="18"></span><span id="shEst"></span></div>
@@ -851,7 +851,7 @@ function assembleVoice(pieces){
 // Creates and wires a MediaRecorder writing into sess. Shared by starting fresh and by carrying on after Take Back.
 function attachRecorder(sess, isFirst){
   var mime = pickMime(), mr;
-  try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 32000 } : { audioBitsPerSecond: 32000 }); }
+  try { mr = new MediaRecorder(S.mic.stream, mime ? { mimeType: mime, audioBitsPerSecond: 96000 } : { audioBitsPerSecond: 96000 }); }
   catch (e) { return null; }
   var st = S.mic.settings || {};
   sess.stats.mic = { echoCancellation: st.echoCancellation, noiseSuppression: st.noiseSuppression,
@@ -1570,8 +1570,8 @@ $('bExport').onclick = function(){
   var sharper = S.exportQuality === 'sharper';
   var targetH = S.exportRes === 'orig' ? sourceH : Math.max(240, Math.min(+S.exportRes || 720, sourceH));
   targetH -= targetH % 2;
-  var ffmpegOpts = { height: targetH, crf: sharper ? 20 : 23, preset: sharper ? 'veryfast' : 'superfast', vertical: S.exportVertical };
-  var webcodecsOpts = { height: targetH, quality: S.exportQuality, vertical: S.exportVertical };
+  var ffmpegOpts = { height: targetH, crf: sharper ? 17 : 20, preset: 'veryfast', vertical: S.exportVertical };
+    var webcodecsOpts = { height: targetH, exact: true, quality: S.exportQuality, vertical: S.exportVertical };
   // The shape chosen in the editor (Format) wins; otherwise the Landscape / Vertical buttons decide.
   var fmt0 = plan.format, ratio0 = (fmt0 && fmt0.ratio && fmt0.ratio !== 'original') ? fmt0.ratio : (S.exportVertical ? '9:16' : 'original');
   ffmpegOpts.ratio = webcodecsOpts.ratio = ratio0; ffmpegOpts.bg = webcodecsOpts.bg = (fmt0 && fmt0.bg) || null;
@@ -1994,7 +1994,7 @@ if (rec && rec.status === 'stopped' && S.view === 'home') openSaved(rec.id);
 <script>
 /* new interface: navigation, icons, project buttons, export sheet */
 (function(){
-  S.exportRes = '720';
+  S.exportRes = '1080';
   function icons(){
     var I = window.NakiIcons; if (!I) return;
     [].forEach.call(document.querySelectorAll('[data-ic]'), function(e){
@@ -2141,8 +2141,7 @@ if (rec && rec.status === 'stopped' && S.view === 'home') openSaved(rec.id);
     if (!S.sess) return;
     var ms = planMs(), src = el.movie.videoHeight || 720;
     var h0 = S.exportRes === 'orig' ? src : Math.min(+S.exportRes || 720, src);
-    var mbps = h0 >= 1000 ? 5 : h0 >= 700 ? 2.5 : h0 >= 500 ? 1.5 : 1;
-    if (S.exportQuality === 'sharper') mbps *= 1.5;
+    var mbps = Math.min(16, h0 * (h0 * 16 / 9) * 30 * (S.exportQuality === 'sharper' ? 0.28 : 0.17) / 1e6);
     var mb = Math.max(1, Math.round(ms / 1000 * mbps / 8));
     $('shEst').innerHTML = 'About <b>' + mb + ' MB</b> \u00b7 ' + h0 + 'p \u00b7 ' + (S.exportQuality === 'sharper' ? 'higher quality' : 'recommended quality');
     $('shMeta').textContent = fmt(ms) + ' \u00b7 ' + (S.exportVertical ? 'vertical 9:16' : 'landscape');

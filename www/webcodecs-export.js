@@ -33,7 +33,7 @@ var WebCodecsExport = (function () {
   // (they gave only about 1.5 Mbit/s for 720p, which looks blocky on a movie). BPP = bits per pixel per frame: "faster" is a good quality for
   // sharing, "sharper" is close to the original. MAX_BYTES keeps a long export from filling the phone's memory, because the finished file is built
   // in memory; a very long video gets a lower rate instead of a crash.
-  var BPP = { faster: 0.12, sharper: 0.2 }, MAX_BYTES = 450e6, AUDIO_BPS = 192000, MAX_BITRATE = 16e6, MIN_BITRATE = 1.2e6;
+  var BPP = { faster: 0.17, sharper: 0.28 }, MAX_BYTES = 450e6, AUDIO_BPS = 192000, MAX_BITRATE = 16e6, MIN_BITRATE = 1.2e6;
   function pickBitrate(w, h, quality, durationSec, fps) {
     var want = w * h * (fps || 30) * (BPP[quality] || BPP.faster);
     var cap = Math.max(MIN_BITRATE, MAX_BYTES * 8 / Math.max(1, durationSec) - AUDIO_BPS);
@@ -385,7 +385,7 @@ var WebCodecsExport = (function () {
     var duration = Math.max(1, plan.durationMs / 1000);
     FPS = await pickFps(videoTrack);
     // At least the size that was asked for, and the movie's own size (up to 1080) when that is bigger: the slow engine needs the small cap, this one does not.
-    var tier = Math.max(opts.height || 720, ownTier(ratio, srcW, srcH)), size = sizeFor(tier), bitrate = pickBitrate(size.width, size.height, opts.quality, duration, FPS);
+        var tier = (opts.exact && opts.height) ? opts.height : Math.max(opts.height || 720, ownTier(ratio, srcW, srcH)), size = sizeFor(tier), bitrate = pickBitrate(size.width, size.height, opts.quality, duration, FPS);
     // Ask the device first whether it can encode that. If its video chip cannot do the big size, use 720 (software encoding of 1080 would be very slow);
     // if it has no video chip for it at all, let the browser choose.
     var accel = 'prefer-hardware';
