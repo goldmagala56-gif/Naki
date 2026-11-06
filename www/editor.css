@@ -249,3 +249,10 @@
 .ed-toolbar>.ed-tool:first-child{margin-left:auto}
 .ed-toolbar>.ed-tool:last-child{margin-right:auto}
 .ed-ibtn.on{background:var(--mango);color:#1d1300}
+
+/* timeline markers: flags on the ruler */
+.ed-mflag{position:absolute;top:0;height:26px;min-width:22px;margin-left:-1px;cursor:pointer;z-index:4;touch-action:none;--mc:#ff4d4f}
+.ed-mflag::before{content:"";position:absolute;left:0;top:2px;bottom:0;width:2px;background:var(--mc)}
+.ed-mflag::after{content:"";position:absolute;left:2px;top:2px;width:12px;height:11px;background:var(--mc);clip-path:polygon(0 0,100% 0,72% 50%,100% 100%,0 100%)}
+.ed-mflag span{position:absolute;left:16px;top:2px;max-width:80px;font-size:10px;line-height:12px;color:var(--chalk);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 1px 2px rgba(0,0,0,.8);pointer-events:none}
+.ed-mflag.sel{filter:drop-shadow(0 0 3px #fff)}

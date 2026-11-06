@@ -129,6 +129,7 @@ function planToJobs(plan, movieInfo, opts) {
   }
   // A picture from another file is fitted inside the frame with bars when its shape is not the frame's shape.
   function baseFit(sp) {
+    if (sp && sp.crop) return containFit;   // a cropped picture is fitted inside the frame, never stretched
     var a = assetOf(sp);
     if (a && a.width && a.height) {
       var asp = a.width * (a.sar || 1) / a.height, main = movieInfo.width * movieInfo.sar / movieInfo.height;
@@ -168,7 +169,7 @@ function planToJobs(plan, movieInfo, opts) {
 
   // sourceArgs: the input(s) for this part; fitChain: how to fit it to the output size; sp: the plan span;
   // speed: playback speed of a movie part; tpadSec: how long to keep repeating the last frame if the movie ends early.
-  function pictureArgs(sourceArgs, fitChain, nFrames, vfile, sp, spanSec, speed, tpadSec, padStart) {
+  function pictureArgs(sourceArgs, fitChain, nFrames, vfile, sp, spanSec, speed, tpadSec, padStart, copyOk) {
     var tailEnc = enc.concat(ts, [vfile]);
     var look = lookChain(sp, spanSec);
     var over = textFiles.filter(function (t) { return t.clip.startMs < sp.sessionEnd && t.clip.startMs + t.clip.durMs > sp.sessionStart; });
@@ -178,6 +179,7 @@ function planToJobs(plan, movieInfo, opts) {
     var fxs = _L2 ? fxList.filter(function (x) { return x.startMs < sp.sessionEnd && x.startMs + x.durMs > sp.sessionStart; }) : [];   // a blurred background is a whole filter graph, not a chain
     if (!isGraph && !ovs.length && !fxs.length && !wm && !over.length && !look && !(speed && speed !== 1)) {
       // a plain clip: exactly the chain the earlier versions used
+      if (copyOk) return sourceArgs.concat(['-an', '-c:v', 'copy', '-frames:v', String(nFrames), '-f', 'mpegts', '-muxdelay', '0', '-muxpreload', '0', vfile]);   // reversed pieces are already encoded: just join them
       return sourceArgs.concat(['-an', '-vf', fitChain + (tpad ? ',' + tpad : '') + ',setsar=1,fps=' + FPS + ',format=yuv420p', '-frames:v', String(nFrames)], tailEnc);
     }
     var inputs = sourceArgs.slice(), next = 1, fc = [], n = 0;
@@ -270,6 +272,20 @@ function planToJobs(plan, movieInfo, opts) {
     return typeof g === 'object' ? ['-filter_complex', g.graph('[0:v]', '[o]') + ';[o]setsar=1[o2]', '-map', '[o2]'] : ['-vf', g + ',setsar=1'];
   }
 
+  // ---- crop: keep one rectangle of the original picture (before flip / turn / zoom), then fit it inside the frame ----
+  function cropPre(sp) {
+    var c = sp && sp.crop; if (!c) return '';
+    var f = function (v) { return Number(v).toFixed(4); };
+    return 'crop=w=trunc(iw*' + f(c.w) + '/2)*2:h=trunc(ih*' + f(c.h) + '/2)*2:x=trunc(iw*' + f(c.x) + '/2)*2:y=trunc(ih*' + f(c.y) + '/2)*2';
+  }
+  function cropInfo(sp, mi) {   // the size of the picture after the crop (same rounding as cropPre)
+    var c = sp && sp.crop; if (!c) return mi;
+    return Object.assign({}, mi, { width: Math.max(2, Math.floor(mi.width * c.w / 2) * 2), height: Math.max(2, Math.floor(mi.height * c.h / 2) * 2) });
+  }
+  var _tfNoCrop = transformFit, _tpNoCrop = transformPre;
+  transformFit = function (sp) { var b = _tfNoCrop(sp); return sp.crop ? cropPre(sp) + ',' + b : b; };
+  transformPre = function (sp) { var b = _tpNoCrop(sp); return sp.crop ? cropPre(sp) + (b ? ',' + b : '') : b; };
+
   // ---- transitions: where two touching pictures meet, each gives up half of the transition and a short piece made from both goes between ----
   var XFADE = (_FX && _FX.trans) ? _FX.trans.XFADE : { fade: 'fade', fadeblack: 'fadeblack', wipeleft: 'wipeleft', slideleft: 'slideleft', zoomin: 'zoomin', circleopen: 'circleopen' };
   function transOk(a, b) {
@@ -314,7 +330,7 @@ function planToJobs(plan, movieInfo, opts) {
     var t = sp.transform || {}, rot = t.rot || 0, parts = [], kf = sp.kf || {}, spd = sp.speed && sp.speed !== 1 ? sp.speed : 1;
     if (t.flipH) parts.push('hflip');
     if (rot === 90) parts.push('transpose=1'); else if (rot === 180) parts.push('hflip,vflip'); else if (rot === 270) parts.push('transpose=2');
-    var side = rot === 90 || rot === 270, mi = assetOf(sp) || movieInfo, sw = Math.max(2, Math.floor((side ? mi.height : mi.width) / 2) * 2), sh = Math.max(2, Math.floor((side ? mi.width : mi.height) / 2) * 2);
+    var side = rot === 90 || rot === 270, mi = cropInfo(sp, assetOf(sp) || movieInfo), sw = Math.max(2, Math.floor((side ? mi.height : mi.width) / 2) * 2), sh = Math.max(2, Math.floor((side ? mi.width : mi.height) / 2) * 2);
     var tv = '(on/' + FPS + ')', ex = function (k, dflt) { return kf[k] && kf[k].length ? _NA.kfExpr(kf[k], 0, spd, tv) : String(dflt); };
     parts.push('fps=' + FPS, "zoompan=z='" + ex('zoom', t.zoom || 1) + "':x='(iw-iw/zoom)/2*(1+(" + ex('x', t.x || 0) + "))':y='(ih-ih/zoom)/2*(1+(" + ex('y', t.y || 0) + "))':d=1:s=" + sw + 'x' + sh + ':fps=' + FPS);
     return parts.join(',');
@@ -357,8 +373,8 @@ function planToJobs(plan, movieInfo, opts) {
       if (sp.reverse) {
         var rv = _RV.reversePicture(sp, { id: id, nFrames: nFrames, width: width, height: height, speed: speed, fitChain: transformFit(sp), enc: enc, ts: ts, clampSec: clampSec, chunkFrames: opts.reverseChunkFrames });
         rv.jobs.forEach(function (j) { jobs.push(j); });
-        jobs.push({ label: 'picture ' + (i + 1), produces: vfile, files: rv.files,
-          args: pictureArgs(rv.sourceArgs, 'null', nFrames, vfile, sp, spanSec, 1, 1) });
+        jobs.push({ label: 'picture ' + (i + 1), produces: vfile, files: rv.files, cleanup: rv.chunks,
+          args: pictureArgs(rv.sourceArgs, 'null', nFrames, vfile, sp, spanSec, 1, 1, 0, sp.movieStart >= 100) });
       } else jobs.push({ label: 'picture ' + (i + 1), produces: vfile,
         args: pictureArgs(['-ss', clampFor(sp, sp.movieStart).toFixed(3), '-i', fileOf(sp)], pictureFit(sp), nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
     } else if (sp.type === 'freeze') {
@@ -642,7 +658,13 @@ var NakiExport = (function () {
       prog((i / (total + 1)) * 0.85);
       var names = job.files ? Object.keys(job.files) : [];
       for (var f = 0; f < names.length; f++) ffmpeg.writeFile(names[f], job.files[names[f]]);
-      await ffmpeg.exec(job.args);
+            var names = job.files ? Object.keys(job.files) : [];
+      for (var f = 0; f < names.length; f++) ffmpeg.writeFile(names[f], job.files[names[f]]);
+      var code = await ffmpeg.exec(job.args);
+      if (code !== 0) throw new Error('Step "' + job.label + '" failed (code ' + code + '). The device probably ran out of memory.');
+      for (var d = 0; d < names.length; d++) { try { await ffmpeg.deleteFile(names[d]); } catch (e) {} }
+      (job.cleanup || []).forEach(function (n) { try { ffmpeg.deleteFile(n); } catch (e) {} });
+      (job.cleanup || []).forEach(function (n) { try { ffmpeg.deleteFile(n); } catch (e) {} });
       for (var d = 0; d < names.length; d++) { try { await ffmpeg.deleteFile(names[d]); } catch (e) {} }
     }
 
@@ -658,7 +680,8 @@ var NakiExport = (function () {
     prog(0.9);
     var offProgress = function (e) { if (e && typeof e.progress === 'number') prog(0.9 + Math.min(1, Math.max(0, e.progress)) * 0.1); };
     ffmpeg.on('progress', offProgress);
-    await ffmpeg.exec(finalMixArgs(laneNames, plan.durationMs));
+        var mixCode = await ffmpeg.exec(finalMixArgs(laneNames, plan.durationMs));
+    if (mixCode !== 0) throw new Error('The final mix failed (code ' + mixCode + '). The device probably ran out of memory.');
     ffmpeg.off('progress', offProgress);
 
     say('Finishing up...');

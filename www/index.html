@@ -407,6 +407,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="beatsync.js"></script>
 <script src="cover.js"></script>
 <script src="removebg.js"></script>
+<script src="markers.js"></script>
 <script src="editor.js"></script>
 <script>
 'use strict';
@@ -1704,7 +1705,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'speedcurve.js': 'curve', 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'ease', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'fonts', 'reverse.js': 'reverse' };
+  var want = { 'speedcurve.js': 'curve', 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'ease', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'fonts', 'reverse.js': 'reverse', 'markers.js': 'markers' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';
@@ -1958,7 +1959,7 @@ function coverFrameAt(ms){
   var s = S.sess; if (!s || !S.movieUrl) return Promise.resolve(null);
   var plan = NakiEditor.planFor(s, { voiceDurMs: null, saved: s.savedProject }), sp = null;
   plan.video.forEach(function(x){ if (ms >= x.sessionStart && ms < x.sessionEnd) sp = x; });
-  if (!sp || sp.type === 'black' || sp.asset || sp.reverse) return Promise.resolve(null);
+  if (!sp || sp.type === 'black' || sp.asset || sp.reverse || sp.crop) return Promise.resolve(null);
   var at = sp.type === 'freeze' ? sp.movieAt : sp.movieStart + (ms - sp.sessionStart) * (sp.speed || 1);
   var v = S.coverVid;
   if (!v){ v = S.coverVid = document.createElement('video'); v.muted = true; v.preload = 'auto'; v.setAttribute('playsinline', ''); }

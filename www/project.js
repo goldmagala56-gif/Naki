@@ -46,7 +46,8 @@ function gainSlice(points, from, to){   // curve for [from,to), re-based so "fro
 function cloneProject(p){   // tracks/assets are copied; the big levels array is shared (never edited in place)
   return { naki: p.naki, version: p.version, fps: p.fps, durationMs: p.durationMs, levels: p.levels,
     assets: JSON.parse(JSON.stringify(p.assets)), tracks: JSON.parse(JSON.stringify(p.tracks)),
-    format: p.format ? JSON.parse(JSON.stringify(p.format)) : undefined };
+    format: p.format ? JSON.parse(JSON.stringify(p.format)) : undefined,
+    markers: p.markers ? JSON.parse(JSON.stringify(p.markers)) : undefined };
 }
 function finish(p){
   var d = 0;
@@ -140,6 +141,7 @@ function rippleDelete(p, a, b){
   a = Math.round(a); b = Math.round(b);
   if (!(b > a) || a < 0) return p;
   var q = cloneProject(p), gap = b - a, rightLink = {};
+  if (q.markers) q.markers.forEach(function (m){ if (m.t >= b) m.t -= gap; else if (m.t > a) m.t = a; });
   q.tracks.forEach(function (tr){
     var out = [];
     tr.clips.forEach(function (c){
@@ -332,7 +334,7 @@ function addTextClip(p, t, dur, out){
   tr.clips.push(clip); if (out) out.id = clip.id;
   return finish(q);
 }
-var TEXT_FONTS = ['sans', 'serif', 'mono', 'bold', 'script', 'inter', 'montserrat', 'poppins', 'bebas', 'anton', 'oswald', 'archivo', 'bangers', 'righteous', 'playfair', 'pacifico', 'lobster', 'caveat', 'dancing'];
+var TEXT_FONTS = ['sans', 'serif', 'mono', 'bold', 'script', 'inter', 'montserrat', 'poppins', 'bebas', 'anton', 'oswald', 'archivo', 'bangers', 'righteous', 'playfair', 'pacifico', 'lobster', 'caveat', 'dancing', 'lora', 'merriweather', 'librebaskerville', 'crimsontext', 'ebgaramond', 'cormorantgaramond', 'ptserif', 'sourceserif4', 'librecaslontext', 'abrilfatface', 'dmserifdisplay', 'cinzel', 'cinzeldecorative', 'marcellus', 'oldstandardtt', 'alfaslabone', 'unifrakturcook', 'greatvibes', 'sacramento', 'allura', 'parisienne', 'alexbrush', 'pinyonscript', 'italianno', 'tangerine', 'satisfy', 'kaushanscript', 'yellowtail', 'courgette', 'cookie', 'playball', 'shadowsintolight', 'indieflower', 'permanentmarker', 'rocksalt', 'amaticsc', 'gloriahallelujah', 'luckiestguy', 'chewy', 'creepster', 'bungee', 'staatliches', 'monoton', 'blackopsone', 'russoone', 'pressstart2p', 'orbitron', 'specialelite', 'lilitaone', 'fredoka', 'teko', 'lato', 'opensans', 'roboto', 'raleway', 'nunito', 'quicksand', 'comfortaa', 'josefinsans', 'barlowcondensed', 'baloo2'];
 // Changes the look of one text clip (in place). size 3 to 16 (% of the picture height), font, outline 0 to 1 and shadow 0 to 1
 // (shadow 1 is the look titles always had, so it is not stored; outline 0 is not stored either).
 function applyTextPatch(clip, patch){
@@ -415,7 +417,7 @@ function insertFreeze(p, t, dur){
   var s = sourceAt(p, t); if (!s.video) return p;
   var inFreeze = s.video.type === 'freeze', movieMs = Math.round(s.video.movieMs);
   var look = {};
-  ['filter', 'opacity', 'transform'].forEach(function (k){ if (s.video.clip[k] !== undefined) look[k] = JSON.parse(JSON.stringify(s.video.clip[k])); });
+  ['filter', 'opacity', 'transform', 'crop'].forEach(function (k){ if (s.video.clip[k] !== undefined) look[k] = JSON.parse(JSON.stringify(s.video.clip[k])); });
   var q = cloneProject(p), rightLink = {};
   q.tracks.forEach(function (tr){
     if (tr.role === 'music') return;
@@ -434,6 +436,7 @@ function insertFreeze(p, t, dur){
       out.push(Object.assign({ id: newId('c'), type: 'freeze', asset: s.video.clip.asset || 'movie', start: t, dur: dur, in: movieMs, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0, link: newId('l') }, look));
     tr.clips = out;
   });
+  if (q.markers) q.markers.forEach(function (m){ if (m.t >= t) m.t += dur; });
   if (p.levels && p.levels.length){
     var at = Math.min(p.levels.length, Math.round(t / _C.LEVEL_STEP_MS)), n = Math.round(dur / _C.LEVEL_STEP_MS), gap = [];
     for (var i = 0; i < n; i++) gap.push(0);
@@ -498,6 +501,33 @@ function duplicateClip(p, id, out){
   if (d < dur){ copy.fadeOut = 0; copy.fadeOutOff = 0; }
   track.clips.push(copy); if (out) out.id = copy.id;
   return finish(q);
+}
+
+// ---------- crop ----------
+// A crop keeps one rectangle of the picture: clip.crop = { x, y, w, h }, all fractions (0 to 1) of the ORIGINAL picture, before it is turned,
+// flipped or zoomed. The cropped part is then fitted inside the frame (with bars when its shape differs), like CapCut. Not stored when it covers everything.
+var CROP_MIN = 0.05;
+function r4(x){ return Math.round(x * 10000) / 10000; }
+function cleanCrop(c){
+  if (!c) return null;
+  var w = Math.max(CROP_MIN, Math.min(1, +c.w)), h = Math.max(CROP_MIN, Math.min(1, +c.h));
+  if (isNaN(w) || isNaN(h)) return null;
+  w = r4(w); h = r4(h);
+  if (w > 0.999 && h > 0.999) return null;
+  return { x: r4(Math.max(0, Math.min(1 - w, +c.x || 0))), y: r4(Math.max(0, Math.min(1 - h, +c.y || 0))), w: w, h: h };
+}
+// The biggest rectangle of shape rw:rh that fits in a srcW x srcH picture, centred on (cx, cy) (fractions, default the middle). Returns fractions.
+function cropRect(rw, rh, srcW, srcH, cx, cy){
+  if (!(rw > 0 && rh > 0 && srcW > 0 && srcH > 0)) return null;
+  var a = rw / rh, s = srcW / srcH, w = a >= s ? 1 : a / s, h = a >= s ? s / a : 1;
+  return cleanCrop({ x: (cx == null ? 0.5 : cx) - w / 2, y: (cy == null ? 0.5 : cy) - h / 2, w: w, h: h }) || { x: 0, y: 0, w: 1, h: 1 };
+}
+// rect = { x, y, w, h } or null (take the crop away). id null = every picture clip.
+function setCrop(p, id, rect){
+  var q = cloneProject(p), list = pictureClips(q, id); if (!list.length) return p;
+  var c = rect ? cleanCrop(rect) : null;
+  list.forEach(function (cl){ if (cl.type !== 'video' && cl.type !== 'freeze') return; if (c) cl.crop = JSON.parse(JSON.stringify(c)); else delete cl.crop; });
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
 }
 
 // ---------- reverse ----------
@@ -743,7 +773,7 @@ function canMerge(a, b){
   if (sp !== (b.speed || 1) || (a.volume != null ? a.volume : 1) !== (b.volume != null ? b.volume : 1)) return false;
   if (a.type === 'freeze'){ if (a.in !== b.in) return false; }
   else if (Math.abs(a.in + a.dur * sp - b.in) > 2) return false;
-  if (JSON.stringify([a.filter || null, a.opacity, a.transform || null]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null])) return false;
+  if (JSON.stringify([a.filter || null, a.opacity, a.transform || null, a.crop || null]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null, b.crop || null])) return false;
   if (a.vFadeOut || b.vFadeIn) return false;
   if (a.fadeOut > 0 && !(a.fadeOutOff > 0)) return false;
   if (b.fadeIn > 0 && !(b.fadeInOff > 0)) return false;
@@ -1412,7 +1442,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,

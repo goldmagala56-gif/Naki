@@ -72,7 +72,8 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     { name: 'sticker', label: 'Stickers', icon: svg('<path d="M20 12a8 8 0 11-8-8h5a3 3 0 013 3z"/><path d="M9 10h.01M15 10h.01M8.5 14.5a4.5 4.5 0 007 0"/>'), go: function (){ openTool('sticker'); } },
     { name: 'overlay', label: 'Overlay', icon: svg('<rect x="3" y="5" width="14" height="11" rx="1.5"/><rect x="9" y="9" width="12" height="10" rx="1.5"/>'), go: function (){ openTool('overlay'); } },
         { name: 'rembg', label: 'Remove BG', icon: svg('<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20a6.5 6.5 0 0113 0"/><path d="M3 3l2 2M21 3l-2 2M3 21l2-2M21 21l-2-2"/>'), go: function (){ if (!selOverlay()) toast('Tap a photo overlay on the timeline first.'); openPanel('removebg', 'overlay'); } },
-    { name: 'fx', label: 'Effects', icon: svg('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/>'), go: function (){ openTool('fx'); } }
+    { name: 'fx', label: 'Effects', icon: svg('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/>'), go: function (){ openTool('fx'); } },
+    { name: 'marker', label: 'Marker', icon: svg('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'), go: function (){ openTool('marker'); } }
   ];
 
   // ---------- building the screen ----------
@@ -111,6 +112,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     u.sharpK.setAttribute('order', '3'); u.sharpK.setAttribute('preserveAlpha', 'true'); u.sharpK.setAttribute('kernelMatrix', '0 0 0 0 1 0 0 0 0');
     fl.appendChild(u.sharpK); sv.appendChild(fl); u.stage.appendChild(sv);
     u.textlayer = mk('div', 'ed-textlayer'); u.stage.appendChild(u.textlayer);
+    u.croplayer = mk('div', 'ed-croplayer'); u.croplayer.style.cssText = 'position:absolute;display:none;overflow:hidden;pointer-events:none;z-index:6'; u.stage.appendChild(u.croplayer);
 
     // desktop side panel: sound levels and the selected clip
     u.insp = mk('aside', 'ed-insp'); u.mix = mk('div', 'ed-mix'); u.selinfo = mk('div', 'ed-selinfo');
@@ -177,6 +179,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       var k = mk('div', 'ed-tick', fmtP(t).replace(/\.0$/, '')); k.style.left = tx(t) + 'px'; ruler.appendChild(k);
     }
     try { drawBeatTicks(ruler); } catch (e) {}
+    try { drawMarkerFlags(ruler); } catch (e) {}
     u.inner.appendChild(ruler);
     p.tracks.forEach(function (tr){
       var row = mk('div', 'ed-row k-' + tr.role + (tr.hidden ? ' off' : '') + (tr.locked ? ' locked' : '')); row.style.height = rowH(tr) + 'px'; row.dataset.track = tr.id;
@@ -267,7 +270,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     var g = E.ui.snapline, snapped = Math.abs(d.newStart - raw) >= 1;
     if (!snapped){ if (g) g.style.display = 'none'; d.wasSnapped = false; return; }
     var skip = P.linkedClips(E.hist.cur, d.id).map(function (x){ return x.clip.id; }), len = d.e0 - d.s0, th = 8 / E.ppm;
-    var a = P.snapTime(E.proj, raw, th, [E.t], skip), b = P.snapTime(E.proj, raw + len, th, [E.t], skip) - len;
+    var a = P.snapTime(E.proj, raw, th, snapPts(), skip), b = P.snapTime(E.proj, raw + len, th, snapPts(), skip) - len;
     var atStart = a !== raw && (b === raw || Math.abs(a - raw) <= Math.abs(b - raw));
     if (!g || !g.parentNode){ g = E.ui.snapline = mk('div', 'ed-snapline'); E.ui.inner.appendChild(g); }
     g.style.display = 'block'; g.style.left = tx(atStart ? d.newStart : d.newStart + len) + 'px';
@@ -463,7 +466,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   // Snaps a dragged clip by its start OR its end to other clips' edges and the playhead (never to its own edges or its sound's).
   function snapMove(start, dur, id){
     var skip = P.linkedClips(E.hist.cur, id).map(function (x){ return x.clip.id; }), th = 8 / E.ppm;
-    var a = P.snapTime(E.proj, start, th, [E.t], skip), b = P.snapTime(E.proj, start + dur, th, [E.t], skip) - dur, best = start;
+    var a = P.snapTime(E.proj, start, th, snapPts(), skip), b = P.snapTime(E.proj, start + dur, th, snapPts(), skip) - dur, best = start;
     if (a !== start && b !== start) best = Math.abs(a - start) <= Math.abs(b - start) ? a : b;
     else if (a !== start) best = a; else if (b !== start) best = b;
     return Math.max(0, Math.round(best));
@@ -657,7 +660,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     } else d.appendChild(u.toolbar);
     updateButtons();
     if (E.isOpen) layoutTextLayer();
-    syncPicker();
+    syncPicker(); syncCrop();
   }
   function toolRow(items){
     var row = mk('div', 'ed-trow'), back = iconBtn('edBack', G.back, 'Back', 'ed-ibtn ed-back'), sc = mk('div', 'ed-tscroll');
@@ -717,6 +720,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edCurve', label: 'Curve', icon: G.curve, run: P2('speedcurve') },
         { id: 'edVolume', label: 'Volume', icon: G.volume, run: P2('volume') },
         { id: 'edZoom', label: 'Zoom', icon: G.zoom, run: P2('frame') },
+        { id: 'edCrop', label: 'Crop', icon: G.crop, run: P2('crop') },
         { id: 'edRotate', label: 'Rotate', icon: G.rotate, run: rotateSel },
         { id: 'edFlip', label: 'Flip', icon: G.flip, run: flipSel },
         { id: 'edOpacity', label: 'Opacity', icon: G.opacity, run: P2('opacity') },
@@ -1022,7 +1026,26 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edZoomAll', label: 'Apply to all', run: function (){ commit(P.setTransform(E.hist.cur, null, { zoom: t.zoom, x: t.x, y: t.y, rot: t.rot, flipH: t.flipH })); toast('This framing is on every clip now.'); } }]));
     } },
     
-opacity: { title: 'Opacity', build: function (body){
+crop: { title: 'Crop', build: function (body){
+      var c = needPicture(body); if (!c) return;
+      if (c.type !== 'video' && c.type !== 'freeze'){ body.appendChild(mk('div', 'ed-hint', 'Pick a picture clip to crop.')); return; }
+      var m = E.hooks.movie, vw = m.videoWidth || 16, vh = m.videoHeight || 9;
+      E.cropDraft = c.crop ? { x: c.crop.x, y: c.crop.y, w: c.crop.w, h: c.crop.h } : { x: 0, y: 0, w: 1, h: 1 };
+      var RAT = [{ key: 'free', label: 'Free' }, { key: 'orig', label: 'Original' }, { key: '16:9', label: '16:9' }, { key: '9:16', label: '9:16' }, { key: '4:3', label: '4:3' },
+        { key: '3:4', label: '3:4' }, { key: '1:1', label: '1:1' }, { key: '3:2', label: '3:2' }, { key: '2:3', label: '2:3' }];
+      var cur = chipKey('crop', RAT, 'free');
+      body.appendChild(chips(RAT, cur, function (k){
+        E.chip.crop = k;
+        var a = cropAspectOf(k, vw, vh), q = E.hist.cur, d = E.cropDraft;
+        if (a) q = P.setCrop(q, c.id, P.cropRect(a, 1, vw, vh, d.x + d.w / 2, d.y + d.h / 2));
+        if (q === E.hist.cur) renderDock(); else commit(q);
+      }));
+      body.appendChild(actions([
+        { id: 'edCropReset', label: 'Reset', run: function (){ E.chip.crop = 'free'; var q = P.setCrop(E.hist.cur, c.id, null); if (q === E.hist.cur) renderDock(); else commit(q); } },
+        { id: 'edCropAll', label: 'Apply to all', run: function (){ commit(P.setCrop(E.hist.cur, null, c.crop || null)); toast('This crop is on every clip now.'); } }]));
+      body.appendChild(mk('div', 'ed-hint', 'Drag the frame to move it, or drag its corners and edges to resize. Pick a shape to lock the proportions. The cropped part is fitted inside the video, with bars if its shape differs. Close the panel to see the result.'));
+    } },
+    opacity: { title: 'Opacity', build: function (body){
       var c = needPicture(body); if (!c) return;
       var v0 = Math.round((c.opacity != null ? c.opacity : 1) * 100);
       body.appendChild(sliderRow('Opacity', 0, 100, 5, v0, pct, function (v){ live(P.setOpacity(E.hist.cur, c.id, v / 100)); }, function (v){ commit(P.setOpacity(E.hist.cur, c.id, v / 100)); }));
@@ -1555,6 +1578,90 @@ opacity: { title: 'Opacity', build: function (body){
     } }
   };
 
+  /* ---------- timeline markers (flags on the ruler, CapCut style) ---------- */
+  var NMK = (typeof module !== 'undefined' && module.exports) ? require('./markers.js') : (typeof window !== 'undefined' ? window.NakiMarkers : null);
+  G.flag = svg('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>');
+  function markerNeed(){ if (NMK) return true; toast('Markers are not loaded. Add <script src="markers.js"></script> to index.html, before editor.js.'); return false; }
+  // the times a dragged or trimmed clip snaps to: the playhead and every marker
+  function snapPts(){ return [E.t].concat(NMK ? NMK.times(E.proj) : []); }
+  // the marker the tools work on: the one you tapped, or else the one at the playhead
+  function curMarker(){
+    if (!NMK) return null;
+    var l = NMK.list(E.hist.cur), i;
+    if (E.markSel) for (i = 0; i < l.length; i++) if (l[i].id === E.markSel) return l[i];
+    return NMK.at(E.hist.cur, Math.round(E.t));
+  }
+  function addMarkerHere(){
+    if (!markerNeed()) return;
+    var out = {}, q = NMK.add(E.hist.cur, Math.round(E.t), null, out);
+    if (out.full){ toast('That is the most markers a project can have.'); return; }
+    E.markSel = out.id;
+    if (q === E.hist.cur){ renderTimeline(); openPanel('markeredit', 'marker'); return; }   // there is already one here: just open it
+    commit(q); openPanel('markeredit', 'marker');
+  }
+  function markerTap(id){
+    var m = NMK && NMK.list(E.hist.cur).filter(function (x){ return x.id === id; })[0]; if (!m) return;
+    E.markSel = id; seek(m.t); renderTimeline(); openPanel('markeredit', 'marker');
+  }
+  function jumpMarker(dir){
+    if (!markerNeed()) return;
+    var m = NMK.neighbour(E.hist.cur, E.t, dir);
+    if (!m){ toast(dir > 0 ? 'There is no marker after the playhead.' : 'There is no marker before the playhead.'); return; }
+    E.markSel = m.id; seek(m.t);
+    var sc = E.ui.scroll, x = tx(m.t);
+    if (x < sc.scrollLeft + 20 || x > sc.scrollLeft + sc.clientWidth - 20) sc.scrollLeft = Math.max(0, x - sc.clientWidth / 2);
+    renderTimeline(); renderDock();
+  }
+  function deleteMarker(){
+    var m = curMarker(); if (!m){ toast('Tap a flag, or move the playhead onto one, first.'); return; }
+    E.markSel = null; commit(NMK.remove(E.hist.cur, m.id));
+  }
+  function clearMarkers(){
+    var n = NMK ? NMK.list(E.hist.cur).length : 0; if (!n) return;
+    if (!confirm('Remove all ' + n + ' markers?')) return;
+    E.markSel = null; commit(NMK.clear(E.hist.cur));
+  }
+  // The flags along the ruler. Tapping one is handled in onDown.
+  function drawMarkerFlags(ruler){
+    if (!NMK) return;
+    NMK.list(E.proj).forEach(function (m){
+      var f = mk('div', 'ed-mflag' + (m.id === E.markSel ? ' sel' : '')); f.dataset.id = m.id;
+      f.style.left = tx(m.t) + 'px'; f.style.setProperty('--mc', NMK.colorCss(m.color)); f.title = (m.name ? m.name + ' \u00b7 ' : '') + fmtP(m.t);
+      if (m.name) f.appendChild(mk('span', null, m.name));
+      ruler.appendChild(f);
+    });
+  }
+  ROWS.marker = function (){
+    var has = !!(NMK && NMK.list(E.hist.cur).length), cm = curMarker();
+    return [
+      { id: 'edMarkerAdd', label: 'Add marker', icon: G.flag, run: addMarkerHere },
+      { id: 'edMarkerEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel('markeredit'); }, disabled: !has },
+      { id: 'edMarkerPrev', label: 'Previous', icon: G.back, run: function (){ jumpMarker(-1); }, disabled: !has },
+      { id: 'edMarkerNext', label: 'Next', icon: G.fwd, run: function (){ jumpMarker(1); }, disabled: !has },
+      { id: 'edMarkerDel', label: 'Delete', icon: G.trash, run: deleteMarker, disabled: !cm },
+      { id: 'edMarkerClear', label: 'Clear all', icon: G.reset, run: clearMarkers, disabled: !has }
+    ];
+  };
+  PANELS.markeredit = { title: 'Markers', build: function (body){
+    if (!markerNeed()) return;
+    var l = NMK.list(E.hist.cur);
+    if (!l.length){
+      body.appendChild(mk('div', 'ed-hint', 'No markers yet. Move the playhead to a spot and add one. Markers show as flags on the ruler, and clips snap to them when you drag or trim.'));
+      body.appendChild(actions([{ id: 'edMarkerAdd2', label: 'Add marker here', run: addMarkerHere }]));
+      return;
+    }
+    var c = curMarker();
+    body.appendChild(chips(l.map(function (m){ return { key: m.id, label: fmtP(m.t) + (m.name ? '  ' + (m.name.length > 16 ? m.name.slice(0, 15) + '\u2026' : m.name) : '') }; }), c ? c.id : null, function (id){ markerTap(id); }));
+    if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a flag on the ruler, or pick one above, to rename or recolour it.')); return; }
+    var ti = mk('input', 'ed-textin'); ti.type = 'text'; ti.maxLength = 40; ti.placeholder = 'Marker name'; ti.value = c.name || ''; ti.setAttribute('aria-label', 'Marker name');
+    ti.oninput = function (){ live(NMK.update(E.hist.cur, c.id, { name: ti.value })); };
+    ti.onchange = function (){ commit(NMK.update(E.hist.cur, c.id, { name: ti.value })); };
+    body.appendChild(ti);
+    body.appendChild(chips(NMK.COLORS.map(function (x){ return { key: x.key, label: x.label }; }), c.color, function (k){ commit(NMK.update(E.hist.cur, c.id, { color: k })); }));
+    body.appendChild(actions([{ id: 'edMarkerHere', label: 'Move to playhead', run: function (){ commit(NMK.update(E.hist.cur, c.id, { t: Math.round(E.t) })); } }, { id: 'edMarkerDel2', label: 'Delete marker', run: deleteMarker }]));
+    body.appendChild(mk('div', 'ed-hint', 'Markers do not change your video. They are for you: to mark a beat, a cut or a note. They move with the video when you cut a part out or hold a picture.'));
+  } };
+
   /* ---------- titles drawn over the preview ---------- */
   // ----- format and background (the shape of the video, and what fills the space around the picture) -----
   function frameAspect(){
@@ -1564,12 +1671,26 @@ opacity: { title: 'Opacity', build: function (body){
   function resetBox(m){
     var u = E.ui;
     u.picbox.style.left = u.picbox.style.top = '0'; u.picbox.style.width = u.picbox.style.height = '100%';
-    m.style.position = ''; m.style.left = m.style.top = ''; m.style.width = m.style.height = '';
+    m.style.position = ''; m.style.left = m.style.top = ''; m.style.width = m.style.height = ''; m.style.transformOrigin = ''; u.picbox.style.overflow = '';
   }
   // The picture's CSS transform. With the original shape it is exactly what it was. With any other shape the picture is fitted inside the
   // frame (space around it) and zoom / turn / flip happen inside that picture, the way the export does it.
-  function framePicture(t, m){
+  function framePicture(t, m, crop){
     var u = E.ui, fr = frameAspect(), W = u.picframe.clientWidth, H = u.picframe.clientHeight;
+    if (crop && W && H && m.videoWidth && NF && NF.containLayout){
+      // crop first, then flip / turn / zoom, then the cropped piece is fitted inside the frame (bars when the shape differs), like the export
+      var cw = m.videoWidth * crop.w, ch = m.videoHeight * crop.h, CL = NF.containLayout(t, W, H, cw, ch);
+      var ckey = ['c', W, H, m.videoWidth, m.videoHeight, CL.rot, crop.x, crop.y, crop.w, crop.h].join('|');
+      if (E.boxKey !== ckey){
+        var cb = CL.box, fw = CL.dw / crop.w, fh = CL.dh / crop.h, ccx = crop.x + crop.w / 2, ccy = crop.y + crop.h / 2;
+        u.picbox.style.left = cb.x + 'px'; u.picbox.style.top = cb.y + 'px'; u.picbox.style.width = cb.w + 'px'; u.picbox.style.height = cb.h + 'px'; u.picbox.style.overflow = 'hidden';
+        m.style.position = 'absolute'; m.style.width = fw + 'px'; m.style.height = fh + 'px';
+        m.style.left = (cb.w / 2 - ccx * fw) + 'px'; m.style.top = (cb.h / 2 - ccy * fh) + 'px';
+        m.style.transformOrigin = (ccx * 100) + '% ' + (ccy * 100) + '%';
+        E.boxKey = ckey; E.boxMode = 'contain';
+      }
+      return 'translate(' + CL.panX + 'px,' + CL.panY + 'px) scale(' + CL.zoom + ') rotate(' + CL.rot + 'deg)' + (CL.flip ? ' scaleX(-1)' : '');
+    }
     if (!fr || !W || !H || !m.videoWidth || !NF){
       if (E.boxMode !== 'plain'){ resetBox(m); E.boxMode = 'plain'; E.boxKey = null; }
       return transformCss(t, (m.videoWidth && m.videoHeight) ? m.videoWidth / m.videoHeight : 16 / 9);
@@ -1579,7 +1700,7 @@ opacity: { title: 'Opacity', build: function (body){
       var b = L.box;
       u.picbox.style.left = b.x + 'px'; u.picbox.style.top = b.y + 'px'; u.picbox.style.width = b.w + 'px'; u.picbox.style.height = b.h + 'px';
       m.style.position = 'absolute'; m.style.left = ((b.w - L.dw) / 2) + 'px'; m.style.top = ((b.h - L.dh) / 2) + 'px'; m.style.width = L.dw + 'px'; m.style.height = L.dh + 'px';
-      E.boxKey = key; E.boxMode = 'contain';
+      m.style.transformOrigin = ''; u.picbox.style.overflow = ''; E.boxKey = key; E.boxMode = 'contain';
     }
     return 'translate(' + L.panX + 'px,' + L.panY + 'px) scale(' + L.zoom + ') rotate(' + L.rot + 'deg)' + (L.flip ? ' scaleX(-1)' : '');
   }
@@ -1592,7 +1713,7 @@ opacity: { title: 'Opacity', build: function (body){
     u.bgvid.style.display = E.bgOn ? 'block' : 'none';
     if (!E.bgOn){ try { u.bgvid.pause(); } catch (e) {} }
     E.boxKey = null;
-    var s = P.sourceAt(E.proj, E.t), vc = s.video && s.video.clip, css = framePicture(vc ? vc.transform : null, m);
+    var s = P.sourceAt(E.proj, E.t), vc = s.video && s.video.clip, css = framePicture(vc && !E.cropOn ? vc.transform : null, m, vc && !E.cropOn ? vc.crop : null);
     E.lastTransform = vc ? css : ''; m.style.transform = vc ? css : '';
     syncBackdrop(m);
   }
@@ -1849,6 +1970,7 @@ opacity: { title: 'Opacity', build: function (body){
     var wrap = mk('div'); wrap.appendChild(acts); wrap.appendChild(ez); return wrap;
   }
     // ----- shapes, arrows, spotlights and frames (they live on the overlay rows) -----
+  G.crop = svg('<path d="M6 2v14a2 2 0 002 2h14M2 6h14a2 2 0 012 2v14"/>');
   G.shape = svg('<rect x="4" y="4" width="10" height="10" rx="1.5"/><circle cx="15.5" cy="15.5" r="4.5"/>');
   G.arrow = svg('<path d="M4 12h15M13 6l6 6-6 6"/>');
   G.spot = svg('<circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M19 5l-2 2M7 17l-2 2"/>');
@@ -1907,7 +2029,87 @@ opacity: { title: 'Opacity', build: function (body){
     var note = (r.badge || []).join(', ');
     u.fxbadge.textContent = note ? note + ': the full effect is in the exported video' : ''; u.fxbadge.style.display = note ? 'block' : 'none';
   }
-    // ----- scroll cues: arrows and soft edges on every row that scrolls sideways, so you can tell there is more to the left or the right -----
+    // ----- crop (CapCut style): a dimmed picture with a frame you drag -----
+  function cropAspectOf(k, vw, vh){
+    if (k === 'orig') return vw / vh;
+    var p = String(k).split(':'); return (p.length === 2 && +p[0] > 0 && +p[1] > 0) ? +p[0] / +p[1] : 0;
+  }
+  function cropAspect(){ var m = E.hooks && E.hooks.movie; return cropAspectOf(E.chip.crop || 'free', (m && m.videoWidth) || 16, (m && m.videoHeight) || 9); }
+  // where the whole picture sits inside the crop layer (px)
+  function cropPicRect(){
+    var lay = E.ui.croplayer, m = E.hooks.movie, W = lay.clientWidth || 1, H = lay.clientHeight || 1, vw = m.videoWidth || 16, vh = m.videoHeight || 9, s = Math.min(W / vw, H / vh);
+    return { x: (W - vw * s) / 2, y: (H - vh * s) / 2, w: vw * s, h: vh * s };
+  }
+  var CROP_HD = { nw: 'left:-2px;top:-2px', n: 'left:50%;top:-2px;margin-left:-15px', ne: 'right:-2px;top:-2px', e: 'right:-2px;top:50%;margin-top:-15px',
+    se: 'right:-2px;bottom:-2px', s: 'left:50%;bottom:-2px;margin-left:-15px', sw: 'left:-2px;bottom:-2px', w: 'left:-2px;top:50%;margin-top:-15px' };
+  var CROP_MK = { nw: 'top:0;left:0;width:18px;height:18px;border-top:4px solid #fff;border-left:4px solid #fff', ne: 'top:0;right:0;width:18px;height:18px;border-top:4px solid #fff;border-right:4px solid #fff',
+    se: 'bottom:0;right:0;width:18px;height:18px;border-bottom:4px solid #fff;border-right:4px solid #fff', sw: 'bottom:0;left:0;width:18px;height:18px;border-bottom:4px solid #fff;border-left:4px solid #fff',
+    n: 'top:0;left:50%;margin-left:-11px;width:22px;height:4px;background:#fff', s: 'bottom:0;left:50%;margin-left:-11px;width:22px;height:4px;background:#fff',
+    w: 'left:0;top:50%;margin-top:-11px;width:4px;height:22px;background:#fff', e: 'right:0;top:50%;margin-top:-11px;width:4px;height:22px;background:#fff' };
+  function buildCropUI(){
+    var lay = E.ui.croplayer, box = mk('div');
+    box.style.cssText = 'position:absolute;box-sizing:border-box;border:2px solid #fff;box-shadow:0 0 0 9999px rgba(0,0,0,.6);cursor:move;touch-action:none;pointer-events:auto';
+    [1 / 3, 2 / 3].forEach(function (f){
+      var vl = mk('i'), hl = mk('i');
+      vl.style.cssText = 'position:absolute;top:0;bottom:0;width:1px;background:rgba(255,255,255,.35);pointer-events:none;left:' + (f * 100) + '%';
+      hl.style.cssText = 'position:absolute;left:0;right:0;height:1px;background:rgba(255,255,255,.35);pointer-events:none;top:' + (f * 100) + '%';
+      box.appendChild(vl); box.appendChild(hl);
+    });
+    box.addEventListener('pointerdown', function (ev){ cropDown(ev, 'move'); });
+    E.ui.croph = {};
+    Object.keys(CROP_HD).forEach(function (k){
+      var hd = mk('div'), mark = mk('i');
+      hd.style.cssText = 'position:absolute;width:30px;height:30px;touch-action:none;pointer-events:auto;cursor:' + k + '-resize;' + CROP_HD[k];
+      mark.style.cssText = 'position:absolute;pointer-events:none;' + CROP_MK[k];
+      hd.appendChild(mark); hd.addEventListener('pointerdown', function (ev){ cropDown(ev, k); });
+      box.appendChild(hd); E.ui.croph[k] = hd;
+    });
+    E.ui.cropbox = box; lay.appendChild(box);
+  }
+  function drawCrop(){
+    var lay = E.ui.croplayer, box = E.ui.cropbox; if (!lay || !box || lay.style.display === 'none') return;
+    var pr = cropPicRect(), r = E.cropDraft || { x: 0, y: 0, w: 1, h: 1 }, a = cropAspect();
+    box.style.left = (pr.x + r.x * pr.w) + 'px'; box.style.top = (pr.y + r.y * pr.h) + 'px'; box.style.width = (r.w * pr.w) + 'px'; box.style.height = (r.h * pr.h) + 'px';
+    Object.keys(E.ui.croph).forEach(function (k){ E.ui.croph[k].style.display = (a && k.length === 1) ? 'none' : ''; });   // with a locked shape only the corners resize
+  }
+  function cropDown(ev, hdl){
+    var c = targetVideo(); if (!c || !E.cropDraft) return;
+    ev.preventDefault(); ev.stopPropagation();
+    var d0 = { x: E.cropDraft.x, y: E.cropDraft.y, w: E.cropDraft.w, h: E.cropDraft.h }, pr = cropPicRect(), a = cropAspect(), x0 = ev.clientX, y0 = ev.clientY, MIN = 0.05, id = c.id;
+    function mv(e){
+      var dx = (e.clientX - x0) / (pr.w || 1), dy = (e.clientY - y0) / (pr.h || 1), r;
+      if (hdl === 'move') r = { x: clamp(d0.x + dx, 0, 1 - d0.w), y: clamp(d0.y + dy, 0, 1 - d0.h), w: d0.w, h: d0.h };
+      else {
+        var L = d0.x, T = d0.y, R = d0.x + d0.w, B = d0.y + d0.h;
+        if (hdl.indexOf('w') >= 0) L = clamp(d0.x + dx, 0, R - MIN);
+        if (hdl.indexOf('e') >= 0) R = clamp(d0.x + d0.w + dx, L + MIN, 1);
+        if (hdl.indexOf('n') >= 0) T = clamp(d0.y + dy, 0, B - MIN);
+        if (hdl.indexOf('s') >= 0) B = clamp(d0.y + d0.h + dy, T + MIN, 1);
+        if (a && hdl.length === 2){   // locked shape: the opposite corner stays put
+          var w = R - L, h = w * pr.w / (a * pr.h), room = hdl.indexOf('n') >= 0 ? B : 1 - T;
+          if (h > room){ h = room; w = h * a * pr.h / pr.w; }
+          if (w < MIN){ w = MIN; h = w * pr.w / (a * pr.h); }
+          if (hdl.indexOf('w') >= 0) L = R - w; else R = L + w;
+          if (hdl.indexOf('n') >= 0) T = B - h; else B = T + h;
+        }
+        r = { x: L, y: T, w: R - L, h: B - T };
+      }
+      E.cropDraft = r; drawCrop();
+    }
+    function up(){
+      window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
+      commit(P.setCrop(E.hist.cur, id, E.cropDraft));
+    }
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+  }
+  // Shows the frame while the Crop panel is open. The preview then shows the whole picture; when the panel closes it shows the crop again.
+  function syncCrop(){
+    var lay = E.ui.croplayer; if (!lay) return;
+    var c = (E.panel === 'crop' && E.isOpen) ? targetVideo() : null, on = !!c;
+    if (on){ if (!E.ui.cropbox) buildCropUI(); lay.style.display = 'block'; drawCrop(); } else lay.style.display = 'none';
+    if (on !== !!E.cropOn){ E.cropOn = on; if (E.isOpen) syncMedia(); }
+  }
+  // ----- scroll cues: arrows and soft edges on every row that scrolls sideways, so you can tell there is more to the left or the right -----
   G.fwd = svg('<path d="M9 5l7 7-7 7"/>');
   G.pick = svg('<path d="M20.5 3.5a2.1 2.1 0 00-3 0L14 7l-1-1-1.5 1.5 1 1L5 15.5V19h3.5l7-7 1 1L18 11.5l-1-1 3.5-3.5a2.1 2.1 0 000-3z"/>');
   var KFD_OFF = svg('<path d="M12 3l8 9-8 9-8-9z"/>'), KFD_ON = svg('<path d="M12 3l8 9-8 9-8-9z"/>', true);
@@ -2152,9 +2354,9 @@ opacity: { title: 'Opacity', build: function (body){
     var now = 0, span = 0; P.curvePieces(E.hist.cur, info.g).forEach(function (p){ now += p.dur; span += p.dur * (p.speed || 1); });
     return { now: now, span: span };
   }
-  function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); syncOverlays(); }
+  function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); syncOverlays(); drawCrop(); }
   function layoutTextLayerBase(){
-    var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe, E.ui.stickerlayer, E.ui.overlaylayer]; if (!boxes[0]) return;
+    var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe, E.ui.stickerlayer, E.ui.overlaylayer, E.ui.croplayer]; if (!boxes[0]) return;
     var sw = st.clientWidth, sh = st.clientHeight, vw = m && m.videoWidth, vh = m && m.videoHeight;
     if (m && E.curAsset && E.curAsset !== 'movie' && E.frameDims) { vw = E.frameDims.w; vh = E.frameDims.h; } else if (vw && vh) E.frameDims = { w: vw, h: vh };   // an added video is fitted inside this frame
     var fr0 = frameAspect(); if (fr0){ vw = Math.round(fr0 * 1000); vh = 1000; }   // the frame has the chosen shape, not the movie's
@@ -2257,7 +2459,7 @@ opacity: { title: 'Opacity', build: function (body){
     if (vc && wantAsset !== E.curAsset) skipMedia = !swapSource(wantAsset, m);
     if (skipMedia !== !!E.skipMsg){ E.skipMsg = skipMedia; E.ui.stageMsg.textContent = skipMedia ? 'The file for this part is missing. Use Add video to add it again.' : (movieReady() ? '' : 'Choose the movie for this session in Preview first, then come back to edit.'); }
     var op = vc ? String(vc.opacity != null ? vc.opacity : 1) : '0';
-    var tcss = vc ? framePicture((vc.kf && NANIM) ? NANIM.pictureTransform(vc.transform, vc.kf, E.t - vc.start) : vc.transform, m) : '';
+    var tcss = vc ? (E.cropOn ? framePicture(null, m, null) : framePicture((vc.kf && NANIM) ? NANIM.pictureTransform(vc.transform, vc.kf, E.t - vc.start) : vc.transform, m, vc.crop)) : '';
     if (tcss !== E.lastTransform){ m.style.transform = tcss; E.lastTransform = tcss; }
     if (css !== E.lastFilter){ m.style.filter = css; E.lastFilter = css; }
     if (op !== E.lastOpacity){ m.style.opacity = op; E.lastOpacity = op; }
@@ -2326,6 +2528,8 @@ opacity: { title: 'Opacity', build: function (body){
   function onDown(ev){
     var tg = ev.target, clipE = tg.closest && tg.closest('.ed-clip'), handle = tg.closest && tg.closest('.ed-h');
     var kfD = tg.closest && tg.closest('.ed-kf');
+    var mkF = tg.closest && tg.closest('.ed-mflag');
+    if (mkF){ markerTap(mkF.dataset.id); return; }
     if (kfD && clipE){ var kf0 = P.findClip(E.proj, clipE.dataset.id); if (kf0){ E.sel = kf0.clip.id; seek(kf0.clip.start + (+kfD.dataset.t || 0)); renderSelectionOnly(); return; } }
     if (ev.pointerType === 'touch'){
       E.pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
@@ -2353,7 +2557,7 @@ opacity: { title: 'Opacity', build: function (body){
     for (var i = 0; i < els.length; i++) els[i].classList.toggle('sel', els[i].dataset.id === E.sel);
     renderSelected(); updateButtons(); syncDock(); try { syncOverlays(); } catch (e) {}
   }
-  function snapped(t){ return P.snapTime(E.proj, t, 8 / E.ppm, [E.t]); }
+  function snapped(t){ return P.snapTime(E.proj, t, 8 / E.ppm, snapPts()); }
   function onMove(ev){
     if (ev.pointerType === 'touch' && E.pointers[ev.pointerId]) E.pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
     if (E.pinch){ movePinch(); return; }
@@ -2409,6 +2613,7 @@ opacity: { title: 'Opacity', build: function (body){
     }
     else if (k === ' ' || k === 'Enter'){ if (tag === 'BUTTON') ok = false; else togglePlay(); }
     else if (k === 's' || k === 'S') split();
+    else if (k === 'm' || k === 'M') addMarkerHere();
     else if (k === 'Delete' || k === 'Backspace'){ if (ev.shiftKey) deleteSel(); else cutOut(); }
     else if (k === 'ArrowLeft' || k === 'ArrowRight'){
       if (tag === 'INPUT') ok = false; else seek(E.t + (k === 'ArrowLeft' ? -1 : 1) * (ev.shiftKey ? 1000 : FRAME_MS));
@@ -2464,7 +2669,7 @@ opacity: { title: 'Opacity', build: function (body){
     E.ui.stageMsg.textContent = movieReady() ? '' : 'Choose the movie for this session in Preview first, then come back to edit.';
     E.ui.note.textContent = c.restored ? 'Your earlier edits were restored.' : '';
     showSaved(c.restored || c.hist.past.length ? 'Saved' : '');
-    E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; E.boxKey = null; E.boxMode = '';
+    E.markSel = null; E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; E.boxKey = null; E.boxMode = '';
     E.curAsset = 'movie'; E.swapping = false; E.skipMsg = false;
     E.tool = null; E.panel = null; E.autoDock = false; E.rowScroll = null; E.chip = {}; E.pickOn = false; E.pickPos = null; E.rbg = {}; renderDock();
     E.root.hidden = false; E.isOpen = true;

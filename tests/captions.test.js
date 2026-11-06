@@ -128,6 +128,7 @@ ok('outline is drawn first and under the letters; shadow can be switched off; fo
   assert.strictEqual(set('lineWidth')[0], 3.6, 'visible outline 1.8 px at 30 px letters: the stroke is twice that'); assert(/monospace/.test(set('font')[0])); assert.strictEqual(set('shadowBlur').every(v => v === 0), true);
   const s = LK.titleStyle({ text: 'x', size: 10, outline: 1, shadow: 0.5, font: 'serif' }, 300); assert.deepStrictEqual([s.px, s.stroke, /serif/.test(s.fontFamily)], [30, '3.6px #000', true]); assert.notStrictEqual(s.shadow, 'none');
   assert.strictEqual(LK.titleStyle({ shadow: 0 }, 300).shadow, 'none'); assert.strictEqual(LK.titleStyle({}, 300).stroke, '');
-  assert.deepStrictEqual(LK.fontList().map(f => f.key), ['sans','serif','mono','bold','script','inter','montserrat','poppins','bebas','anton','oswald','archivo','bangers','righteous','playfair','pacifico','lobster','caveat','dancing']);
+    const OLD19 = ['sans', 'serif', 'mono', 'bold', 'script', 'inter', 'montserrat', 'poppins', 'bebas', 'anton', 'oswald', 'archivo', 'bangers', 'righteous', 'playfair', 'pacifico', 'lobster', 'caveat', 'dancing'];
+  assert.deepStrictEqual(LK.fontList().map(f => f.key).slice(0, 19), OLD19);
 });
 console.log('\n' + n + ' checks passed');

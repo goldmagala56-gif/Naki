@@ -28,6 +28,7 @@ var NakiPlan = (function () {
       }
       if (c.opacity != null && c.opacity < 1) sp.opacity = c.opacity;
       if (c.transform) sp.transform = { zoom: c.transform.zoom, x: c.transform.x, y: c.transform.y, rot: c.transform.rot, flipH: !!c.transform.flipH };
+      if (c.crop) sp.crop = { x: c.crop.x, y: c.crop.y, w: c.crop.w, h: c.crop.h };
       if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;
       if (c.vFadeOut) sp.vFadeOut = c.vFadeOut;
       if (c.kf && (c.kf.zoom || c.kf.x || c.kf.y)) { sp.kf = {}; ['zoom', 'x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sp.kf[k] = NAN && NAN.bakeKf ? NAN.bakeKf({ v: c.kf[k] }).v : JSON.parse(JSON.stringify(c.kf[k])); }); }

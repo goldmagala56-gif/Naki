@@ -122,6 +122,7 @@ var WebCodecsExport = (function () {
     if ((plan.video || []).some(function (s) { return s.speed && s.speed !== 1; })) return false;
     if ((plan.video || []).some(function (s) { return s.reverse; }) || (plan.audio || []).some(function (a) { return a.reverse; })) return false;   // reversed clips are made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return s.filter && s.filter.sharpen > 0; })) return false;   // sharpen only exists in the ffmpeg engine
+    if ((plan.video || []).some(function (s) { return s.crop; })) return false;   // crops are made by the ffmpeg engine
     if ((plan.audio || []).some(function (a) { return a.speed && a.speed !== 1; })) return false;
     if ((plan.video || []).some(function (s) { return s.transitionIn; })) return false;
     if ((plan.fx || []).length) return false;   // video effects are made by the ffmpeg engine
