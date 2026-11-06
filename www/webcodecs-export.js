@@ -354,7 +354,10 @@ var WebCodecsExport = (function () {
   async function run(movieFile, voiceBlob, plan, opts, callbacks) {
     callbacks = callbacks || {};
     var say = callbacks.onStatus || function () {};
-    var prog = callbacks.onProgress || function () {};
+    var cancelled = callbacks.isCancelled || function () { return false; };
+    function check() { if (cancelled()) { var ce = new Error('Export cancelled'); ce.cancelled = true; throw ce; } }
+    var prog0 = callbacks.onProgress || function () {};
+    var prog = function (p) { check(); prog0(p); };
     opts = opts || {};
 
     say('Starting the video engine...');
@@ -521,13 +524,13 @@ var WebCodecsExport = (function () {
           if (sample) { paintSample(sample, NA ? NA.spanAt(sp, i * 1000 / FPS) : sp); sample.close(); }   // null => keep the last picture
           var t = sp.sessionStart + i * 1000 / FPS;
           await advanceOverlays(t); compose(sp, t);
-          await videoSource.add(t / 1000, 1 / FPS);
+          check(); await videoSource.add(t / 1000, 1 / FPS);
           i++; framesDone++;
         }
         while (i < nFrames) {   // safety net if the source ended early
           var t2 = sp.sessionStart + i * 1000 / FPS;
           await advanceOverlays(t2); compose(sp, t2);
-          await videoSource.add(t2 / 1000, 1 / FPS);
+          check(); await videoSource.add(t2 / 1000, 1 / FPS);
           i++; framesDone++;
         }
       } else {
@@ -540,7 +543,7 @@ var WebCodecsExport = (function () {
         for (var j = 0; j < nFrames; j++) {
           var tf = sp.sessionStart + j * 1000 / FPS;
           await advanceOverlays(tf); if (held && sp.kf) paintSample(held, NA.spanAt(sp, j * 1000 / FPS)); compose(sp, tf);   // redrawn every frame, because fades and titles can change from frame to frame
-          await videoSource.add(tf / 1000, 1 / FPS);
+          check(); await videoSource.add(tf / 1000, 1 / FPS);
           framesDone++;
         }
       }

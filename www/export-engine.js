@@ -584,10 +584,14 @@ var NakiExport = (function () {
     var say = callbacks.onStatus || function () {};
     var prog = callbacks.onProgress || function () {};
     var log = callbacks.onLog || function () {}; logSink = log;
+    var cancelled = callbacks.isCancelled || function () { return false; };
+    function checkCancel() { if (cancelled()) { var ce = new Error('Export cancelled'); ce.cancelled = true; throw ce; } }
     opts = opts || {};
 
     say('Starting the video engine (first time only, this can take a moment)...');
     var ffmpeg = await ensureLoaded(log);
+    if (callbacks.onEngine) callbacks.onEngine({ terminate: function () { try { ffmpeg.terminate(); } catch (e) {} loaded = null; } });
+    checkCancel();
 
     say('Loading your movie...');
     ffmpeg.writeFile('movie.in', await fetchFile(movieFile));
@@ -633,7 +637,7 @@ var NakiExport = (function () {
     }
     var total = built.jobs.length;
     for (var i = 0; i < total; i++) {
-      var job = built.jobs[i];
+      checkCancel(); var job = built.jobs[i];
       say('Preparing part ' + (i + 1) + ' of ' + total + '...');
       prog((i / (total + 1)) * 0.85);
       var names = job.files ? Object.keys(job.files) : [];

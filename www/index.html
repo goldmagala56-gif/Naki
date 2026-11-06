@@ -330,7 +330,8 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
       <label for="exportStatus" style="margin-bottom:6px"><span id="exportStatus">Working...</span> <span id="exportPct" class="num"></span></label>
       <div class="meter"><div id="exportBar" style="position:absolute;left:0;top:0;bottom:0;width:0;background:var(--mango);border-radius:8px"></div></div>
     </div>
-    <div id="exportDone" hidden>
+    <button id="bCancelExport" class="btn" hidden>Cancel export</button>
+            <div id="exportDone" hidden>
       <video id="exportPreview" controls playsinline style="width:100%;border-radius:12px;background:#000;margin:10px 0"></video>
       <div class="row wrap">
         <button id="bShareVideo" class="btn primary" hidden>Share / save to gallery</button>
@@ -1480,7 +1481,7 @@ function loadWebCodecsEngine(){
 // hardware path throws for any reason -- so nobody's export just stops working.
 function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callbacks){
   callbacks = callbacks || {};
-  S.ffLog = []; callbacks = Object.assign({}, callbacks, { onLog: function(l){ S.ffLog.push(l); if (S.ffLog.length > 40) S.ffLog.shift(); } });
+  S.ffLog = []; callbacks = Object.assign({}, callbacks, { isCancelled: function(){ return !!(S.xc && S.xc.cancelled); }, onEngine: function(e){ if (S.xc) S.xc.engine = e; }, onLog: function(l){ S.ffLog.push(l); if (S.ffLog.length > 40) S.ffLog.shift(); } });
   // Music: use the file attached to this session. If the timeline has music but the file is gone, say so
   // instead of quietly leaving it out.
   var music = S.sess && S.sess.musicFile;
@@ -1504,7 +1505,7 @@ function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callba
     toast('Using the compatible export engine so all your edits are included. This can take longer.', 6000);
     return loadExportEngine().then(function(){ return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks); }).catch(function(err){
       // If transitions are what this device's video engine cannot do, make the video without them rather than not at all.
-      if (!plan.video.some(function(s){ return s.transitionIn; }) && !(plan.fx && plan.fx.length)) throw err;
+      if ((S.xc && S.xc.cancelled) || (!plan.video.some(function(s){ return s.transitionIn; }) && !(plan.fx && plan.fx.length))) throw err;
       console.warn('transitions failed, trying again without them:', err);
       plan.video.forEach(function(s){ delete s.transitionIn; }); delete plan.fx;
       S.lastExport.effectsDropped = String(err && err.message ? err.message : err);
@@ -1519,7 +1520,7 @@ function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callba
     if (!supported) throw new Error('fast export is not available on this device');
     S.lastExport.engine = 'fast';
     return WebCodecsExport.run(movieFile, voiceBlob, plan, webcodecsOpts, callbacks);
-  }).catch(function(err){ return viaFfmpeg(err && err.message ? err.message : String(err)); });
+  }).catch(function(err){ if (S.xc && S.xc.cancelled) throw err; return viaFfmpeg(err && err.message ? err.message : String(err)); });
 }
 S.exportVertical = false;
 S.exportQuality = 'faster';
@@ -1556,7 +1557,7 @@ $('bExport').onclick = function(){
   var box = $('exportBox'), bar = $('exportBar'), statusEl = $('exportStatus'), pctEl = $('exportPct'),
       doneRow = $('exportDone'), dl = $('exportDownload'), shareBtn = $('bShareVideo'), preview = $('exportPreview');
   box.hidden = false; doneRow.hidden = true; bar.style.width = '0%'; pctEl.textContent = '';
-  statusEl.textContent = 'Starting...'; $('bExport').disabled = true;
+  statusEl.textContent = 'Starting...'; $('bExport').disabled = true; S.xc = { cancelled: false, engine: null }; $('bCancelExport').hidden = false;
     var vd = el.voice.duration;
     var plan = NakiEditor.planFor(S.sess, { voiceDurMs: isFinite(vd) && vd > 0 ? Math.round(vd * 1000) : null, saved: S.sess.savedProject });
   if (!S.sess.musicFile) plan.audio = plan.audio.filter(function(a){ return a.src !== 'music'; });
@@ -1631,11 +1632,12 @@ $('bExport').onclick = function(){
     doneRow.hidden = false; statusEl.textContent = 'Done.';
     toast('Your video is ready — you can watch it right here, then save or share it.');
   }).catch(function(err){
+    if (S.xc && S.xc.cancelled){ statusEl.textContent = 'Export cancelled.'; bar.style.width = '0%'; pctEl.textContent = ''; toast('Export cancelled.'); return; }
     console.error('export failed', err);
     statusEl.textContent = 'Something went wrong: ' + (err && err.message ? err.message : String(err));
     toast('Export did not finish. You can also try the computer-based export below.', 8000);
   }).then(function(){
-    $('bExport').disabled = false;
+    $('bExport').disabled = false; $('bCancelExport').hidden = true;
   });
 };
   (function(){
@@ -1645,6 +1647,11 @@ $('bExport').onclick = function(){
       Promise.resolve(s.editsReady).then(function(){ if (S.sess === s) runExport0(); });
     };
     })();
+$('bCancelExport').onclick = function(){
+  if (!S.xc || S.xc.cancelled) return;
+  S.xc.cancelled = true; $('exportStatus').textContent = 'Cancelling...';
+  try { if (S.xc.engine && S.xc.engine.terminate) S.xc.engine.terminate(); } catch (e) {}
+};
 $('bReport').onclick = function(){
   storageLine().then(function(line){
     var L = deviceLines(); if (line) L.push(line);
