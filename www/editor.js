@@ -25,6 +25,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   var NBS = (typeof module !== 'undefined' && module.exports) ? require('./beatsync.js') : (typeof window !== 'undefined' ? window.NakiBeats : null);
   var NMO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
   var NRF = (typeof module !== 'undefined' && module.exports) ? require('./reframe.js') : (typeof window !== 'undefined' ? window.NakiReframe : null);
+  var NCL = (typeof module !== 'undefined' && module.exports) ? require('./colour.js') : (typeof window !== 'undefined' ? window.NakiColour : null);
   var NAC = (typeof module !== 'undefined' && module.exports) ? require('./autocut.js') : (typeof window !== 'undefined' ? window.NakiAutoCut : null);
   var NRP = (typeof module !== 'undefined' && module.exports) ? require('./speedramp.js') : (typeof window !== 'undefined' ? window.NakiRamp : null);
   var TRANSITIONS = [{ key: 'none', label: 'None' }, { key: 'fade', label: 'Fade' }, { key: 'fadeblack', label: 'Dip to black' }, { key: 'wipeleft', label: 'Wipe' }, { key: 'slideleft', label: 'Slide' }, { key: 'zoomin', label: 'Zoom' }, { key: 'circleopen', label: 'Circle' }];
@@ -737,6 +738,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edFreeze', label: 'Freeze', icon: G.freeze, run: P2('freeze') },
         { id: 'edStill', label: 'Save still', icon: G.still, run: exportStill },
         { id: 'edAdjust', label: 'Adjust', icon: G.adjust, run: P2('adjust') },
+        { id: 'edGrade', label: 'Colour', icon: G.grade, run: P2('grade') },
         { id: 'edFilters', label: 'Filters', icon: G.filters, run: P2('filters') },
         { id: 'edTransition', label: 'Transition', icon: G.transition, run: P2('transition') },
         { id: 'edMotion', label: 'Motion', icon: G.motion, run: P2('motion') },
@@ -2299,6 +2301,122 @@ crop: { title: 'Crop', build: function (body){
     body.appendChild(mk('div', 'ed-hint', 'Pitch changes how high the voice sounds without changing its speed. Even out loudness makes quiet and loud parts closer. The preview plays the sound without these effects; the exported video has them. Videos with sound effects export with the compatible engine, which takes longer. Undo takes them back.'));
   } };
 
+  // ----- colour tools: curves, colour mixer, LUT -----
+  G.grade = svg('<path d="M3 20C8 20 8 4 21 4"/><circle cx="12" cy="12" r="2"/>');
+  // While a clip has a grade, a canvas over the picture shows the frame with the grade applied (about 480 px wide). A cropped clip previews without it.
+  function syncGrade(m, vc, css){
+    var u = E.ui, g = vc && vc.grade;
+    if (!NCL || !g || vc.crop || !movieReady() || E.swapping || !m.videoWidth || m.readyState < 2){ if (u.gradecv && E.gradeOn){ u.gradecv.style.display = 'none'; E.gradeOn = false; } return; }
+    var pf = u.picframe, PW = pf.clientWidth, PH = pf.clientHeight; if (!PW || !PH) return;
+    var now = performance.now(); if (E.playing && E.gradeAt && now - E.gradeAt < 55) return;
+    E.gradeAt = now;
+    if (!u.gradecv){ u.gradecv = mk('canvas'); u.gradecv.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none'; pf.insertBefore(u.gradecv, u.layoutcv); }
+    var sc = Math.min(1, 480 / PW), W = Math.max(2, Math.round(PW * sc)), H = Math.max(2, Math.round(PH * sc)), cv = u.gradecv;
+    if (cv.width !== W || cv.height !== H){ cv.width = W; cv.height = H; }
+    var key = JSON.stringify(g); if (E.gradeKey !== key){ E.gradeKey = key; E.gradeLut = NCL.bakeLut(g, 33); }
+    var gx = cv.getContext('2d', { willReadFrequently: true });
+    previewFrame(gx, m, vc, W, H);
+    var img = gx.getImageData(0, 0, W, H); NCL.applyToImageData(img.data, E.gradeLut, 33); gx.putImageData(img, 0, 0);
+    cv.style.filter = css || ''; cv.style.opacity = String(vc.opacity != null ? vc.opacity : 1); cv.style.display = 'block'; E.gradeOn = true;
+  }
+  function importCubeFile(id){
+    var inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.cube,text/plain';
+    inp.onchange = function (){
+      var f = inp.files && inp.files[0]; if (!f) return;
+      if (f.size > 40e6){ toast('That file is too big for a LUT.'); return; }
+      (f.text ? f.text() : new Promise(function (res){ var r = new FileReader(); r.onload = function (){ res(r.result); }; r.readAsText(f); })).then(function (text){
+        var r = NCL.parseCube(text); if (r.error){ toast(r.error, 8000); return; }
+        var enc = NCL.encodeLut(r, 25), nm = r.title || f.name.split('.').slice(0, -1).join('.') || f.name;
+        var q = P.setGrade(E.hist.cur, id, { lut: { name: nm, size: enc.size, b64: enc.b64 }, lutAmt: 1 });
+        if (q === E.hist.cur){ toast('That LUT did not change anything.'); return; }
+        commit(q); toast('LUT "' + nm + '" added. Use Intensity to make it weaker.', 6000);
+      });
+    };
+    inp.click();
+  }
+  PANELS.grade = { title: 'Colour', build: function (body){
+    if (!NCL){ body.appendChild(mk('div', 'ed-hint', 'colour.js is not loaded. Add <script src="colour.js"></script> to index.html, before project.js.')); return; }
+    var c = needPicture(body); if (!c) return;
+    if (c.type !== 'video' && c.type !== 'freeze'){ body.appendChild(mk('div', 'ed-hint', 'Pick a picture clip.')); return; }
+    var g = c.grade || {}, tabs = [{ key: 'curves', label: 'Curves' }, { key: 'mixer', label: 'Colour mixer' }, { key: 'lut', label: 'LUT' }, { key: 'looks', label: 'Looks' }], tab = chipKey('grade', tabs, 'curves');
+    var set = function (patch){ var q = P.setGrade(E.hist.cur, c.id, patch); if (q === E.hist.cur) renderDock(); else commit(q); };
+    var setLive = function (patch){ live(P.setGrade(E.hist.cur, c.id, patch)); };
+    body.appendChild(chips(tabs, tab, pickChip('grade')));
+    if (tab === 'curves'){
+      var chs = [{ key: 'm', label: 'Master' }, { key: 'r', label: 'Red' }, { key: 'g', label: 'Green' }, { key: 'b', label: 'Blue' }], ch = chipKey('gradech', chs, 'm');
+      var COL = { m: '#ffffff', r: '#ff5a5a', g: '#5adf7a', b: '#5aa0ff' };
+      body.appendChild(chips(chs, ch, function (k){ E.chip.gradech = k; E.chip.grsel = -1; renderDock(); }));
+      var pts = (g.curves && g.curves[ch] ? g.curves[ch] : [[0, 0], [1, 1]]).map(function (p){ return p.slice(); }), drag = -1;
+      if (E.chip.grsel == null || E.chip.grsel >= pts.length) E.chip.grsel = -1;
+      var NS = 'http://www.w3.org/2000/svg', sv = document.createElementNS(NS, 'svg');
+      sv.setAttribute('viewBox', '0 0 200 200'); sv.setAttribute('role', 'img'); sv.setAttribute('aria-label', 'Colour curve');
+      sv.style.cssText = 'display:block;width:100%;max-width:220px;margin:6px auto;touch-action:none;background:rgba(255,255,255,.05);border-radius:8px';
+      var X = function (u){ return 10 + u * 180; }, Y = function (v){ return 190 - v * 180; };
+      var node = function (tag, attrs){ var e = document.createElementNS(NS, tag); Object.keys(attrs).forEach(function (k){ e.setAttribute(k, attrs[k]); }); return e; };
+      var draw = function (){
+        while (sv.firstChild) sv.removeChild(sv.firstChild);
+        [0.25, 0.5, 0.75].forEach(function (v){
+          sv.appendChild(node('line', { x1: X(v), x2: X(v), y1: Y(0), y2: Y(1), stroke: 'rgba(255,255,255,.15)', 'stroke-width': 1 }));
+          sv.appendChild(node('line', { x1: X(0), x2: X(1), y1: Y(v), y2: Y(v), stroke: 'rgba(255,255,255,.15)', 'stroke-width': 1 }));
+        });
+        sv.appendChild(node('line', { x1: X(0), y1: Y(0), x2: X(1), y2: Y(1), stroke: 'rgba(255,255,255,.3)', 'stroke-dasharray': '4 4' }));
+        var fn = NCL.curveFn(pts), d = ''; for (var i = 0; i <= 48; i++){ var u = i / 48; d += (i ? 'L' : 'M') + X(u).toFixed(1) + ' ' + Y(fn(u)).toFixed(1); }
+        sv.appendChild(node('path', { d: d, fill: 'none', stroke: COL[ch], 'stroke-width': 2.5 }));
+        pts.forEach(function (p, i){ sv.appendChild(node('circle', { cx: X(p[0]), cy: Y(p[1]), r: i === E.chip.grsel ? 8 : 6, fill: i === E.chip.grsel ? COL[ch] : '#111b24', stroke: COL[ch], 'stroke-width': 2 })); });
+      };
+      var where = function (ev){ var r = sv.getBoundingClientRect(), s = 200 / (r.width || 200); return { x: ((ev.clientX - r.left) * s - 10) / 180, y: (190 - (ev.clientY - r.top) * s) / 180 }; };
+      var patchOf = function (){ var cp = {}; cp[ch] = pts.map(function (p){ return p.slice(); }); return { curves: cp }; };
+      sv.addEventListener('pointerdown', function (ev){
+        var p = where(ev), best = -1, bd = 0.09;
+        pts.forEach(function (pt, i){ var dd = Math.hypot(pt[0] - p.x, pt[1] - p.y); if (dd < bd){ bd = dd; best = i; } });
+        if (best < 0){
+          var x = clamp(p.x, 0.03, 0.97);
+          if (pts.length >= 12 || pts.some(function (q){ return Math.abs(q[0] - x) < 0.03; })) return;
+          pts.push([x, clamp(p.y, 0, 1)]); pts.sort(function (a, b){ return a[0] - b[0]; });
+          best = pts.map(function (q){ return q[0]; }).indexOf(x);
+        }
+        drag = best; E.chip.grsel = best; try { sv.setPointerCapture(ev.pointerId); } catch (e) {} ev.preventDefault(); draw();
+      });
+      sv.addEventListener('pointermove', function (ev){
+        if (drag < 0) return;
+        var p = where(ev), last = pts.length - 1, x = pts[drag][0];
+        if (drag > 0 && drag < last) x = clamp(p.x, pts[drag - 1][0] + 0.03, pts[drag + 1][0] - 0.03);
+        pts[drag] = [x, clamp(p.y, 0, 1)]; draw(); setLive(patchOf());
+      });
+      var letGo = function (){ if (drag < 0) return; drag = -1; set(patchOf()); };
+      sv.addEventListener('pointerup', letGo); sv.addEventListener('pointercancel', letGo);
+      draw(); body.appendChild(sv);
+      body.appendChild(actions([
+        { id: 'edCurveDelPt', label: 'Delete point', run: function (){
+          var s = E.chip.grsel; if (s <= 0 || s >= pts.length - 1){ toast('Tap a point first (not the first or the last one).'); return; }
+          pts.splice(s, 1); E.chip.grsel = -1; set(patchOf()); } },
+        { id: 'edCurveResetCh', label: 'Reset this curve', run: function (){ var cp = {}; cp[ch] = null; E.chip.grsel = -1; set({ curves: cp }); } }]));
+      body.appendChild(mk('div', 'ed-hint', 'Tap the graph to add a point and drag it: up brightens that tone, down darkens it. Master moves all colours; Red, Green and Blue move one colour. Drag the first or last point up or down to lift the blacks or dim the whites.'));
+    } else if (tab === 'mixer'){
+      var bs = NCL.BANDS.map(function (b){ return { key: b.key, label: b.label }; }), band = chipKey('gradeband', bs, 'red'), v = (g.hsl && g.hsl[band]) || [0, 0, 0];
+      body.appendChild(chips(bs, band, pickChip('gradeband')));
+      var patchHsl = function (i, val){ var a = v.slice(); a[i] = val / 100; var h = {}; h[band] = a; return { hsl: h }; };
+      ['Hue', 'Saturation', 'Luminance'].forEach(function (lab, i){
+        body.appendChild(sliderRow(lab, -100, 100, 1, Math.round(v[i] * 100), function (n){ return String(n); }, function (n){ setLive(patchHsl(i, n)); }, function (n){ set(patchHsl(i, n)); }));
+      });
+      body.appendChild(mk('div', 'ed-hint', 'Pick a colour, then change only that colour: for example turn the sky bluer or make skin tones warmer. Grey and very pale colours are left alone.'));
+    } else if (tab === 'lut'){
+      body.appendChild(mk('div', 'ed-hint', g.lut ? 'LUT: ' + g.lut.name : 'No LUT yet. A LUT is a .cube file with a ready-made colour look.'));
+      var la = [{ id: 'edLutImport', label: 'Import .cube', run: function (){ importCubeFile(c.id); } }];
+      if (g.lut) la.push({ id: 'edLutRemove', label: 'Remove LUT', run: function (){ set({ lut: null }); } });
+      body.appendChild(actions(la));
+      if (g.lut) body.appendChild(sliderRow('Intensity', 0, 100, 5, Math.round((g.lutAmt == null ? 1 : g.lutAmt) * 100), pct, function (n){ setLive({ lutAmt: n / 100 }); }, function (n){ set({ lutAmt: n / 100 }); }));
+      body.appendChild(mk('div', 'ed-hint', 'Only 3D .cube files work (the usual kind from colour packs). The LUT is shrunk to a 25 point grid to keep your project small, which is fine for looks. It is applied after the curves and the colour mixer.'));
+    } else {
+      body.appendChild(chips(NCL.PRESETS, null, function (k){ var p = NCL.PRESETS.filter(function (x){ return x.key === k; })[0]; if (p) set({ replace: p.grade }); }));
+      body.appendChild(mk('div', 'ed-hint', 'A look sets the curves and the colour mixer together, replacing what was there (and any LUT). Open Curves or Colour mixer afterwards to fine-tune it.'));
+    }
+    body.appendChild(actions([
+      { id: 'edGradeAll', label: 'Apply to all', run: function (){ commit(P.setGrade(E.hist.cur, null, { replace: c.grade || null })); toast('This colour is on every clip now.'); } },
+      { id: 'edGradeReset', label: 'Reset colour', run: function (){ E.chip.grsel = -1; set({ replace: null }); } }]));
+    body.appendChild(mk('div', 'ed-hint', 'The preview is a close match. The exported video uses the compatible engine, which takes longer. A cropped clip previews without colour; the export has both.'));
+  } };
+
   // ----- save still: the picture at the playhead as a PNG, in one tap -----
   // Waits until the preview video has finished moving to the playhead, so the still is the right picture.
   function stillWait(m){
@@ -2827,7 +2945,7 @@ crop: { title: 'Crop', build: function (body){
     }
     renderTexts(P.textsAt(E.proj, E.t));
     syncBackdrop(m);
-    syncStickers(); syncOverlays(); syncSfx(s); syncFx(); syncTransition(m, s, vc); syncLayout(m, vc, css);
+    syncStickers(); syncOverlays(); syncSfx(s); syncFx(); syncTransition(m, s, vc); syncLayout(m, vc, css); syncGrade(m, vc, css);
     var ms = null, vo = null, mu = null;
     s.audio.forEach(function (a){ if (a.role === 'movieSound') ms = a; else if (a.role === 'voice') vo = a; else if (a.role === 'music') mu = a; });
     h.setMovieGain(ms && !ms.clip.reverse ? ms.gain : 0);
@@ -3033,6 +3151,7 @@ crop: { title: 'Crop', build: function (body){
     try { h.movie.style.filter = ''; h.movie.style.opacity = ''; h.movie.style.transform = ''; h.movie.playbackRate = 1; E.ui.tint.style.display = E.ui.veil.style.display = 'none'; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; } catch (e) {}
     renderTexts([]);
     E.layoutOn = false; try { E.ui.layoutcv.style.display = 'none'; } catch (e) {}
+    E.gradeOn = false; try { if (E.ui.gradecv) E.ui.gradecv.style.display = 'none'; } catch (e) {}
     E.xOn = false; try { E.ui.xvid.pause(); E.ui.xvid.style.display = 'none'; } catch (e) {}
     removeOverlays(); removeSfx();
     if (TS) TS.release(); if (PS) PS.release();

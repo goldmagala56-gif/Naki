@@ -124,6 +124,7 @@ var WebCodecsExport = (function () {
     if ((plan.video || []).some(function (s) { return s.reverse; }) || (plan.audio || []).some(function (a) { return a.reverse; })) return false;   // reversed clips are made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return s.filter && s.filter.sharpen > 0; })) return false;   // sharpen only exists in the ffmpeg engine
     if ((plan.video || []).some(function (s) { return s.crop; })) return false;
+    if ((plan.video || []).some(function (s) { return s.grade; })) return false;   // colour grades (curves, mixer, LUT) are made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return s.stabilize; })) return false;   // stabilize is made by the ffmpeg engine   // crops are made by the ffmpeg engine
     if ((plan.audio || []).some(function (a) { return a.afx; })) return false;   // sound effects (pitch, equalizer, echo, loudness) are made by the ffmpeg engine
     if ((plan.audio || []).some(function (a) { return a.speed && a.speed !== 1; })) return false;

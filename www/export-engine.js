@@ -25,6 +25,7 @@ var FPS = 30;
 var SR = 48000;
 if (typeof window !== 'undefined') { window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['export-engine.js'] = 'fx-export'; }
 var GAIN_HZ = 1000;
+var _CL = (typeof module !== 'undefined' && module.exports) ? require('./colour.js') : (typeof window !== 'undefined' ? window.NakiColour : null);
 var _LY = (typeof module !== 'undefined' && module.exports) ? require('./layout.js') : (typeof window !== 'undefined' ? window.NakiLayout : null);
 var _LK = ((typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook) || { ffmpegExtras: function () { return []; } };
 
@@ -151,6 +152,13 @@ function planToJobs(plan, movieInfo, opts) {
 
   textFiles = (plan.stickers || []).map(function (s, i) { return { name: 'stk' + String(i).padStart(3, '0') + '.png', clip: s, sticker: true, width: width, height: height }; }).concat(textFiles);   // stickers go under the titles
 
+  // Colour grades: each different grade is baked into a .cube file (the runner writes them before the jobs run) and applied with lut3d.
+  var gradeFiles = {}, gradeNames = {};
+  function gradeFile(g) {
+    var key = JSON.stringify(g);
+    if (!gradeNames[key]) { var nm = 'grade' + Object.keys(gradeNames).length + '.cube'; gradeNames[key] = nm; gradeFiles[nm] = _CL.toCube(_CL.bakeLut(g, 33), 33, 'Naki'); }
+    return gradeNames[key];
+  }
   // The colour / speed / fade part of a picture chain. Empty for a plain clip.
   function lookChain(sp, spanSec) {
     var parts = [];
@@ -164,6 +172,7 @@ function planToJobs(plan, movieInfo, opts) {
     }
     (_LK.ffmpegExtras(f) || []).forEach(function (x) { parts.push(x); });
     if (_L2 && f) _L2.ffmpegAdjust(f).forEach(function (x) { parts.push(x); });
+    if (sp.grade && _CL) parts.push('format=rgb24,lut3d=file=' + gradeFile(sp.grade) + ':interp=trilinear,format=yuv420p');
     if (sp.vFadeIn) parts.push('fade=t=in:st=0:d=' + (sp.vFadeIn / 1000).toFixed(3));
     if (sp.vFadeOut) parts.push('fade=t=out:st=' + Math.max(0, spanSec - sp.vFadeOut / 1000).toFixed(3) + ':d=' + (sp.vFadeOut / 1000).toFixed(3));
     return parts.join(',');
@@ -480,7 +489,7 @@ function planToJobs(plan, movieInfo, opts) {
     }
     laneLists[src] = lanes[src];
   });
-  return { jobs: jobs, videoList: videoList, lanes: laneLists, width: width, height: height, textFiles: textFiles };
+  return { jobs: jobs, videoList: videoList, lanes: laneLists, width: width, height: height, textFiles: textFiles, gradeFiles: gradeFiles };
 }
 
 /* ---------- pure: the final concat + mix command ---------- */
@@ -668,6 +677,8 @@ var NakiExport = (function () {
     }
     opts = Object.assign({}, opts, { assets: vInfos });
     var built = planToJobs(plan, info, opts);
+    var gnames = Object.keys(built.gradeFiles || {});
+    if (gnames.length) { say('Preparing your colours...'); var genc = new TextEncoder(); gnames.forEach(function (nm) { ffmpeg.writeFile(nm, genc.encode(built.gradeFiles[nm])); extra.push(nm); }); }
     var genOv = (plan.overlays || []).filter(function (o) { return o.gen; });
     for (var gi = 0; gi < genOv.length; gi++) {
       say('Preparing your shapes...');

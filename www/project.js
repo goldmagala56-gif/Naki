@@ -18,6 +18,7 @@ var _FX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js')
 var _CV = (typeof module !== 'undefined' && module.exports) ? require('./speedcurve.js') : (typeof window !== 'undefined' ? window.NakiCurve : null);
 var _MO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
 var _LY = (typeof module !== 'undefined' && module.exports) ? require('./layout.js') : (typeof window !== 'undefined' ? window.NakiLayout : null);
+var _CL = (typeof module !== 'undefined' && module.exports) ? require('./colour.js') : (typeof window !== 'undefined' ? window.NakiColour : null);
 var _idn = 0;
 function newId(p){ _idn++; return p + _idn.toString(36) + Math.random().toString(36).slice(2, 6); }
 function r3(x){ return Math.round(x * 1000) / 1000; }
@@ -418,7 +419,7 @@ function insertFreeze(p, t, dur){
   var s = sourceAt(p, t); if (!s.video) return p;
   var inFreeze = s.video.type === 'freeze', movieMs = Math.round(s.video.movieMs);
   var look = {};
-  ['filter', 'opacity', 'transform', 'crop'].forEach(function (k){ if (s.video.clip[k] !== undefined) look[k] = JSON.parse(JSON.stringify(s.video.clip[k])); });
+  ['filter', 'opacity', 'transform', 'crop', 'grade'].forEach(function (k){ if (s.video.clip[k] !== undefined) look[k] = JSON.parse(JSON.stringify(s.video.clip[k])); });
   var q = cloneProject(p), rightLink = {};
   q.tracks.forEach(function (tr){
     if (tr.role === 'music') return;
@@ -602,6 +603,19 @@ function setStabilize(p, id, amount){
   var q = cloneProject(p), list = pictureClips(q, id); if (!list.length) return p;
   var a = +amount; if (isNaN(a)) return p; a = r3(Math.max(0, Math.min(1, a)));
   list.forEach(function (c){ if (c.type !== 'video' || c.reverse) return; if (a < 0.05) delete c.stabilize; else c.stabilize = a; });
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
+// ---------- colour grade (curves, colour mixer, LUT) ----------
+// clip.grade = { curves, hsl, lut, lutAmt } (see colour.js). patch = { curves: { m: points | null }, hsl: { red: [h, s, l] | null }, lut, lutAmt, replace }.
+// id null = every picture clip. Nothing is stored for a neutral grade.
+function setGrade(p, id, patch){
+  var q = cloneProject(p), list = pictureClips(q, id); if (!list.length || !_CL) return p;
+  list.forEach(function (c){
+    if (c.type !== 'video' && c.type !== 'freeze') return;
+    var g = _CL.merge(c.grade || null, patch || {});
+    if (g) c.grade = g; else delete c.grade;
+  });
   return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
 }
 
@@ -925,6 +939,7 @@ function canMerge(a, b){
   else if (Math.abs(a.in + a.dur * sp - b.in) > 2) return false;
   if (JSON.stringify([a.filter || null, a.opacity, a.transform || null, a.crop || null, a.stabilize || null]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null, b.crop || null, b.stabilize || null])) return false;
   if (JSON.stringify(a.afx || null) !== JSON.stringify(b.afx || null)) return false;
+  if (JSON.stringify(a.grade || null) !== JSON.stringify(b.grade || null)) return false;
   if (a.vFadeOut || b.vFadeIn) return false;
   if (a.fadeOut > 0 && !(a.fadeOutOff > 0)) return false;
   if (b.fadeIn > 0 && !(b.fadeInOff > 0)) return false;
@@ -1623,7 +1638,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,
