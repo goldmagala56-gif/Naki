@@ -1224,10 +1224,11 @@ function stickersAt(p, t){
 // ---------- keyframes and overlays ----------
 // Keyframes live on a clip as clip.kf = { prop: [[msSinceClipStart, value], ...] }. They work on overlay clips (x, y, size, rot, opacity) and on a picture
 // clip's zoom and pan (zoom, x, y). A property with no keyframes keeps its one fixed value.
-function kfKind(tr){ return tr.kind === 'overlay' ? 'overlay' : (tr.role === 'movie' ? 'picture' : (tr.kind === 'audio' ? 'audio' : null)); }
+function kfKind(tr){ return tr.kind === 'overlay' ? 'overlay' : tr.kind === 'sticker' ? 'sticker' : tr.kind === 'text' ? 'text' : (tr.role === 'movie' ? 'picture' : (tr.kind === 'audio' ? 'audio' : null)); }
 function setStaticProp(c, kind, prop, v){
   if (kind === 'audio'){ c.volume = v; return; }
-  if (kind === 'overlay'){ c[prop] = v; return; }
+  if (kind === 'overlay' || kind === 'sticker'){ c[prop] = v; return; }
+  if (kind === 'text'){ c[prop === 'x' ? 'dx' : 'dy'] = v; return; }
   var t = Object.assign({ zoom: 1, x: 0, y: 0, rot: 0, flipH: false }, c.transform || {});   // same tidy-up as setTransform
   t[prop] = v; t.zoom = r3(Math.max(1, Math.min(4, +t.zoom || 1)));
   t.x = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.x || 0))); t.y = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.y || 0)));
@@ -1739,6 +1740,8 @@ function keyframeProps(p, id){
   var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !_AN) return [];
   if (kind === 'overlay' && f.clip.gen && f.clip.gen.full) return [];   // a frame or a spotlight covers the picture: nothing to move
   if (kind === 'audio') return ['volume'];
+  if (kind === 'sticker') return ['x', 'y'];   // a sticker can be keyframed in place (size and turn stay fixed)
+  if (kind === 'text') return [];             // a text only moves by tracking (no keyframe bar)
   return kind === 'overlay' ? ['x', 'y', 'size', 'rot', 'opacity'] : ['zoom', 'x', 'y'];
 }
 // The moments (ms since the clip started) that have a keyframe on any property; keyframes within a frame of each other count as one.
@@ -1898,6 +1901,43 @@ function deleteClips(p, ids){
   return q;
 }
 
+// ---------- motion tracking ----------
+// Gives an overlay x / y keyframes that follow something in the picture (see tracker.js). path = { x: [[msSinceClipStart, value]...], y: [...] }.
+// Replaces the x and y keyframes the overlay had; its other keyframes stay. Not for frames and spotlights (they cover the picture).
+function setTrackedPath(p, id, path){
+  var f = findClip(p, id), kind = f && kfKind(f.track);
+  if ((kind !== 'overlay' && kind !== 'sticker' && kind !== 'text') || !path || !_AN || (f.clip.gen && f.clip.gen.full)) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip, any = false;
+  ['x', 'y'].forEach(function (k){
+    var pts = path[k]; if (!pts || !pts.length) return;
+    var r = _AN.RANGE[kind][k], arr = [];
+    pts.slice().sort(function (a, b){ return a[0] - b[0]; }).forEach(function (pt){
+      var t = Math.max(0, Math.min(Math.round(c.dur), Math.round(pt[0]))), v = r3(Math.max(r[0], Math.min(r[1], +pt[1])));
+      if (isNaN(v)) return;
+      if (arr.length && arr[arr.length - 1][0] === t) arr[arr.length - 1] = [t, v]; else arr.push([t, v]);
+    });
+    if (!arr.length) return;
+    c.kf = c.kf || {}; c.kf[k] = arr; any = true;
+  });
+  if (!any) return p;
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
+// Takes the tracking (x / y keyframes) off an overlay, sticker or text. An overlay or sticker keeps the place it has at relMs; a text goes back to its usual place.
+function clearTrackedPath(p, id, relMs){
+  var f = findClip(p, id), kind = f && kfKind(f.track);
+  if (!f || (kind !== 'overlay' && kind !== 'sticker' && kind !== 'text') || !f.clip.kf || !_AN) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip, had = false;
+  ['x', 'y'].forEach(function (k){
+    if (!c.kf[k]) return;
+    if (kind !== 'text') setStaticProp(c, kind, k, r3(_AN.valueOf(c, kind, k, relMs || 0)));
+    delete c.kf[k]; had = true;
+  });
+  if (kind === 'text'){ delete c.dx; delete c.dy; }
+  if (!Object.keys(c.kf).length) delete c.kf;
+  return had ? finish(q) : p;
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -1935,7 +1975,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset, wordTimes: wordTimes, wordIndexAt: wordIndexAt, setCaptionHighlight: setCaptionHighlight,
   addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps, setVoiceEnhance: setVoiceEnhance, voiceFloorDb: voiceFloorDb,
   duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences, addLayout: addLayout, setLayoutProps: setLayoutProps, layoutsAt: layoutsAt,
-  copyClip: copyClip, pasteClip: pasteClip, captureLook: captureLook, pasteLook: pasteLook, moveClips: moveClips, selectRight: selectRight, deleteClips: deleteClips };
+  copyClip: copyClip, pasteClip: pasteClip, captureLook: captureLook, pasteLook: pasteLook, moveClips: moveClips, selectRight: selectRight, deleteClips: deleteClips, setTrackedPath: setTrackedPath, clearTrackedPath: clearTrackedPath };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 

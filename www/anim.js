@@ -6,7 +6,7 @@
 var NakiAnim = (function () {
   var OVERLAY = { x: 0.75, y: 0.25, size: 0.35, rot: 0, opacity: 1 };   // centre (fraction of the frame), width (fraction of the frame width), degrees, 0 to 1
   var PICTURE = { zoom: 1, x: 0, y: 0 };
-  var RANGE = { overlay: { x: [0, 1], y: [0, 1], size: [0.05, 1.5], rot: [-180, 180], opacity: [0, 1] }, picture: { zoom: [1, 4], x: [-1, 1], y: [-1, 1] }, audio: { volume: [0, 2] } };
+  var RANGE = { overlay: { x: [0, 1], y: [0, 1], size: [0.05, 1.5], rot: [-180, 180], opacity: [0, 1] }, picture: { zoom: [1, 4], x: [-1, 1], y: [-1, 1] }, audio: { volume: [0, 2] }, sticker: { x: [0, 1], y: [0, 1] }, text: { x: [-1, 1], y: [-1, 1] } };
 
   // ---------- easing: how a value travels from one keyframe to the next ----------
   // A keyframe can carry a third item that says how the value moves from IT to the NEXT keyframe: nothing = in a straight line; 'hold' = it stays
@@ -130,6 +130,8 @@ var NakiAnim = (function () {
     if (pts && pts.length) return kfValue(pts, relMs);
     if (kind === 'audio') return c.volume != null ? c.volume : 1;
     if (kind === 'overlay') return c[prop] != null ? c[prop] : OVERLAY[prop];
+    if (kind === 'sticker') return c[prop] != null ? c[prop] : 0.5;
+    if (kind === 'text') return c[prop === 'x' ? 'dx' : 'dy'] || 0;   // a text moves by an offset from its usual place
     return c.transform && c.transform[prop] != null ? c.transform[prop] : PICTURE[prop];
   }
   function overlayState(o, relMs) {
@@ -170,9 +172,14 @@ var NakiAnim = (function () {
     }
     return 'if(lt(' + tv + ',' + f(P[0][0]) + '),' + f(P[0][1]) + ',' + e + ')';
   }
+  // How far a title is moved from its usual place (fractions of the frame) relMs after it appeared: its x / y keyframes, else its fixed dx / dy.
+  function shiftOf(o, relMs) {
+    var kf = (o && o.kf) || {};
+    return { x: kf.x && kf.x.length ? kfValue(kf.x, relMs) : ((o && o.dx) || 0), y: kf.y && kf.y.length ? kfValue(kf.y, relMs) : ((o && o.dy) || 0) };
+  }
   var api = { OVERLAY: OVERLAY, PICTURE: PICTURE, RANGE: RANGE, kfValue: kfValue, valueOf: valueOf, overlayState: overlayState, pictureTransform: pictureTransform,
     spanAt: spanAt, overlayRect: overlayRect, shiftKf: shiftKf, kfExpr: kfExpr,
-    EASES: EASES, cleanEase: cleanEase, bezierOf: bezierOf, easeName: easeName, easeProgress: easeProgress, subEase: subEase, sliceKf: sliceKf, insertKf: insertKf, bakeKf: bakeKf };
+    EASES: EASES, cleanEase: cleanEase, bezierOf: bezierOf, easeName: easeName, easeProgress: easeProgress, subEase: subEase, sliceKf: sliceKf, insertKf: insertKf, bakeKf: bakeKf, shiftOf: shiftOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') { window.NakiAnim = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['anim.js'] = 'ease'; }
   return api;

@@ -156,6 +156,17 @@ function planToJobs(plan, movieInfo, opts) {
 
   textFiles = (plan.stickers || []).map(function (s, i) { return { name: 'stk' + String(i).padStart(3, '0') + '.png', clip: s, sticker: true, width: width, height: height }; }).concat(textFiles);   // stickers go under the titles
 
+  // A title or sticker that moves (tracking): its full-frame picture is shifted with overlay x / y expressions. Returns the x:y part of the overlay filter.
+  function tfShift(tf, sp) {
+    var c = tf.clip, kf = (_NA && c.kf) || null, shift = (c.kfT0 != null ? c.kfT0 : c.startMs) - sp.sessionStart;
+    function axis(k, dim) {
+      if (kf && kf[k] && kf[k].length) return dim + '*(' + _NA.kfExpr(kf[k], shift, 1, 't') + (tf.sticker ? '-(' + (k === 'x' ? c.x : c.y) + ')' : '') + ')';
+      var d = tf.sticker ? 0 : ((k === 'x' ? c.dx : c.dy) || 0);
+      return d ? dim + '*(' + d + ')' : '0';
+    }
+    var x = axis('x', 'main_w'), y = axis('y', 'main_h');
+    return (x === '0' && y === '0') ? '0:0' : "x='" + x + "':y='" + y + "'";
+  }
   // Colour grades: each different grade is baked into a .cube file (the runner writes them before the jobs run) and applied with lut3d.
   var gradeFiles = {}, gradeNames = {};
   function gradeFile(g) {
@@ -256,7 +267,7 @@ function planToJobs(plan, movieInfo, opts) {
     over.forEach(function (t) {
       var a = Math.max(0, (t.clip.startMs - sp.sessionStart) / 1000), b = (Math.min(sp.sessionEnd, t.clip.startMs + t.clip.durMs) - sp.sessionStart) / 1000;
       inputs.push('-i', t.name);
-      fc.push('[' + cur + '][' + next + ':v]overlay=0:0:enable=\'between(t,' + a.toFixed(3) + ',' + b.toFixed(3) + ')\'[v' + (++n) + ']');
+      fc.push('[' + cur + '][' + next + ':v]overlay=' + tfShift(t, sp) + ':enable=\'between(t,' + a.toFixed(3) + ',' + b.toFixed(3) + ')\'[v' + (++n) + ']');
       cur = 'v' + n; next++;
     });
     return inputs.concat(['-an', '-filter_complex', fc.join(';'), '-map', '[' + cur + ']', '-frames:v', String(nFrames)], tailEnc);

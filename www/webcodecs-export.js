@@ -213,6 +213,12 @@ var WebCodecsExport = (function () {
     return Math.max(0, Math.min(1, o));
   }
 
+  // How far a sticker is moved from where its picture was drawn (fractions of the frame), when it is tracked.
+  function stickerShift(st, tMs) {
+    var s = st.s, kf = s && s.kf; if (!kf || !NA) return { x: 0, y: 0 };
+    var rel = tMs - st.a;
+    return { x: kf.x && kf.x.length ? NA.kfValue(kf.x, rel) - s.x : 0, y: kf.y && kf.y.length ? NA.kfValue(kf.y, rel) - s.y : 0 };
+  }
   function drawWatermark(ctx, logoImg, canvasW, canvasH, corner) {
     var logoW = Math.round(canvasW * 0.16 / 2) * 2;
     var logoH = Math.round(logoW * (logoImg.height / logoImg.width));
@@ -414,7 +420,7 @@ var WebCodecsExport = (function () {
       logoImg = await createImageBitmap(opts.logoFile);
     }
     // each sticker is drawn once onto its own transparent picture too
-    var stickers = (plan.stickers || []).map(function (s) { var c = makeCanvas(W, H); if (NSTK) NSTK.drawSticker(c.getContext('2d'), s, W, H); return { c: c, a: s.startMs, b: s.startMs + s.durMs }; });
+    var stickers = (plan.stickers || []).map(function (s) { var c = makeCanvas(W, H); if (NSTK) NSTK.drawSticker(c.getContext('2d'), s, W, H); return { c: c, a: s.startMs, b: s.startMs + s.durMs, s: s }; });
     // each title is drawn once onto its own transparent picture, then laid over the frames it shows in
     var titles = (plan.texts || []).filter(function (t) { return t && String(t.text || '').trim(); }).map(function (t) {
       if (t.hl && t.hl.t && t.hl.t.length) return { c: null, a: t.startMs, b: t.startMs + t.durMs, t: t, hl: true };   // word highlight: drawn live (see drawHlTitle)
@@ -516,8 +522,11 @@ var WebCodecsExport = (function () {
       drawLayout(tMs);
       drawOverlays(tMs);
       if (logoImg) drawWatermark(ctx, logoImg, W, H, opts.logoCorner);
-      for (var ks = 0; ks < stickers.length; ks++) if (tMs >= stickers[ks].a && tMs < stickers[ks].b) ctx.drawImage(stickers[ks].c, 0, 0);
-      for (var k = 0; k < titles.length; k++) if (tMs >= titles[k].a && tMs < titles[k].b) drawTitleAnim(titles[k], tMs);
+      for (var ks = 0; ks < stickers.length; ks++) if (tMs >= stickers[ks].a && tMs < stickers[ks].b) { var ssh = stickerShift(stickers[ks], tMs); ctx.drawImage(stickers[ks].c, ssh.x * W, ssh.y * H); }
+      for (var k = 0; k < titles.length; k++) if (tMs >= titles[k].a && tMs < titles[k].b) {
+        var tsh = NA ? NA.shiftOf(titles[k].t, tMs - titles[k].a) : { x: 0, y: 0 };
+        if (tsh.x || tsh.y) { ctx.save(); ctx.translate(tsh.x * W, tsh.y * H); drawTitleAnim(titles[k], tMs); ctx.restore(); } else drawTitleAnim(titles[k], tMs);
+      }
     }
 
     var output = new M.Output({ format: new M.Mp4OutputFormat(), target: new M.BufferTarget() });

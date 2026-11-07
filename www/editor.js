@@ -668,7 +668,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     } else d.appendChild(u.toolbar);
     updateButtons();
     if (E.isOpen) layoutTextLayer();
-    syncPicker(); syncCrop(); addEyedroppers();
+    syncPicker(); syncCrop(); syncTrackBox(); addEyedroppers();
   }
   function toolRow(items){
     var row = mk('div', 'ed-trow'), back = iconBtn('edBack', G.back, 'Back', 'ed-ibtn ed-back'), sc = mk('div', 'ed-tscroll');
@@ -781,6 +781,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edOverlayRemoveBg', label: 'Remove BG', icon: G.rembg, run: function (){ openPanel('removebg'); }, disabled: !isO || !!selGen() },
         { id: 'edOverlayChroma', label: 'Chroma key', icon: G.pick, run: function (){ openPanel('chromakey'); }, disabled: !isO || !!selGen() },
         { id: 'edOverlayMotion', label: 'Motion', icon: G.motion, run: function (){ openPanel('motion'); }, disabled: !isO },
+        { id: 'edOverlayTrack', label: 'Track', icon: G.track, run: function (){ openPanel('track'); }, disabled: !isO || !!(selGen() && selGen().gen.full) },
         { id: 'edOverlayMblur', label: 'Motion blur', icon: G.mblur, run: function (){ openPanel('motionblur'); }, disabled: !isO },
         { id: 'edOverlayDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isO },
         { id: 'edOverlayDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isO }
@@ -791,6 +792,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       return [
         { id: 'edAddSticker', label: 'Add', icon: G.sticker, run: function (){ openPanel('stickerpick'); } },
         { id: 'edStickerEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel('stickeredit'); }, disabled: !isS },
+        { id: 'edStickerTrack', label: 'Track', icon: G.track, run: function (){ openPanel('track'); }, disabled: !isS },
         { id: 'edStickerDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isS },
         { id: 'edStickerDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isS }
       ];
@@ -822,6 +824,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edTextStyle', label: 'Style', icon: G.style, run: function (){ openPanel('textstyle'); }, disabled: !isText },
         { id: 'edTextAnim', label: 'Animate', icon: G.anim, run: function (){ openPanel('textanim'); }, disabled: !isText },
         { id: 'edTextFx', label: 'Effects', icon: G.fx, run: function (){ openPanel('textfx'); }, disabled: !isText },
+        { id: 'edTextTrack', label: 'Track', icon: G.track, run: function (){ openPanel('track'); }, disabled: !isText },
         { id: 'edTextList', label: 'Texts', icon: G.list, run: function (){ openPanel('texts'); }, disabled: !any },
         { id: 'edTextDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isText },
         { id: 'edTextDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isText }
@@ -1287,7 +1290,12 @@ crop: { title: 'Crop', build: function (body){
       var c = selSticker(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a sticker on the timeline or the picture first.')); return; }
       var keys = [{ key: 'size', label: 'Size' }, { key: 'rot', label: 'Turn' }, { key: 'x', label: 'Left / right' }, { key: 'y', label: 'Up / down' }];
       if (NSTK && NSTK.isSymbol(c.glyph)) keys.push({ key: 'color', label: 'Colour' });
-      var cur = chipKey('stickeredit', keys, 'size'), ps = function (o){ return P.setStickerProps(E.hist.cur, c.id, o); };
+      var cur = chipKey('stickeredit', keys, 'size'), skv = function (k){ return (k === 'x' || k === 'y') ? NANIM.valueOf(c, 'sticker', k, relNow(c)) : c[k]; },
+        ps = function (o){   // left / right and up / down go through the keyframes; size, turn and colour stay fixed
+          var q = E.hist.cur, rest = {}, any = false;
+          Object.keys(o).forEach(function (k){ if (k === 'x' || k === 'y') q = P.setAnimated(q, c.id, k, o[k], relNow(c)); else { rest[k] = o[k]; any = true; } });
+          return any ? P.setStickerProps(q, c.id, rest) : q;
+        };
       body.appendChild(chips(keys, cur, pickChip('stickeredit')));
       if (cur === 'size') body.appendChild(sliderRow('Size', 4, 90, 1, Math.round(c.size * 100), pct, function (v){ live(ps({ size: v / 100 })); }, function (v){ commit(ps({ size: v / 100 })); }));
       else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, c.rot || 0, function (v){ return v + '\u00b0'; }, function (v){ live(ps({ rot: v })); }, function (v){ commit(ps({ rot: v })); }));
@@ -1295,7 +1303,7 @@ crop: { title: 'Crop', build: function (body){
         var ci = mk('input'); ci.type = 'color'; ci.value = c.color || '#ffffff'; ci.setAttribute('aria-label', 'Sticker colour');
         ci.oninput = function (){ live(ps({ color: ci.value })); }; ci.onchange = function (){ commit(ps({ color: ci.value })); };
         var sr = mk('div', 'ed-mixrow wide'); add(sr, mk('span', 'ed-mixname', 'Colour'), ci); body.appendChild(sr);
-      } else body.appendChild(sliderRow(cur === 'x' ? 'Left / right' : 'Up / down', 0, 100, 1, Math.round(c[cur] * 100), pct,
+      } else body.appendChild(sliderRow(cur === 'x' ? 'Left / right' : 'Up / down', 0, 100, 1, Math.round(skv(cur) * 100), pct,
         function (v){ var o = {}; o[cur] = v / 100; live(ps(o)); }, function (v){ var o = {}; o[cur] = v / 100; commit(ps(o)); }));
       body.appendChild(mk('div', 'ed-hint', 'You can also drag the sticker on the picture, and drag its ends on the timeline to change how long it shows.'));
     } },
@@ -1900,6 +1908,122 @@ crop: { title: 'Crop', build: function (body){
     }
   }
 
+  /* ---------- motion tracker: an overlay, sticker or text follows something in the picture ---------- */
+  var NTK = (typeof module !== 'undefined' && module.exports) ? require('./tracker.js') : (typeof window !== 'undefined' ? window.NakiTracker : null);
+  G.track = svg('<circle cx="12" cy="12" r="3"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>');
+  function trackNeed(){ if (NTK) return true; toast('The tracker is not loaded. Add <script src="tracker.js"></script> to index.html, before editor.js.'); return false; }
+  // what the Track tool works on: the selected overlay (not a frame or spotlight), sticker or text
+  function trackTarget(){
+    var f = E.sel && P.findClip(E.proj, E.sel); if (!f) return null;
+    var k = f.track.kind, c = f.clip;
+    if (k === 'overlay') return (c.gen && c.gen.full) ? null : { c: c, kind: 'overlay' };
+    if (k === 'sticker') return { c: c, kind: 'sticker' };
+    if (k === 'text') return { c: c, kind: 'text' };
+    return null;
+  }
+  // where the target sits now, as frame fractions: overlays and stickers by their centre; a text by the middle of its first line
+  function trackHere(tg){
+    var rel = relNow(tg.c);
+    if (tg.kind === 'text'){ var sh = NANIM.shiftOf(tg.c, rel); return { x: 0.5 + sh.x, y: (NP.TEXT_POS[tg.c.pos] != null ? NP.TEXT_POS[tg.c.pos] : 0.76) + 0.06 + sh.y }; }
+    return { x: NANIM.valueOf(tg.c, tg.kind, 'x', rel), y: NANIM.valueOf(tg.c, tg.kind, 'y', rel) };
+  }
+  function trackBegin(){
+    var tg = trackTarget(); if (!tg) return null;
+    if (!E.trk || E.trk.id !== tg.c.id){
+      var s = trackHere(tg);
+      E.trk = { id: tg.c.id, cx: clamp(s.x, 0.05, 0.95), cy: clamp(s.y, 0.05, 0.95), size: 0.12, mode: 'keep', running: false, cancelled: false, msg: '' };
+    }
+    return E.trk;
+  }
+  // The picture at timeline time t as the viewer sees it: which video file and where in it, and how a point of that video lands in the frame
+  // (crop, flip, turn, zoom, pan and the bars around the picture, including a zoom that has keyframes). onlyAsset: null when it is another file.
+  function trackInfoAt(t, onlyAsset){
+    var s = P.sourceAt(E.proj, t), v = s.video, k = v && v.clip, fd = E.frameDims; if (!k || !fd || !fd.w || !fd.h) return null;
+    var asset = k.asset || 'movie'; if (onlyAsset && asset !== onlyAsset) return null;
+    var a = asset === 'movie' ? fd : E.proj.assets[asset], vw = a && (a.w || 0), vh = a && (a.h || 0); if (!vw || !vh) return null;
+    var tf = NANIM.pictureTransform(k.transform, k.kf, t - k.start), fr = frameAspect(), fa = fr || fd.w / fd.h;
+    var geo = NTK.makeGeo({ vw: vw, vh: vh, fa: fa, crop: k.crop || null, t: tf, boxPan: !!(k.crop || fr) });
+    return { asset: asset, ms: Math.round(v.movieMs), geo: geo, toFrame: geo.toFrame };
+  }
+  // the square you drag onto what should be followed (only while the Track panel is open)
+  function syncTrackBox(){
+    var lay = E.ui.overlaylayer; if (!lay) return;
+    var T = E.trk, tg = (E.panel === 'track' && E.isOpen) ? trackTarget() : null, bx = E.ui.trkbox;
+    if (!tg || !T || T.id !== tg.c.id){ if (bx) bx.style.display = 'none'; return; }
+    if (!bx){
+      bx = E.ui.trkbox = mk('div');
+      bx.style.cssText = 'position:absolute;box-sizing:border-box;border:2px solid #ff9f1c;border-radius:4px;box-shadow:0 0 0 1px rgba(0,0,0,.6);cursor:move;touch-action:none;pointer-events:auto;z-index:7;transform:translate(-50%,-50%)';
+      var dot = mk('i'); dot.style.cssText = 'position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;border-radius:50%;background:#ff9f1c;pointer-events:none';
+      bx.appendChild(dot); bx.addEventListener('pointerdown', trkBoxDown);
+    }
+    if (bx.parentNode !== lay) lay.appendChild(bx);
+    var px = Math.max(14, Math.round(T.size * (lay.clientHeight || 240)));
+    bx.style.display = 'block'; bx.style.left = (T.cx * 100) + '%'; bx.style.top = (T.cy * 100) + '%'; bx.style.width = px + 'px'; bx.style.height = px + 'px';
+  }
+  function trkBoxDown(ev){
+    var T = E.trk; if (!T) return;
+    ev.preventDefault(); ev.stopPropagation();
+    var r = E.ui.overlaylayer.getBoundingClientRect(), s = { x0: ev.clientX, y0: ev.clientY, cx: T.cx, cy: T.cy, w: r.width || 1, h: r.height || 1 };
+    function mv(e){ T.cx = clamp(s.cx + (e.clientX - s.x0) / s.w, 0.02, 0.98); T.cy = clamp(s.cy + (e.clientY - s.y0) / s.h, 0.02, 0.98); syncTrackBox(); }
+    function up(){ window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up); }
+    window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
+  }
+  function runTrack(){
+    var T = E.trk, tg = trackTarget(), h = E.hooks;
+    if (!trackNeed() || !T || !tg || T.running) return;
+    var c = tg.c;
+    if (!movieReady()){ toast('Choose the movie for this session first.'); return; }
+    if (!E.frameDims || !E.frameDims.w){ toast('The movie is not ready yet. Try again in a moment.'); return; }
+    if (E.t < c.start || E.t >= c.start + c.dur){ toast('Move the playhead onto it, at a moment where you can see what to follow.', 6000); return; }
+    var ref = trackInfoAt(E.t, null);
+    if (!ref){ toast('Move the playhead to a moment where a video shows (not a gap).', 6000); return; }
+    var url = ref.asset === 'movie' ? (h.movieUrl && h.movieUrl()) : (h.videoUrl && h.videoUrl(ref.asset));
+    if (!url){ toast('The video file for this part is not available here.', 6000); return; }
+    // the times on this clip, and where in the same video file each one shows (null where another video, or a gap, is on screen: it keeps its last place)
+    var rels = NTK.sampleTimes(c.dur), infos = rels.map(function (r){ return trackInfoAt(c.start + Math.min(r, c.dur - 1), ref.asset); }), lo = ref.ms, hi = ref.ms;
+    infos.forEach(function (i){ if (i){ lo = Math.min(lo, i.ms); hi = Math.max(hi, i.ms); } });
+    if (hi - lo < 200){ toast('There is not enough moving picture under this to follow anything.', 6000); return; }
+    var pm = ref.geo.toMovie(T.cx, T.cy);
+    if (pm.u < -0.02 || pm.u > 1.02 || pm.v < -0.02 || pm.v > 1.02){ toast('Drag the square onto the picture itself, not onto the bars or the cropped-away part.', 7000); return; }
+    var box = { cx: clamp(pm.u, 0.02, 0.98), cy: clamp(pm.v, 0.02, 0.98), size: clamp(T.size / (ref.geo.k * ref.geo.vh), 0.04, 0.5) };
+    var rp = ref.geo.toFrame(box.cx, box.cy), isText = tg.kind === 'text', keep = isText || T.mode === 'keep';
+    var base = isText ? NANIM.shiftOf(c, relNow(c)) : trackHere(tg), key = c.start + '|' + c.dur, id = c.id;
+    pause(); T.running = true; T.cancelled = false; T.msg = 'Starting...'; renderDock();
+    function say(m){ T.msg = m; if (E.trkStatus) E.trkStatus.textContent = m; }
+    NTK.analyze(url, { refMs: ref.ms, fromMs: lo, toMs: hi, box: box, onProgress: function (f){ say('Following... ' + Math.round(f * 100) + '%'); }, isCancelled: function (){ return T.cancelled; } }).then(function (res){
+      T.running = false;
+      var f = P.findClip(E.hist.cur, id);
+      if (!f || (f.clip.start + '|' + f.clip.dur) !== key){ renderDock(); toast('It changed while tracking. Tap Start tracking again.', 7000); return; }
+      var kf = NTK.toKeyframes(res.track, rels, infos, { keepMs: ref.ms, offX: keep ? base.x - rp.x : 0, offY: keep ? base.y - rp.y : 0, lo: isText ? -1 : 0, hi: 1 });
+      var q = P.setTrackedPath(E.hist.cur, id, kf);
+      if (q === E.hist.cur){ renderDock(); toast('Nothing was changed.'); return; }
+      commit(q);
+      var warn = NTK.isPlain(res.texture) ? ' That spot is quite plain, so it may have drifted: try a part with an edge or a pattern.' : (res.lostFrac > 0.3 ? ' It lost the spot for part of the time: try a clearer spot, or a bigger square.' : '');
+      toast('Tracking done. Press play to check it.' + warn, warn ? 9000 : 5000);
+    }).catch(function (err){
+      T.running = false; renderDock();
+      if (T.cancelled || (err && err.cancelled)) toast('Tracking stopped.');
+      else { console.error('tracking failed', err); toast('Tracking did not work' + (err && err.message ? ': ' + err.message : '') + '.', 9000); }
+    });
+  }
+  PANELS.track = { title: 'Track motion', build: function (body){
+    if (!NTK){ body.appendChild(mk('div', 'ed-hint', 'tracker.js is not loaded. Add <script src="tracker.js"></script> to index.html, before editor.js.')); return; }
+    var tg = trackTarget(), T = trackBegin();
+    if (!tg || !T){ body.appendChild(mk('div', 'ed-hint', 'Tap an overlay, sticker or text on the timeline first.')); return; }
+    var run = !!T.running, c = tg.c;
+    if (tg.kind !== 'text') body.appendChild(chips([{ key: 'keep', label: 'Keep my offset' }, { key: 'center', label: 'Centre on it' }], T.mode, function (k){ T.mode = k; renderDock(); }));
+    body.appendChild(sliderRow('Square size', 5, 30, 1, Math.round(T.size * 100), pct, function (v){ T.size = v / 100; syncTrackBox(); }, function (v){ T.size = v / 100; syncTrackBox(); }));
+    var st = mk('div', 'ed-hint', run ? T.msg : 'Move the playhead to a moment where you can see what to follow. Drag the orange square onto it, then tap Start tracking.');
+    E.trkStatus = st; body.appendChild(st);
+    body.appendChild(actions(run
+      ? [{ id: 'edTrackStop', label: 'Stop', run: function (){ T.cancelled = true; } }]
+      : [{ id: 'edTrackGo', label: 'Start tracking', run: runTrack },
+         { id: 'edTrackClear', label: 'Remove tracking', run: function (){
+           var q = P.clearTrackedPath(E.hist.cur, c.id, relNow(c));
+           if (q === E.hist.cur) toast('There is no tracking on this.'); else commit(q); } }]));
+    body.appendChild(mk('div', 'ed-hint', 'It follows the part of the picture inside the square, from the start of this clip to its end (backwards and forwards from the playhead). Pick a part with an edge or a pattern, not a plain wall. Keep my offset keeps it where it is now, next to the thing; Centre on it puts it right on the thing (a text always keeps its place and moves by the same amount). It works through zoom, crop, turn and flip, and on a video you added: it follows the video that is under the playhead and holds still where another video shows. A tracked sticker or text moves only; its size and turn stay as they are. The result is ordinary keyframes, so you can fine-tune it, and Undo takes it back.'));
+  } };
+
   /* ---------- titles drawn over the preview ---------- */
   // ----- format and background (the shape of the video, and what fills the space around the picture) -----
   function frameAspect(){
@@ -1981,7 +2105,7 @@ crop: { title: 'Crop', build: function (body){
       var d = E.stickerEls[c.id];
       if (!d){ d = E.stickerEls[c.id] = mk('div', 'ed-stk'); d.dataset.id = c.id; d.addEventListener('pointerdown', stickerDown); layer.appendChild(d); }
       if (d._g !== c.glyph){ d.textContent = c.glyph; d._g = c.glyph; }
-      d.style.left = (c.x * 100) + '%'; d.style.top = (c.y * 100) + '%'; d.style.fontSize = Math.round(c.size * H) + 'px';
+      d.style.left = (NANIM.valueOf(c, 'sticker', 'x', E.t - c.start) * 100) + '%'; d.style.top = (NANIM.valueOf(c, 'sticker', 'y', E.t - c.start) * 100) + '%'; d.style.fontSize = Math.round(c.size * H) + 'px';
       d.style.transform = 'translate(-50%,-50%) rotate(' + (c.rot || 0) + 'deg)';
       d.style.color = (NSTK && NSTK.isSymbol(c.glyph)) ? (c.color || '#ffffff') : '#ffffff';
       d.classList.toggle('sel', c.id === E.sel);
@@ -1992,8 +2116,8 @@ crop: { title: 'Crop', build: function (body){
     var id = ev.currentTarget.dataset.id, f = P.findClip(E.proj, id); if (!f) return;
     ev.preventDefault(); ev.stopPropagation();
     if (E.sel !== id){ E.sel = id; renderTimeline(); syncDock(); }
-    var r = E.ui.stickerlayer.getBoundingClientRect(), c = f.clip, st = { x0: ev.clientX, y0: ev.clientY, cx: c.x, cy: c.y, w: r.width || 1, h: r.height || 1, moved: false };
-    function at(e){ return P.setStickerProps(E.hist.cur, id, { x: st.cx + (e.clientX - st.x0) / st.w, y: st.cy + (e.clientY - st.y0) / st.h }); }
+    var r = E.ui.stickerlayer.getBoundingClientRect(), c = f.clip, st = { x0: ev.clientX, y0: ev.clientY, cx: NANIM.valueOf(c, 'sticker', 'x', relNow(c)), cy: NANIM.valueOf(c, 'sticker', 'y', relNow(c)), w: r.width || 1, h: r.height || 1, moved: false };
+    function at(e){ var q = P.setAnimated(E.hist.cur, id, 'x', st.cx + (e.clientX - st.x0) / st.w, relNow(c)); return P.setAnimated(q, id, 'y', st.cy + (e.clientY - st.y0) / st.h, relNow(c)); }
     function mv(e){ st.moved = true; live(at(e)); }
     function up(e){
       window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
@@ -2718,9 +2842,9 @@ crop: { title: 'Crop', build: function (body){
     g.restore();
     var fo = fadeOpacity(vc, E.t);
     if (fo < 1){ g.save(); g.globalAlpha = 1 - fo; g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.restore(); }
-    if (NSTK) P.stickersAt(E.proj, E.t).forEach(function (c){ try { NSTK.drawSticker(g, c, W, H); } catch (e) {} });
+    if (NSTK) P.stickersAt(E.proj, E.t).forEach(function (c){ try { NSTK.drawSticker(g, Object.assign({}, c, { x: NANIM.valueOf(c, 'sticker', 'x', E.t - c.start), y: NANIM.valueOf(c, 'sticker', 'y', E.t - c.start) }), W, H); } catch (e) {} });
     var LKs = lookLib();
-    if (LKs.drawTitle) P.textsAt(E.proj, E.t).forEach(function (c){ if (c.text) try { LKs.drawTitle(g, c, W, H); } catch (e) {} });
+    if (LKs.drawTitle) P.textsAt(E.proj, E.t).forEach(function (c){ if (c.text) try { var sh0 = NANIM ? NANIM.shiftOf(c, E.t - c.start) : { x: 0, y: 0 }; g.save(); g.translate(sh0.x * W, sh0.y * H); LKs.drawTitle(g, c, W, H); g.restore(); } catch (e) {} });
   }
   // Saves the picture at the playhead as a PNG. Resolves to true when it was saved.
   function exportStill(){
@@ -3158,7 +3282,7 @@ crop: { title: 'Crop', build: function (body){
     var now = 0, span = 0; P.curvePieces(E.hist.cur, info.g).forEach(function (p){ now += p.dur; span += p.dur * (p.speed || 1); });
     return { now: now, span: span };
   }
-  function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); syncOverlays(); drawCrop(); }
+  function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); syncOverlays(); drawCrop(); syncTrackBox(); }
   function layoutTextLayerBase(){
     var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe, E.ui.stickerlayer, E.ui.overlaylayer, E.ui.croplayer]; if (!boxes[0]) return;
     var sw = st.clientWidth, sh = st.clientHeight, vw = m && m.videoWidth, vh = m && m.videoHeight;
@@ -3221,6 +3345,10 @@ crop: { title: 'Crop', build: function (body){
         d.style.transformOrigin = '50% 50%'; d.style.opacity = shownText ? String(an.alpha) : '0';
         d.style.transform = 'translate(' + (an.dx * LW) + 'px,' + (an.dy * LH) + 'px) rotate(' + an.rot + 'deg) scale(' + an.scale + ')';
       } else { if (d.style.transform) d.style.transform = ''; if (d.style.opacity) d.style.opacity = ''; }
+    });
+    list.forEach(function (c){   // a tracked text is moved by its offset from the usual place
+      var d = E.textEls[c.id], sh = NANIM ? NANIM.shiftOf(c, E.t - c.start) : null; if (!d || !sh || (!sh.x && !sh.y)) return;
+      d.style.transform = 'translate(' + (sh.x * (layer.clientWidth || 320)) + 'px,' + (sh.y * (layer.clientHeight || 240)) + 'px) ' + (d.style.transform || '');
     });
     Object.keys(E.textEls).forEach(function (id){ if (!want[id]){ E.textEls[id].remove(); delete E.textEls[id]; } });
   }
