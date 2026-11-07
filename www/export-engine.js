@@ -25,6 +25,7 @@ var FPS = 30;
 var SR = 48000;
 if (typeof window !== 'undefined') { window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['export-engine.js'] = 'fx-export'; }
 var GAIN_HZ = 1000;
+var _LY = (typeof module !== 'undefined' && module.exports) ? require('./layout.js') : (typeof window !== 'undefined' ? window.NakiLayout : null);
 var _LK = ((typeof module !== 'undefined' && module.exports) ? require('./look.js') : window.NakiLook) || { ffmpegExtras: function () { return []; } };
 
 /* ---------- pure: parse ffmpeg's own "-i" log text for basic movie info ---------- */
@@ -177,7 +178,8 @@ function planToJobs(plan, movieInfo, opts) {
     var isGraph = !!fitChain && typeof fitChain === 'object';
     var ovs = _NA ? overlayList.filter(function (o) { return o.startMs < sp.sessionEnd && o.startMs + o.durMs > sp.sessionStart; }) : [];
     var fxs = _L2 ? fxList.filter(function (x) { return x.startMs < sp.sessionEnd && x.startMs + x.durMs > sp.sessionStart; }) : [];   // a blurred background is a whole filter graph, not a chain
-    if (!isGraph && !ovs.length && !fxs.length && !wm && !over.length && !look && !(speed && speed !== 1)) {
+    var lys = _LY ? layoutList.filter(function (x) { return x.startMs < sp.sessionEnd && x.startMs + x.durMs > sp.sessionStart; }) : [];
+    if (!isGraph && !ovs.length && !fxs.length && !lys.length && !wm && !over.length && !look && !(speed && speed !== 1)) {
       // a plain clip: exactly the chain the earlier versions used
       if (copyOk) return sourceArgs.concat(['-an', '-c:v', 'copy', '-frames:v', String(nFrames), '-f', 'mpegts', '-muxdelay', '0', '-muxpreload', '0', vfile]);   // reversed pieces are already encoded: just join them
       return sourceArgs.concat(['-an', '-vf', fitChain + (tpad ? ',' + tpad : '') + ',setsar=1,fps=' + FPS + ',format=yuv420p', '-frames:v', String(nFrames)], tailEnc);
@@ -190,6 +192,10 @@ function planToJobs(plan, movieInfo, opts) {
     fxs.forEach(function (x) {
       var a0 = Math.max(0, (x.startMs - sp.sessionStart) / 1000), b0 = (Math.min(sp.sessionEnd, x.startMs + x.durMs) - sp.sessionStart) / 1000, out = 'v' + (++n);
       fc.push(_FX && _FX.vfx && _FX.vfx.has(x.fx) && !_FX.vfx.legacy(x.fx) ? _FX.vfx.graph(x, a0, b0, cur, out, width, height) : _L2.ffmpegFx(x, a0, b0, cur, out, width, height)); cur = out;
+    });
+    lys.forEach(function (ly) {   // a layout: the picture drawn as mirrored halves or a grid of copies
+      var a0 = Math.max(0, (ly.startMs - sp.sessionStart) / 1000), b0 = (Math.min(sp.sessionEnd, ly.startMs + ly.durMs) - sp.sessionStart) / 1000, out = 'v' + (++n);
+      fc.push(_LY.graph(ly.layout, a0, b0, cur, out, width, height)); cur = out;
     });
     ovs.forEach(function (o) {
       var op = overlayParts(o, sp), bm = _FX && op.blend ? _FX.ffBlend(op.blend) : null;
@@ -286,6 +292,16 @@ function planToJobs(plan, movieInfo, opts) {
   transformFit = function (sp) { var b = _tfNoCrop(sp); return sp.crop ? cropPre(sp) + ',' + b : b; };
   transformPre = function (sp) { var b = _tpNoCrop(sp); return sp.crop ? cropPre(sp) + (b ? ',' + b : '') : b; };
 
+  // ---- stabilize: steady shaky footage with ffmpeg's deshake filter. It runs FIRST, on the whole picture, before crop / turn / zoom ----
+  function stabPre(sp) {
+    var s = sp && sp.stabilize; if (!(s > 0)) return '';
+    var r = Math.max(4, Math.min(64, Math.round(8 + 56 * s)));   // how far (pixels) it may move the picture to steady it
+    return 'deshake=rx=' + r + ':ry=' + r + ':edge=mirror:blocksize=8:contrast=125';
+  }
+  var _tfNoStab = transformFit, _tpNoStab = transformPre;
+  transformFit = function (sp) { var b = _tfNoStab(sp), s = stabPre(sp); return s ? s + ',' + b : b; };
+  transformPre = function (sp) { var b = _tpNoStab(sp), s = stabPre(sp); return s ? s + (b ? ',' + b : '') : b; };
+
   // ---- transitions: where two touching pictures meet, each gives up half of the transition and a short piece made from both goes between ----
   var XFADE = (_FX && _FX.trans) ? _FX.trans.XFADE : { fade: 'fade', fadeblack: 'fadeblack', wipeleft: 'wipeleft', slideleft: 'slideleft', zoomin: 'zoomin', circleopen: 'circleopen' };
   function transOk(a, b) {
@@ -359,7 +375,7 @@ function planToJobs(plan, movieInfo, opts) {
 
   
 // ---- video effects ----
-  var fxList = plan.fx || [];
+  var fxList = plan.fx || [], layoutList = plan.layouts || [];
   
 /* --- picture --- */
   vspans.forEach(function (sp, i) {

@@ -29,6 +29,7 @@ var NakiPlan = (function () {
       if (c.opacity != null && c.opacity < 1) sp.opacity = c.opacity;
       if (c.transform) sp.transform = { zoom: c.transform.zoom, x: c.transform.x, y: c.transform.y, rot: c.transform.rot, flipH: !!c.transform.flipH };
       if (c.crop) sp.crop = { x: c.crop.x, y: c.crop.y, w: c.crop.w, h: c.crop.h };
+      if (sp.type === 'play' && c.stabilize && !c.reverse) sp.stabilize = c.stabilize;
       if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;
       if (c.vFadeOut) sp.vFadeOut = c.vFadeOut;
       if (c.kf && (c.kf.zoom || c.kf.x || c.kf.y)) { sp.kf = {}; ['zoom', 'x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sp.kf[k] = NAN && NAN.bakeKf ? NAN.bakeKf({ v: c.kf[k] }).v : JSON.parse(JSON.stringify(c.kf[k])); }); }
@@ -122,7 +123,17 @@ var NakiPlan = (function () {
     if (texts.length) plan.texts = texts;
     if (stickers.length) plan.stickers = stickers;
     if (overlays.length) plan.overlays = overlays;
+    var layouts = [];
+    p.tracks.forEach(function (tr) {
+      if (tr.kind !== 'layout' || tr.hidden) return;
+      tr.clips.forEach(function (c) {
+        var s = Math.max(0, Math.round(c.start)), e = Math.min(total, Math.round(c.start + c.dur));
+        if (c.layout && e > s) layouts.push({ startMs: s, durMs: e - s, layout: JSON.parse(JSON.stringify(c.layout)) });
+      });
+    });
+    layouts.sort(function (a, b) { return a.startMs - b.startMs; });
     if (fx.length) plan.fx = fx;
+    if (layouts.length) plan.layouts = layouts;
     if (p.format && p.format.ratio) plan.format = { ratio: p.format.ratio, bg: p.format.bg ? { type: p.format.bg.type, color: p.format.bg.color } : { type: 'navy' } };
     return plan;
   }

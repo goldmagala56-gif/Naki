@@ -58,6 +58,7 @@ var WebCodecsExport = (function () {
   var NA = (typeof module !== 'undefined' && module.exports) ? require('./anim.js') : (typeof window !== 'undefined' ? window.NakiAnim : null);
   var NMO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
   var NFX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
+  var NLY = (typeof module !== 'undefined' && module.exports) ? require('./layout.js') : (typeof window !== 'undefined' ? window.NakiLayout : null);
   var NAVY = '#111b24';
   var TITLE_POS = { top: 0.07, center: 0.40, bottom: 0.76 };   // same numbers as plan.js / the editor preview
 
@@ -122,7 +123,8 @@ var WebCodecsExport = (function () {
     if ((plan.video || []).some(function (s) { return s.speed && s.speed !== 1; })) return false;
     if ((plan.video || []).some(function (s) { return s.reverse; }) || (plan.audio || []).some(function (a) { return a.reverse; })) return false;   // reversed clips are made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return s.filter && s.filter.sharpen > 0; })) return false;   // sharpen only exists in the ffmpeg engine
-    if ((plan.video || []).some(function (s) { return s.crop; })) return false;   // crops are made by the ffmpeg engine
+    if ((plan.video || []).some(function (s) { return s.crop; })) return false;
+    if ((plan.video || []).some(function (s) { return s.stabilize; })) return false;   // stabilize is made by the ffmpeg engine   // crops are made by the ffmpeg engine
     if ((plan.audio || []).some(function (a) { return a.speed && a.speed !== 1; })) return false;
     if ((plan.video || []).some(function (s) { return s.transitionIn; })) return false;
     if ((plan.fx || []).length) return false;   // video effects are made by the ffmpeg engine
@@ -482,11 +484,22 @@ var WebCodecsExport = (function () {
     }
     // puts one finished frame on the encoder's canvas: picture, fade to black, overlays, logo, stickers, titles
 
+    var fcv = null;
+    // a layout: what is on the canvas so far (picture and fade) is copied, then drawn again as mirrored halves or a grid
+    function drawLayout(tMs) {
+      var list = plan.layouts; if (!list || !list.length || !NLY) return;
+      var ly = null; for (var q = 0; q < list.length; q++) if (tMs >= list[q].startMs && tMs < list[q].startMs + list[q].durMs) ly = list[q];
+      if (!ly) return;
+      if (!fcv) fcv = makeCanvas(W, H);
+      var fg = fcv.getContext('2d'); fg.globalCompositeOperation = 'source-over'; fg.globalAlpha = 1; fg.drawImage(canvas, 0, 0);
+      NLY.draw(ctx, ly.layout, W, H, fcv);
+    }
     function compose(sp, tMs) {
       ctx.globalAlpha = 1;
       ctx.drawImage(layer, 0, 0);
       var lv = fadeLevel(sp, tMs - sp.sessionStart);
       if (lv < 1) { ctx.globalAlpha = 1 - lv; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
+      drawLayout(tMs);
       drawOverlays(tMs);
       if (logoImg) drawWatermark(ctx, logoImg, W, H, opts.logoCorner);
       for (var ks = 0; ks < stickers.length; ks++) if (tMs >= stickers[ks].a && tMs < stickers[ks].b) ctx.drawImage(stickers[ks].c, 0, 0);

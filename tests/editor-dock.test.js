@@ -30,7 +30,7 @@ const ids = () => $$('.ed-tbtn').map(b => b.id);
 const mouse = (el, type) => el.dispatchEvent(new window.MouseEvent(type, { bubbles: true, clientX: 100 }));
 
 ok('it opens on the main toolbar, and there is no sheet anywhere', () => {
-  assert($('.ed-toolbar')); assert.strictEqual($$('.ed-tool').length, 12); assert(!$('.ed-trow') && !$('.ed-panel'));
+  assert($('.ed-toolbar')); assert.strictEqual($$('.ed-tool').length, 13); assert(!$('.ed-trow') && !$('.ed-panel'));
   assert(!$('.ed-sheet') && !$('.ed-sheetbar'), 'the old slide-up sheet is gone');
 });
 ok('Edit turns the toolbar into a row of tools with a back arrow, like CapCut', () => {

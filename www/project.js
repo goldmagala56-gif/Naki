@@ -17,6 +17,7 @@ var _AN = (typeof module !== 'undefined' && module.exports) ? require('./anim.js
 var _FX = (typeof module !== 'undefined' && module.exports) ? require('./fx.js') : (typeof window !== 'undefined' ? window.NakiFx : null);
 var _CV = (typeof module !== 'undefined' && module.exports) ? require('./speedcurve.js') : (typeof window !== 'undefined' ? window.NakiCurve : null);
 var _MO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
+var _LY = (typeof module !== 'undefined' && module.exports) ? require('./layout.js') : (typeof window !== 'undefined' ? window.NakiLayout : null);
 var _idn = 0;
 function newId(p){ _idn++; return p + _idn.toString(36) + Math.random().toString(36).slice(2, 6); }
 function r3(x){ return Math.round(x * 1000) / 1000; }
@@ -56,7 +57,7 @@ function finish(p){
     tr.clips.forEach(function (c){ d = Math.max(d, clipEnd(c)); });
   });
   p.durationMs = d;
-  p.tracks = p.tracks.filter(function (t){ return (t.kind !== 'sticker' && t.kind !== 'overlay' && t.role !== 'sfx' && t.kind !== 'fx') || t.clips.length; });   // an empty sticker row goes away
+  p.tracks = p.tracks.filter(function (t){ return (t.kind !== 'sticker' && t.kind !== 'overlay' && t.role !== 'sfx' && t.kind !== 'fx' && t.kind !== 'layout') || t.clips.length; });   // an empty sticker row goes away
   return p;
 }
 function findClip(p, id){
@@ -424,7 +425,7 @@ function insertFreeze(p, t, dur){
     var out = [];
     tr.clips.forEach(function (c){
       var e = clipEnd(c);
-      if (tr.kind === 'text' || tr.kind === 'sticker' || tr.kind === 'fx'){ if (c.start >= t) c.start += dur; else if (e > t) c.dur += dur; out.push(c); return; }
+      if (tr.kind === 'text' || tr.kind === 'sticker' || tr.kind === 'fx' || tr.kind === 'layout'){ if (c.start >= t) c.start += dur; else if (e > t) c.dur += dur; out.push(c); return; }
       if (inFreeze && tr.role === 'movie' && c.start <= t && t < e){ c.dur += dur; out.push(c); return; }
       if (c.start >= t){ c.start += dur; out.push(c); return; }
       if (e <= t){ out.push(c); return; }
@@ -530,6 +531,80 @@ function setCrop(p, id, rect){
   return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
 }
 
+// ---------- auto reframe ----------
+// Keeps a subject in view when the video becomes another shape (landscape to tall, say). The clip is cut where the subject leaves the middle part
+// of the crop, and every piece gets a crop (see setCrop) centred on the subject. Only the picture and its linked movie sound are cut.
+// track = [{ ms, x, y }]: where the subject is (fractions 0 to 1 of the picture) at that time of the movie FILE, in order. ratio = [w, h].
+// opts = { srcW, srcH (the picture's size in pixels), deadFrac (0.18), minMs (1200), maxPieces (40) }. out.pieces says how many pieces came out.
+function trackAtMs(track, ms){
+  var n = track.length;
+  if (ms <= track[0].ms) return track[0];
+  if (ms >= track[n - 1].ms) return track[n - 1];
+  for (var i = 1; i < n; i++) if (ms <= track[i].ms){
+    var a = track[i - 1], b = track[i], f = b.ms === a.ms ? 0 : (ms - a.ms) / (b.ms - a.ms);
+    return { x: a.x + (b.x - a.x) * f, y: a.y + (b.y - a.y) * f };
+  }
+  return track[n - 1];
+}
+// Cuts clip id (and its linked sound) at time t, in place. Returns the id of the right-hand picture piece, or null.
+function splitLinked(q, id, t){
+  var rightLink = newId('l'), rightId = null;
+  linkedIds(q, id).forEach(function (cid){
+    var f = findClip(q, cid), c = f.clip;
+    if (!(c.start < t && t < clipEnd(c))) return;
+    var left = sliceClip(c, c.start, t), right = sliceClip(c, t, clipEnd(c));
+    left.id = c.id; if (c.link) right.link = rightLink;
+    f.track.clips = f.track.clips.filter(function (x){ return x.id !== cid; }).concat([left, right]);
+    if (cid === id) rightId = right.id;
+  });
+  return rightId;
+}
+function reframeClip(p, id, ratio, track, opts, out){
+  opts = opts || {}; out = out || {};
+  var f = findClip(p, id);
+  if (!f || f.track.kind !== 'video' || f.clip.type !== 'video' || f.clip.reverse || !track || !track.length || !ratio) return p;
+  var rw = +ratio[0], rh = +ratio[1], sw = +opts.srcW, sh = +opts.srcH, base = cropRect(rw, rh, sw, sh);
+  if (!base) return p;
+  var roomX = 1 - base.w, roomY = 1 - base.h, c = f.clip, sp = c.speed || 1, end = clipEnd(c), S = [];
+  out.pieces = 1;
+  if (roomX < 0.01 && roomY < 0.01){ out.same = true; return p; }   // the picture already has this shape
+  for (var t = c.start; t < end; t += 250){ var pos = trackAtMs(track, c.in + (t - c.start) * sp); S.push({ t: t, x: pos.x, y: pos.y }); }
+  if (!S.length) return p;
+  var minMs = Math.max(500, opts.minMs || 1200), maxPieces = opts.maxPieces || 40, dead = opts.deadFrac || 0.18;
+  function startAt(i){ var n = 0, x = 0, y = 0; for (var k = i; k < S.length && k < i + 4; k++){ x += S[k].x; y += S[k].y; n++; } return { i: i, cx: x / n, cy: y / n }; }
+  function segment(dz){
+    var segs = [startAt(0)], cur = segs[0];
+    for (var i = 1; i < S.length; i++){
+      var farX = roomX >= 0.01 && Math.abs(S[i].x - cur.cx) > dz * base.w, farY = roomY >= 0.01 && Math.abs(S[i].y - cur.cy) > dz * base.h;
+      if ((farX || farY) && S[i].t - S[cur.i].t >= minMs){ cur = startAt(i); segs.push(cur); }
+    }
+    if (segs.length > 1 && end - S[segs[segs.length - 1].i].t < 500) segs.pop();
+    return segs;
+  }
+  var segs = segment(dead), guard = 0;
+  while (segs.length > maxPieces && guard++ < 8){ dead *= 1.4; segs = segment(dead); }
+  var q = cloneProject(p), ids = [id];
+  for (var k = 1; k < segs.length; k++){
+    var rid = splitLinked(q, ids[ids.length - 1], S[segs[k].i].t);
+    if (!rid) break;
+    ids.push(rid);
+  }
+  q = finish(q);
+  ids.forEach(function (pid, k){ q = setCrop(q, pid, cropRect(rw, rh, sw, sh, segs[k].cx, segs[k].cy)); });
+  out.pieces = ids.length;
+  return q;
+}
+
+// ---------- stabilize ----------
+// clip.stabilize = 0.05 to 1: how hard the EXPORTED video steadies shaky footage (0 = off, and then it is not stored).
+// Only a clip where the movie plays forwards can have it. Applies to one picture clip, or to all of them when id is null.
+function setStabilize(p, id, amount){
+  var q = cloneProject(p), list = pictureClips(q, id); if (!list.length) return p;
+  var a = +amount; if (isNaN(a)) return p; a = r3(Math.max(0, Math.min(1, a)));
+  list.forEach(function (c){ if (c.type !== 'video' || c.reverse) return; if (a < 0.05) delete c.stabilize; else c.stabilize = a; });
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
 // ---------- reverse ----------
 // Plays a movie clip backwards: the same stretch of the movie, last picture first. Its linked movie sound is
 // reversed with it. A paused picture has nothing to play backwards. on = true / false, or leave out to switch.
@@ -540,6 +615,59 @@ function setReverse(p, id, on){
   var q = cloneProject(p);
   linkedIds(q, id).forEach(function (cid){ var c = findClip(q, cid).clip; if (want) c.reverse = true; else delete c.reverse; });
   return finish(q);
+}
+
+// ---------- picture in picture presets ----------
+// A preset puts an overlay (photo or video) in a corner, the middle or one half of the frame. x, y = its centre and size = its width, as fractions of the frame.
+var PIP_PRESETS = [{ key: 'tl', label: 'Top left' }, { key: 'tr', label: 'Top right' }, { key: 'bl', label: 'Bottom left' }, { key: 'br', label: 'Bottom right' },
+  { key: 'center', label: 'Centre' }, { key: 'left', label: 'Left half' }, { key: 'right', label: 'Right half' }, { key: 'full', label: 'Full screen' }];
+var PIP_SIZES = { s: 0.22, m: 0.3, l: 0.42 };
+// frameAsp = frame width / height, ovAsp = overlay height / width. Returns { x, y, size } or null.
+function pipPlacement(key, size, frameAsp, ovAsp){
+  if (!PIP_PRESETS.some(function (k){ return k.key === key; })) return null;
+  frameAsp = frameAsp > 0 ? frameAsp : 16 / 9; ovAsp = ovAsp > 0 ? ovAsp : 9 / 16;
+  var m = 0.04, s = size > 0 ? size : 0.3, hOf = function (w){ return w * ovAsp * frameAsp; }, h, x, y;
+  if (key === 'left' || key === 'right' || key === 'full' || key === 'center'){
+    if (key === 'left' || key === 'right') s = 0.5; else if (key === 'full') s = 1;
+    h = hOf(s); if (h > 1){ s = s / h; h = 1; }
+    x = key === 'left' ? 0.25 : key === 'right' ? 0.75 : 0.5; y = 0.5;
+  } else {
+    var room = 1 - 2 * m * frameAsp; h = hOf(s); if (h > room){ s = s * room / h; h = hOf(s); }
+    x = key.charAt(1) === 'l' ? m + s / 2 : 1 - m - s / 2;
+    y = key.charAt(0) === 't' ? m * frameAsp + h / 2 : 1 - m * frameAsp - h / 2;
+  }
+  return { x: r3(x), y: r3(y), size: r3(s) };
+}
+// Puts one overlay at place = { x, y, size } and turns it upright. Its x / y / size / turn keyframes are taken away. Not for shapes, arrows, spotlights or frames.
+function setOverlayPlace(p, id, place){
+  var f = findClip(p, id); if (!f || f.track.kind !== 'overlay' || f.clip.gen || !place) return p;
+  var x = +place.x, y = +place.y, s = +place.size; if (isNaN(x) || isNaN(y) || isNaN(s)) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip;
+  c.x = r3(Math.max(0, Math.min(1, x))); c.y = r3(Math.max(0, Math.min(1, y))); c.size = r3(Math.max(0.05, Math.min(1.5, s))); c.rot = 0;
+  if (c.kf){ ['x', 'y', 'size', 'rot'].forEach(function (k){ delete c.kf[k]; }); if (!Object.keys(c.kf).length) delete c.kf; }
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
+// ---------- auto cut ----------
+// movieTimes = places (ms in the movie FILE the clip plays from) where the scene changes. The picture clip and its linked sound are cut there.
+// Cuts that would leave a piece shorter than opts.minMs (1000) are skipped. out.cuts says how many were made. A clip with a speed curve is not cut.
+function autoCutClip(p, id, movieTimes, opts, out){
+  opts = opts || {}; out = out || {}; out.cuts = 0;
+  var f = findClip(p, id);
+  if (!f || f.track.kind !== 'video' || f.clip.type !== 'video' || f.clip.reverse || !movieTimes || !movieTimes.length) return p;
+  var c = f.clip; if (c.curve){ out.curveBlocked = true; return p; }
+  var sp = c.speed || 1, minMs = Math.max(300, opts.minMs || 1000), end = clipEnd(c), times = [];
+  movieTimes.slice().sort(function (a, b){ return a - b; }).forEach(function (ms){
+    var t = Math.round(c.start + (ms - c.in) / sp);
+    if (t - c.start < minMs || end - t < minMs) return;
+    if (times.length && t - times[times.length - 1] < minMs) return;
+    times.push(t);
+  });
+  times = times.slice(0, opts.max || 60);
+  if (!times.length) return p;
+  var q = cloneProject(p), cur = id;
+  times.forEach(function (t){ var rid = splitLinked(q, cur, t); if (rid){ cur = rid; out.cuts++; } });
+  return out.cuts ? finish(q) : p;
 }
 
 // ---------- replacing the movie file ----------
@@ -773,7 +901,7 @@ function canMerge(a, b){
   if (sp !== (b.speed || 1) || (a.volume != null ? a.volume : 1) !== (b.volume != null ? b.volume : 1)) return false;
   if (a.type === 'freeze'){ if (a.in !== b.in) return false; }
   else if (Math.abs(a.in + a.dur * sp - b.in) > 2) return false;
-  if (JSON.stringify([a.filter || null, a.opacity, a.transform || null, a.crop || null]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null, b.crop || null])) return false;
+  if (JSON.stringify([a.filter || null, a.opacity, a.transform || null, a.crop || null, a.stabilize || null]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null, b.crop || null, b.stabilize || null])) return false;
   if (a.vFadeOut || b.vFadeIn) return false;
   if (a.fadeOut > 0 && !(a.fadeOutOff > 0)) return false;
   if (b.fadeIn > 0 && !(b.fadeInOff > 0)) return false;
@@ -1255,12 +1383,42 @@ function fxAt(p, t){
   return out;
 }
 
+// ---------- layouts: mirror and split screen over a stretch of time ----------
+// A layout is a clip on a "layout" row: clip.layout = { preset, gap, color, zoom } (see layout.js). It re-draws the picture as mirrored halves or as a grid of
+// copies for as long as it lasts. Layouts that overlap in time go on separate rows (the top one is used).
+function addLayout(p, t, key, out){
+  var total = p.durationMs; if (!_LY || !(total > 0)) return p;
+  var L = _LY.clean({ preset: key }); if (!L) return p;
+  var start = Math.max(0, Math.round(t)), d = Math.min(4000, total - start); if (d < 300) return p;
+  var q = cloneProject(p), rows = q.tracks.filter(function (x){ return x.kind === 'layout'; }), tr = null;
+  for (var i = 0; i < rows.length && !tr; i++) if (!rows[i].clips.some(function (c){ return start < clipEnd(c) && start + d > c.start; })) tr = rows[i];
+  if (!tr){
+    var k = 1; while (q.tracks.some(function (x){ return x.id === 't-lay' + k; })) k++;
+    tr = { id: 't-lay' + k, kind: 'layout', role: 'layout', muted: false, hidden: false, volume: 1, locked: false, clips: [] }; q.tracks.push(tr);
+  }
+  var clip = { id: newId('c'), type: 'text', asset: null, start: start, dur: d, in: 0, speed: 1, layout: L };
+  tr.clips.push(clip); if (out) out.id = clip.id;
+  return finish(q);
+}
+// patch = { preset, gap, color, zoom }; only what is mentioned changes.
+function setLayoutProps(p, id, patch){
+  var q = cloneProject(p), f = findClip(q, id); if (!f || !f.clip.layout || !_LY) return p;
+  var L = _LY.clean(Object.assign({}, f.clip.layout, patch || {})); if (!L) return p;
+  f.clip.layout = L;
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+function layoutsAt(p, t){
+  var out = [];
+  p.tracks.forEach(function (tr){ if (tr.kind !== 'layout' || tr.hidden) return; tr.clips.forEach(function (c){ if (c.layout && c.start <= t && t < clipEnd(c)) out.push({ layout: c.layout, start: c.start, dur: c.dur }); }); });
+  return out;
+}
+
 // ---------- rows (layers): moving a clip to another row, or onto a row of its own ----------
 // Overlays, stickers, titles, effects and sound effects can sit on several rows, one above the other, like CapCut's layers. A clip can be dragged to
 // another row of its own kind, or to a new row above or below them. Picture, voice, music and captions each have a row that stays as it is.
 function rowFamily(tr){
   if (!tr) return null;
-  if (tr.kind === 'sticker' || tr.kind === 'overlay' || tr.kind === 'fx') return tr.kind;
+  if (tr.kind === 'sticker' || tr.kind === 'overlay' || tr.kind === 'fx' || tr.kind === 'layout') return tr.kind;
   if (tr.kind === 'audio' && tr.role === 'sfx') return 'sfx';
   if (tr.kind === 'text' && tr.role === 'text') return 'text';
   return null;
@@ -1281,7 +1439,7 @@ function moveClipToRow(p, id, target, newStart, pos){
   }
   src.clips = src.clips.filter(function (x){ return x.id !== id; });
   if (!dest){
-    var prefix = { sticker: 't-stk', overlay: 't-ov', fx: 't-vfx', sfx: 't-fx', text: 't-text' }[fam], k = 1;
+    var prefix = { sticker: 't-stk', overlay: 't-ov', fx: 't-vfx', layout: 't-lay', sfx: 't-fx', text: 't-text' }[fam], k = 1;
     while (q.tracks.some(function (x){ return x.id === prefix + k; })) k++;
     dest = { id: prefix + k, kind: src.kind, role: src.role, muted: false, hidden: false, volume: src.volume != null ? src.volume : 1, locked: false, clips: [] };
     var idx = []; q.tracks.forEach(function (t, i){ if (rowFamily(t) === fam) idx.push(i); });
@@ -1442,7 +1600,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,
@@ -1453,7 +1611,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   keyframeProps: keyframeProps, keyframeTimes: keyframeTimes, keyframesHere: keyframesHere, neighbourKeyframe: neighbourKeyframe, toggleKeyframes: toggleKeyframes, setAnimatedAuto: setAnimatedAuto, setKeyframeEaseAll: setKeyframeEaseAll, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
   addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps, setVoiceEnhance: setVoiceEnhance, voiceFloorDb: voiceFloorDb,
-  duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences };
+  duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences, addLayout: addLayout, setLayoutProps: setLayoutProps, layoutsAt: layoutsAt };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 

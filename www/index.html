@@ -399,6 +399,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="music.js"></script>
 <script src="look2.js"></script>
 <script src="templates.js"></script>
+<script src="layout.js"></script>
 <script src="project.js"></script>
 <script src="voice.js"></script>
 <script src="plan.js"></script>
@@ -408,6 +409,9 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="cover.js"></script>
 <script src="removebg.js"></script>
 <script src="markers.js"></script>
+<script src="reframe.js"></script>
+<script src="autocut.js"></script>
+<script src="speedramp.js"></script>
 <script src="editor.js"></script>
 <script>
 'use strict';
@@ -1506,9 +1510,9 @@ function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callba
     toast('Using the compatible export engine so all your edits are included. This can take longer.', 6000);
     return loadExportEngine().then(function(){ return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks); }).catch(function(err){
       // If transitions are what this device's video engine cannot do, make the video without them rather than not at all.
-      if ((S.xc && S.xc.cancelled) || (!plan.video.some(function(s){ return s.transitionIn; }) && !(plan.fx && plan.fx.length))) throw err;
+      if ((S.xc && S.xc.cancelled) || (!plan.video.some(function(s){ return s.transitionIn || s.stabilize; }) && !(plan.fx && plan.fx.length))) throw err;
       console.warn('transitions failed, trying again without them:', err);
-      plan.video.forEach(function(s){ delete s.transitionIn; }); delete plan.fx;
+      plan.video.forEach(function(s){ delete s.transitionIn; delete s.stabilize; }); delete plan.fx;
       S.lastExport.effectsDropped = String(err && err.message ? err.message : err);
       toast('Transitions or effects could not be made, so they were left out. Reason: ' + S.lastExport.effectsDropped.slice(0, 140) + ' (Copy test report has more.)', 14000);
       return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks);
@@ -1705,7 +1709,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'speedcurve.js': 'curve', 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'ease', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'fonts', 'reverse.js': 'reverse', 'markers.js': 'markers' };
+  var want = { 'speedcurve.js': 'curve', 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'ease', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'fonts', 'layout.js': 'layout', 'reverse.js': 'reverse', 'markers.js': 'markers' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';
