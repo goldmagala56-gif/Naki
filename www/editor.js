@@ -78,7 +78,8 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { name: 'rembg', label: 'Remove BG', icon: svg('<circle cx="12" cy="8" r="3.2"/><path d="M5.5 20a6.5 6.5 0 0113 0"/><path d="M3 3l2 2M21 3l-2 2M3 21l2-2M21 21l-2-2"/>'), go: function (){ if (!selOverlay()) toast('Tap a photo overlay on the timeline first.'); openPanel('removebg', 'overlay'); } },
     { name: 'fx', label: 'Effects', icon: svg('<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/>'), go: function (){ openTool('fx'); } },
     { name: 'layout', label: 'Layout', icon: svg('<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M3 12h18"/>'), go: function (){ openTool('layout'); } },
-    { name: 'marker', label: 'Marker', icon: svg('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'), go: function (){ openTool('marker'); } }
+    { name: 'marker', label: 'Marker', icon: svg('<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>'), go: function (){ openTool('marker'); } },
+    { name: 'select', label: 'Select', icon: svg('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 12l2 2 4-4"/>'), go: function (){ openTool('select'); } }
   ];
 
   // ---------- building the screen ----------
@@ -274,7 +275,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   function showSnapGuide(d, raw){
     var g = E.ui.snapline, snapped = Math.abs(d.newStart - raw) >= 1;
     if (!snapped){ if (g) g.style.display = 'none'; d.wasSnapped = false; return; }
-    var skip = P.linkedClips(E.hist.cur, d.id).map(function (x){ return x.clip.id; }), len = d.e0 - d.s0, th = 8 / E.ppm;
+    var skip = P.linkedClips(E.hist.cur, d.id).map(function (x){ return x.clip.id; }), len = d.e0 - d.s0, th = snapTh();
     var a = P.snapTime(E.proj, raw, th, snapPts(), skip), b = P.snapTime(E.proj, raw + len, th, snapPts(), skip) - len;
     var atStart = a !== raw && (b === raw || Math.abs(a - raw) <= Math.abs(b - raw));
     if (!g || !g.parentNode){ g = E.ui.snapline = mk('div', 'ed-snapline'); E.ui.inner.appendChild(g); }
@@ -283,7 +284,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     d.wasSnapped = true;
   }
   function clipEl(tr, c){
-    var e = mk('div', 'ed-clip ' + clipKind(tr, c) + (c.id === E.sel ? ' sel' : ''));
+    var e = mk('div', 'ed-clip ' + clipKind(tr, c) + (c.id === E.sel ? ' sel' : '') + (E.multi && E.multi[c.id] ? ' multi' : ''));
     e.dataset.id = c.id; e.style.left = tx(c.start) + 'px'; e.style.width = Math.max(3, c.dur * E.ppm) + 'px';
     if (c.dur * E.ppm > 46) e.appendChild(mk('span', 'ed-cl', clipTitle(tr, c)));
     if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); } else { try { decorateClip(e, tr, c); } catch (err){ console.warn('clip picture/waveform failed', err); } }
@@ -408,6 +409,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   function afterEdit(){
     E.t = clamp(E.t, 0, E.proj.durationMs);
     if (E.sel && !P.findClip(E.proj, E.sel)) E.sel = null;
+    if (E.multi) Object.keys(E.multi).forEach(function (id){ if (!P.findClip(E.proj, id)) delete E.multi[id]; });
     renderAll(); syncMedia(); syncDock(); queueSave();
   }
   function undo(){ E.hist.undo(); E.proj = E.hist.cur; E.quiet = null; E.ui.note.textContent = ''; afterEdit(); }
@@ -471,7 +473,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   }
   // Snaps a dragged clip by its start OR its end to other clips' edges and the playhead (never to its own edges or its sound's).
   function snapMove(start, dur, id){
-    var skip = P.linkedClips(E.hist.cur, id).map(function (x){ return x.clip.id; }), th = 8 / E.ppm;
+    var skip = P.linkedClips(E.hist.cur, id).map(function (x){ return x.clip.id; }), th = snapTh();
     var a = P.snapTime(E.proj, start, th, snapPts(), skip), b = P.snapTime(E.proj, start + dur, th, snapPts(), skip) - dur, best = start;
     if (a !== start && b !== start) best = Math.abs(a - start) <= Math.abs(b - start) ? a : b;
     else if (a !== start) best = a; else if (b !== start) best = b;
@@ -640,7 +642,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   };
 
   function openTool(name){ E.tool = name || null; E.panel = null; E.autoDock = false; renderDock(); }
-  function closeTool(){ E.tool = null; E.panel = null; E.autoDock = false; E.sel = null; renderTimeline(); renderDock(); }   // the back arrow, like CapCut, lets go of the clip too
+  function closeTool(){ E.multi = {}; E.tool = null; E.panel = null; E.autoDock = false; E.sel = null; renderTimeline(); renderDock(); }   // the back arrow, like CapCut, lets go of the clip too
   function openPanel(name, tool){ if (tool) E.tool = tool; E.panel = name; renderDock(); }
   function closePanel(){ E.panel = null; renderDock(); }
   // Tapping a clip brings up the tools for that kind of clip; letting go of it (when the tools came up by themselves) takes them away again.
@@ -2417,6 +2419,112 @@ crop: { title: 'Crop', build: function (body){
     body.appendChild(mk('div', 'ed-hint', 'The preview is a close match. The exported video uses the compatible engine, which takes longer. A cropped clip previews without colour; the export has both.'));
   } };
 
+  // ----- timeline basics: copy / paste, paste look, several clips at once, snapping switch -----
+  var CB = null, LOOKCB = null;
+  G.paste = svg('<rect x="6" y="5" width="12" height="16" rx="2"/><path d="M9 5V3h6v2"/>');
+  G.sel = svg('<rect x="4" y="4" width="16" height="16" rx="2"/><path d="M9 12l2 2 4-4"/>');
+  (function (){
+    if (typeof document === 'undefined' || !document.head) return;
+    var s = document.createElement('style'); s.textContent = '.ed-clip.multi{outline:2px solid #ff9f1c;outline-offset:-2px}'; document.head.appendChild(s);
+  })();
+  function snapTh(){ return E.snap === false ? 0 : 8 / E.ppm; }
+  function toggleSnap(){ E.snap = (E.snap === false); toast(E.snap === false ? 'Snapping off: clips move freely.' : 'Snapping on: clips snap to edges, the playhead and markers.'); renderDock(); }
+  // the clips tools work on: the group when there is one, else the tapped clip
+  function selIds(){
+    var ids = Object.keys(E.multi || {});
+    if (!ids.length && E.sel) ids = [E.sel];
+    return ids.filter(function (id){ return P.findClip(E.proj, id); });
+  }
+  function setMulti(ids){ E.multi = {}; ids.forEach(function (id){ E.multi[id] = true; }); E.sel = null; renderTimeline(); renderDock(); }
+  function clearMulti(){ E.multi = {}; renderTimeline(); renderDock(); }
+  function selectRightHere(){
+    var ids = P.selectRight(E.hist.cur, Math.round(E.t));
+    if (!ids.length){ toast('There are no clips after the playhead.'); return; }
+    setMulti(ids); toast(ids.length + ' clip' + (ids.length === 1 ? '' : 's') + ' selected. Use Move or Delete, or Clear to let go.', 5000);
+  }
+  function selectAllClips(){
+    var ids = P.selectRight(E.hist.cur, 0);
+    if (!ids.length){ toast('There are no clips yet.'); return; }
+    setMulti(ids); toast(ids.length + ' clips selected.', 4000);
+  }
+  function deleteMulti(){
+    var ids = selIds(); if (!ids.length){ toast('Select a clip first.'); return; }
+    var q = P.deleteClips(E.hist.cur, ids); if (q === E.hist.cur){ toast('Those rows are locked or there is nothing to delete.'); return; }
+    E.multi = {}; E.sel = null; commit(q); toast(ids.length === 1 ? 'Deleted.' : 'Deleted ' + ids.length + ' clips. Undo brings them back.', 4000);
+  }
+  function moveSel(delta){
+    var ids = selIds(); if (!ids.length){ toast('Select a clip first.'); return; }
+    var q = P.moveClips(E.hist.cur, ids, delta); if (q === E.hist.cur){ toast('There is no room to move them that way.'); return; }
+    commit(q);
+  }
+  function moveSelToHead(){
+    var ids = selIds(); if (!ids.length){ toast('Select a clip first.'); return; }
+    var first = null; ids.forEach(function (id){ var f = P.findClip(E.proj, id); if (f && (first === null || f.clip.start < first)) first = f.clip.start; });
+    var delta = Math.round(E.t) - first; if (!delta){ toast('They already start here.'); return; }
+    moveSel(delta);
+  }
+  function copySel(){
+    var id = E.sel || selIds()[0]; if (!id){ toast('Tap a clip first.'); return; }
+    var cb = P.copyClip(E.hist.cur, id); if (!cb){ toast('That clip cannot be copied.'); return; }
+    CB = cb; toast('Copied. Move the playhead, then tap Paste.'); renderDock();
+  }
+  function pasteHere(){
+    if (!CB){ toast('Copy a clip first.'); return; }
+    var out = {}, q = P.pasteClip(E.hist.cur, CB, Math.round(E.t), out);
+    if (q === E.hist.cur){ toast('There is no room to paste here. Move the playhead earlier.'); return; }
+    var nf = out.id && P.findClip(q, out.id); if (nf) E.t = nf.clip.start;
+    E.multi = {}; E.sel = out.id || null; commit(q); toast('Pasted.');
+  }
+  function copyLook(){
+    var id = E.sel || selIds()[0]; if (!id){ toast('Tap a clip first.'); return; }
+    var lk = P.captureLook(E.hist.cur, id); if (!lk){ toast('That clip has no look to copy.'); return; }
+    LOOKCB = lk; toast('Look copied. Select other clips of the same kind, then tap Paste look.', 5000); renderDock();
+  }
+  function pasteLookHere(){
+    if (!LOOKCB){ toast('Copy a look first.'); return; }
+    var ids = selIds(); if (!ids.length){ toast('Select the clips to paste onto first.'); return; }
+    var q = P.pasteLook(E.hist.cur, LOOKCB, ids);
+    if (q === E.hist.cur){ toast('Nothing changed. Paste look only works on clips of the same kind, with a different look.', 6000); return; }
+    commit(q); toast('Look pasted.');
+  }
+  PANELS.shiftclips = { title: 'Move selected', build: function (body){
+    var ids = selIds();
+    if (!ids.length){ body.appendChild(mk('div', 'ed-hint', 'Select clips first: Select right, Select all, or tap a clip.')); return; }
+    var o = E.chip.shift || (E.chip.shift = { ms: 500 });
+    body.appendChild(chips([100, 500, 1000, 5000].map(function (v){ return { key: v, label: secs(v) }; }), o.ms, function (k){ o.ms = k; renderDock(); }));
+    body.appendChild(actions([
+      { id: 'edShiftEarlier', label: 'Earlier', run: function (){ moveSel(-o.ms); } },
+      { id: 'edShiftLater', label: 'Later', run: function (){ moveSel(o.ms); } },
+      { id: 'edShiftHead', label: 'Start at playhead', run: moveSelToHead }]));
+    body.appendChild(mk('div', 'ed-hint', ids.length + ' clip' + (ids.length === 1 ? '' : 's') + ' selected. They move together, and a picture moves with its sound. If something is in the way, nothing moves. Clips on locked rows stay where they are.'));
+  } };
+  ROWS.select = function (){
+    var n = Object.keys(E.multi || {}).length, any = selIds().length > 0;
+    return [
+      { id: 'edSelCopy', label: 'Copy', icon: G.dup, run: copySel, disabled: !any },
+      { id: 'edSelPaste', label: 'Paste', icon: G.paste, run: pasteHere, disabled: !CB },
+      { id: 'edSelCopyLook', label: 'Copy look', icon: G.style, run: copyLook, disabled: !any },
+      { id: 'edSelPasteLook', label: 'Paste look', icon: G.style, run: pasteLookHere, disabled: !LOOKCB || !any },
+      { id: 'edSelRight', label: 'Select right', icon: G.gap, run: selectRightHere },
+      { id: 'edSelAll', label: 'Select all', icon: G.sel, run: selectAllClips },
+      { id: 'edSelClear', label: 'Clear', icon: G.reset, run: clearMulti, disabled: !n },
+      { id: 'edSelMove', label: 'Move', icon: G.join, run: function (){ openPanel('shiftclips'); }, disabled: !any },
+      { id: 'edSelDelete', label: 'Delete', icon: G.trash, run: deleteMulti, disabled: !any },
+      { id: 'edSnap', label: 'Snapping', icon: G.magnet, run: toggleSnap, on: E.snap !== false }
+    ];
+  };
+  // Copy / Paste / Copy look / Paste look are also at the end of the other tool rows, so they are in reach when a clip is tapped.
+  ['edit', 'audio', 'text', 'sticker', 'overlay', 'fx', 'layout'].forEach(function (k){
+    var orig = ROWS[k]; if (!orig) return;
+    ROWS[k] = function (){
+      return orig().concat([
+        { id: 'edXCopy', label: 'Copy', icon: G.dup, run: copySel },
+        { id: 'edXPaste', label: 'Paste', icon: G.paste, run: pasteHere, disabled: !CB },
+        { id: 'edXCopyLook', label: 'Copy look', icon: G.style, run: copyLook },
+        { id: 'edXPasteLook', label: 'Paste look', icon: G.style, run: pasteLookHere, disabled: !LOOKCB }]);
+    };
+  });
+
   // ----- save still: the picture at the playhead as a PNG, in one tap -----
   // Waits until the preview video has finished moving to the playhead, so the still is the right picture.
   function stillWait(m){
@@ -3003,6 +3111,7 @@ crop: { title: 'Crop', build: function (body){
     if (E.pinch) return;
     if (clipE){
       var id = clipE.dataset.id, f = P.findClip(E.proj, id); if (!f) return;
+      if (E.multi && Object.keys(E.multi).length) E.multi = {};
       var wasSel = E.sel === id; E.sel = id; var tr = f.track, c = f.clip;
       if (tr.locked){ renderSelectionOnly(); toast('This row is locked. Tap its lock to edit it.'); return; }
       E.drag = { mode: handle ? (handle.classList.contains('ed-hl') ? 'trimL' : 'trimR') : 'pending', id: id, x0: ev.clientX, y0: ev.clientY, el: clipE, tr: tr,
@@ -3019,10 +3128,10 @@ crop: { title: 'Crop', build: function (body){
   }
   function renderSelectionOnly(){
     var els = E.ui.inner.querySelectorAll('.ed-clip');
-    for (var i = 0; i < els.length; i++) els[i].classList.toggle('sel', els[i].dataset.id === E.sel);
+    for (var i = 0; i < els.length; i++){ els[i].classList.toggle('sel', els[i].dataset.id === E.sel); els[i].classList.toggle('multi', !!(E.multi && E.multi[els[i].dataset.id])); }
     renderSelected(); updateButtons(); syncDock(); try { syncOverlays(); } catch (e) {}
   }
-  function snapped(t){ return P.snapTime(E.proj, t, 8 / E.ppm, snapPts()); }
+  function snapped(t){ return P.snapTime(E.proj, t, snapTh(), snapPts()); }
   function onMove(ev){
     if (ev.pointerType === 'touch' && E.pointers[ev.pointerId]) E.pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
     if (E.pinch){ movePinch(); return; }
@@ -3074,6 +3183,8 @@ crop: { title: 'Crop', build: function (body){
       if (k === 'z' || k === 'Z'){ if (ev.shiftKey) redo(); else undo(); }
       else if (k === 'y' || k === 'Y') redo();
       else if (k === 'd' || k === 'D') duplicateSel();
+      else if (k === 'c' || k === 'C') copySel();
+      else if (k === 'v' || k === 'V'){ if (ev.shiftKey) pasteLookHere(); else pasteHere(); }
       else ok = false;
     }
     else if (k === ' ' || k === 'Enter'){ if (tag === 'BUTTON') ok = false; else togglePlay(); }
@@ -3136,7 +3247,7 @@ crop: { title: 'Crop', build: function (body){
     showSaved(c.restored || c.hist.past.length ? 'Saved' : '');
     E.markSel = null; E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; E.boxKey = null; E.boxMode = '';
     E.curAsset = 'movie'; E.swapping = false; E.skipMsg = false; E.layoutOn = false;
-    E.tool = null; E.panel = null; E.autoDock = false; E.rowScroll = null; E.chip = {}; E.pickOn = false; E.pickPos = null; E.rbg = {}; renderDock();
+    E.multi = {}; E.tool = null; E.panel = null; E.autoDock = false; E.rowScroll = null; E.chip = {}; E.pickOn = false; E.pickPos = null; E.rbg = {}; renderDock();
     E.root.hidden = false; E.isOpen = true;
     document.addEventListener('keydown', onKey);
     layoutTextLayer(); fit(); readout(); syncMedia();

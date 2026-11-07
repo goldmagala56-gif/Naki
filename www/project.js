@@ -1613,6 +1613,117 @@ function setKeyframeEaseAll(p, id, relMs, ease){
   return q;
 }
 
+// ---------- copy, paste, paste look, moving several clips ----------
+var LOOK_KEYS = {
+  video: ['filter', 'opacity', 'transform', 'crop', 'grade', 'stabilize', 'vFadeIn', 'vFadeOut'],
+  audio: ['volume', 'afx', 'fadeIn', 'fadeOut'],
+  text: ['size', 'color', 'pos', 'weight', 'bg', 'font', 'outline', 'shadow', 'anim'],
+  overlay: ['x', 'y', 'size', 'rot', 'opacity', 'blend', 'mask', 'chroma'],
+  sticker: ['color', 'size', 'rot']
+};
+function lookKind(tr){ return (tr.kind === 'video' || tr.kind === 'audio' || tr.kind === 'text' || tr.kind === 'overlay' || tr.kind === 'sticker') ? tr.kind : null; }
+// What Copy keeps: the clip, the row it came from, and (for a picture clip) its linked movie sound.
+function copyClip(p, id){
+  var f = findClip(p, id); if (!f) return null;
+  var cb = { trackId: f.track.id, kind: f.track.kind, role: f.track.role, family: rowFamily(f.track), clip: JSON.parse(JSON.stringify(f.clip)), linked: [] };
+  if (f.track.role === 'movie' && f.clip.link) linkedClips(p, id).forEach(function (x){ if (x && x.clip.id !== id) cb.linked.push({ role: x.track.role, clip: JSON.parse(JSON.stringify(x.clip)) }); });
+  return cb;
+}
+// Puts a copied clip at time t. out.id = the new clip. Nothing fits: the same project comes back.
+function pasteClip(p, cb, t, out){
+  out = out || {};
+  if (!cb || !cb.clip || !(p.durationMs > 0)) return p;
+  var q = cloneProject(p), dur = Math.round(cb.clip.dur), start = Math.max(0, Math.round(t)), copy = JSON.parse(JSON.stringify(cb.clip));
+  delete copy.curve; delete copy.transition;
+  if (copy.asset && !q.assets[copy.asset]) return p;
+  if (cb.role === 'movie'){
+    var lane = pictureLane(q); if (!lane || lane.locked) return p;
+    lane.clips.forEach(function (c){ if (c.start < start && start < clipEnd(c)) start = clipEnd(c); });
+    q.tracks.forEach(function (tr){ if (tr.role !== 'movie' && tr.role !== 'movieSound') return; tr.clips.forEach(function (c){ if (c.start >= start) c.start += dur; }); });
+    var link = newId('l');
+    copy.id = newId('c'); copy.start = start; if (cb.linked && cb.linked.length) copy.link = link; else delete copy.link;
+    lane.clips.push(copy); out.id = copy.id;
+    (cb.linked || []).forEach(function (l){
+      var tr = q.tracks.filter(function (x){ return x.role === l.role; })[0]; if (!tr) return;
+      var cc = JSON.parse(JSON.stringify(l.clip)); delete cc.curve; cc.id = newId('c'); cc.start = start; cc.link = link; tr.clips.push(cc);
+    });
+    return finish(q);
+  }
+  var fam = cb.family, dest = null;
+  var rows = q.tracks.filter(function (x){ return !x.locked && (fam ? rowFamily(x) === fam : x.id === cb.trackId); });
+  function free(tr, s){ return !tr.clips.some(function (c){ return s < clipEnd(c) && s + dur > c.start; }); }
+  if (!fam){
+    if (!rows.length) return p;
+    dest = rows[0];
+    var moved = true; while (moved){ moved = false; dest.clips.forEach(function (c){ if (start < clipEnd(c) && start + dur > c.start){ start = clipEnd(c); moved = true; } }); }
+  } else {
+    for (var i = 0; i < rows.length && !dest; i++) if (free(rows[i], start)) dest = rows[i];
+  }
+  var d = Math.min(dur, p.durationMs - start); if (d < Math.min(dur, 300)) return p;
+  if (!dest){
+    var prefix = { sticker: 't-stk', overlay: 't-ov', fx: 't-vfx', layout: 't-lay', sfx: 't-fx', text: 't-text' }[fam] || 't-row', k = 1;
+    while (q.tracks.some(function (x){ return x.id === prefix + k; })) k++;
+    dest = { id: prefix + k, kind: cb.kind, role: cb.role, muted: false, hidden: false, volume: 1, locked: false, clips: [] };
+    var idx = []; q.tracks.forEach(function (x, j){ if (rowFamily(x) === fam) idx.push(j); });
+    if (idx.length) q.tracks.splice(Math.max.apply(null, idx) + 1, 0, dest); else q.tracks.push(dest);
+  }
+  copy.id = newId('c'); copy.start = start; delete copy.link;
+  if (d < dur){
+    copy.dur = d;
+    if (copy.gain && copy.gain.length) copy.gain = gainSlice(cb.clip.gain, 0, d);
+    if (copy.kf && _AN) copy.kf = kfSlice(copy.kf, 0, d);
+    if (copy.fadeOut){ copy.fadeOut = 0; copy.fadeOutOff = 0; }
+    delete copy.vFadeOut;
+  }
+  dest.clips.push(copy); out.id = copy.id;
+  return finish(q);
+}
+// The look of one clip (its colour, sound effects, text style... see LOOK_KEYS), to paste onto other clips of the same kind.
+function captureLook(p, id){
+  var f = findClip(p, id), kind = f && lookKind(f.track); if (!kind) return null;
+  var data = {}; LOOK_KEYS[kind].forEach(function (k){ if (f.clip[k] !== undefined) data[k] = JSON.parse(JSON.stringify(f.clip[k])); });
+  return { kind: kind, data: data };
+}
+// Gives every clip in ids (of the same kind) that look. What the source does not have is taken away from the target.
+function pasteLook(p, look, ids){
+  if (!look || !ids || !ids.length) return p;
+  var q = cloneProject(p);
+  ids.forEach(function (id){
+    var f = findClip(q, id); if (!f || f.track.locked || lookKind(f.track) !== look.kind) return;
+    var c = f.clip, half = Math.floor(c.dur / 2);
+    LOOK_KEYS[look.kind].forEach(function (k){
+      if (k === 'stabilize' && c.type !== 'video') return;
+      if (look.data[k] !== undefined) c[k] = JSON.parse(JSON.stringify(look.data[k])); else delete c[k];
+    });
+    ['vFadeIn', 'vFadeOut'].forEach(function (k){ if (c[k] != null){ if (c[k] > half) c[k] = half; if (!c[k]) delete c[k]; } });
+    ['fadeIn', 'fadeOut'].forEach(function (k){ if (c[k] > half) c[k] = half; });
+    if (c.fadeInOff) c.fadeInOff = 0; if (c.fadeOutOff) c.fadeOutOff = 0;
+  });
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+// Moves several clips together by delta ms (linked sound goes with its picture). Clips on locked rows stay. Refuses when they would land on other clips.
+function moveClips(p, ids, delta){
+  delta = Math.round(delta); if (!delta || !ids || !ids.length) return p;
+  var q = cloneProject(p), seen = {}, list = [];
+  ids.forEach(function (id){ linkedIds(q, id).forEach(function (cid){ if (seen[cid]) return; seen[cid] = 1; var f = findClip(q, cid); if (f && !f.track.locked) list.push(f.clip); }); });
+  if (!list.length) return p;
+  var minStart = Math.min.apply(null, list.map(function (c){ return c.start; }));
+  if (minStart + delta < 0) delta = -minStart;
+  if (!delta) return p;
+  list.forEach(function (c){ c.start += delta; });
+  return validate(q).length ? p : finish(q);
+}
+// The ids of every clip that starts at or after time t (rows that are locked are left out).
+function selectRight(p, t){
+  var out = []; t = Math.round(t) - 1;
+  p.tracks.forEach(function (tr){ if (tr.locked) return; tr.clips.forEach(function (c){ if (c.start >= t) out.push(c.id); }); });
+  return out;
+}
+function deleteClips(p, ids){
+  var q = p; (ids || []).forEach(function (id){ q = deleteClip(q, id); });
+  return q;
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -1649,7 +1760,8 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   keyframeProps: keyframeProps, keyframeTimes: keyframeTimes, keyframesHere: keyframesHere, neighbourKeyframe: neighbourKeyframe, toggleKeyframes: toggleKeyframes, setAnimatedAuto: setAnimatedAuto, setKeyframeEaseAll: setKeyframeEaseAll, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
   addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps, setVoiceEnhance: setVoiceEnhance, voiceFloorDb: voiceFloorDb,
-  duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences, addLayout: addLayout, setLayoutProps: setLayoutProps, layoutsAt: layoutsAt };
+  duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences, addLayout: addLayout, setLayoutProps: setLayoutProps, layoutsAt: layoutsAt,
+  copyClip: copyClip, pasteClip: pasteClip, captureLook: captureLook, pasteLook: pasteLook, moveClips: moveClips, selectRight: selectRight, deleteClips: deleteClips };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 
