@@ -415,6 +415,7 @@ var WebCodecsExport = (function () {
     var stickers = (plan.stickers || []).map(function (s) { var c = makeCanvas(W, H); if (NSTK) NSTK.drawSticker(c.getContext('2d'), s, W, H); return { c: c, a: s.startMs, b: s.startMs + s.durMs }; });
     // each title is drawn once onto its own transparent picture, then laid over the frames it shows in
     var titles = (plan.texts || []).filter(function (t) { return t && String(t.text || '').trim(); }).map(function (t) {
+      if (t.hl && t.hl.t && t.hl.t.length) return { c: null, a: t.startMs, b: t.startMs + t.durMs, t: t, hl: true };   // word highlight: drawn live (see drawHlTitle)
       var c = makeCanvas(W, H); drawTitle(c.getContext('2d'), t, W, H);
       return { c: c, a: t.startMs, b: t.startMs + t.durMs, t: t };
     });
@@ -478,9 +479,18 @@ var WebCodecsExport = (function () {
     }
     
 // a title with an animation is moved, grown, turned and faded as it is laid on each frame (see motion.js)
+    var hlCv = null, hlKey = '';
+    function drawHlTitle(ti, tMs) {   // one shared picture, redrawn only when the spoken word changes
+      var w = ti.t.hl.t, rel = tMs - ti.a, i = w.length - 1;
+      for (var q = 0; q < w.length; q++) if (rel < w[q][1]) { i = q; break; }
+      var key = ti.a + ':' + i;
+      if (!hlCv) hlCv = makeCanvas(W, H);
+      if (hlKey !== key) { var hg = hlCv.getContext('2d'); hg.clearRect(0, 0, W, H); drawTitle(hg, Object.assign({}, ti.t, { hlWord: i, hlColor: ti.t.hl.color }), W, H); hlKey = key; }
+      ctx.drawImage(hlCv, 0, 0);
+    }
     function drawTitleAnim(ti, tMs) {
       var an = ti.t.anim, st = (NMO && an) ? NMO.textState(an, tMs - ti.a, ti.b - ti.a) : null;
-      if (!st) { ctx.drawImage(ti.c, 0, 0); return; }
+      if (!st) { if (ti.hl) drawHlTitle(ti, tMs); else ctx.drawImage(ti.c, 0, 0); return; }
       if (!ti.mo) ti.mo = { drawFn: drawTitle, makeCanvas: makeCanvas, cache: {} };
       NMO.drawTitleState(ctx, ti.t, st, W, H, ti.mo);
     }

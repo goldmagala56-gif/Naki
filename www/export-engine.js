@@ -146,6 +146,10 @@ function planToJobs(plan, movieInfo, opts) {
   var texts = plan.texts || [], textFiles = [];
   texts.forEach(function (t, i) {   // a title with an animation becomes a few still pictures, each shown for its own stretch of time (see motion.js)
     var segs = (_MO && t.anim) ? _MO.textTimeline(t.anim, t.durMs, Array.from(String(t.text || '')).length) : null, nm = 'txt' + String(i).padStart(3, '0');
+    if (!segs && t.hl && t.hl.t && t.hl.t.length) {   // word highlight: one picture per word, each shown while that word is spoken
+      t.hl.t.forEach(function (w, k) { if (w[1] > w[0]) textFiles.push({ name: nm + '_w' + String(k).padStart(3, '0') + '.png', clip: Object.assign({}, t, { startMs: t.startMs + w[0], durMs: w[1] - w[0], hlWord: k, hlColor: t.hl.color }), width: width, height: height }); });
+      return;
+    }
     if (!segs) { textFiles.push({ name: nm + '.png', clip: t, width: width, height: height }); return; }
     segs.forEach(function (sg, k) { textFiles.push({ name: nm + '_' + String(k).padStart(2, '0') + '.png', clip: Object.assign({}, t, { startMs: t.startMs + sg.a, durMs: sg.b - sg.a }), state: sg.st, width: width, height: height }); });
   });

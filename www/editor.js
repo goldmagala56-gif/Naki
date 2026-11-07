@@ -1585,10 +1585,22 @@ crop: { title: 'Crop', build: function (body){
         var c = P.findClip(E.proj, id).clip; E.panel = null; seek(c.start); select(id);
       }));
     } },
+    wordhl: { title: 'Word highlight', build: function (body){
+      var trc = P.captionTrackOf(E.hist.cur);
+      if (!trc || !trc.clips.length){ body.appendChild(mk('div', 'ed-hint', 'Add captions first (Auto captions, an .srt file or Add line here), then pick a colour for the word being spoken.')); return; }
+      var COLS = [{ key: 'off', label: 'Off', v: null }, { key: 'yellow', label: 'Yellow', v: '#ffd400' }, { key: 'green', label: 'Green', v: '#2bd96b' }, { key: 'red', label: 'Red', v: '#ff3b3b' },
+        { key: 'cyan', label: 'Cyan', v: '#22d3ee' }, { key: 'orange', label: 'Orange', v: '#ff8a1f' }, { key: 'pink', label: 'Pink', v: '#ff5db1' }], now = trc.clips[0].hl || null, cur = 'off';
+      COLS.forEach(function (o){ if (o.v === now) cur = o.key; });
+      body.appendChild(chips(COLS.map(function (o){ return { key: o.key, label: o.label }; }), cur, function (k){
+        var col = null; COLS.forEach(function (o){ if (o.key === k) col = o.v; });
+        var q = P.setCaptionHighlight(E.hist.cur, col); if (q === E.hist.cur) renderDock(); else commit(q);
+      }));
+      body.appendChild(mk('div', 'ed-hint', 'The word being spoken lights up in this colour, on every caption. Each word gets its share of the line by its length, so check the timing against your voice. Not used on captions that have a text animation.'));
+    } },
     captions: { title: 'Captions', build: function (body){
       var list = P.captionList(E.hist.cur);
       body.appendChild(actions([{ id: 'edCapAdd', label: 'Add line here', run: addCaptionHere }, { id: 'edCapImport', label: 'Import .srt / .vtt', run: importSrtFile }, { id: 'edCapExport', label: 'Save .srt', run: exportSrtFile }, { id: 'edCapExportVtt', label: 'Save .vtt', run: exportVttFile }]));
-      body.appendChild(actions([{ id: 'edCapAuto', label: 'Auto captions', run: function (){ openPanel('autocaptions'); } }, { id: 'edCapMark', label: 'Mark speech', run: markSpeech }]));
+      body.appendChild(actions([{ id: 'edCapAuto', label: 'Auto captions', run: function (){ openPanel('autocaptions'); } }, { id: 'edCapMark', label: 'Mark speech', run: markSpeech }, { id: 'edCapHl', label: 'Word highlight', run: function (){ openPanel('wordhl'); } }]));
       if (!list.length){ body.appendChild(mk('div', 'ed-hint', 'Type subtitle lines at the playhead, or import an .srt file. Times follow your edited video, so cuts move the captions with it.')); return; }
       body.appendChild(chips(list.map(function (c){ return { key: c.id, label: fmtP(c.start) + '  ' + (c.text.length > 22 ? c.text.slice(0, 21) + '…' : c.text) }; }), E.sel, function (id){
         var c = P.findClip(E.proj, id).clip; seek(c.start); E.sel = id; commit0(); openPanel('textedit', 'text');
@@ -2946,6 +2958,17 @@ crop: { title: 'Crop', build: function (body){
     var z = t.zoom || 1, rot = t.rot || 0, fit = (rot === 90 || rot === 270) ? Math.min(aspect, 1 / aspect) : 1;
     return 'translate(' + (-(t.x || 0) * (z - 1) * 50) + '%,' + (-(t.y || 0) * (z - 1) * 50) + '%) scale(' + (z * fit) + ') rotate(' + rot + 'deg)' + (t.flipH ? ' scaleX(-1)' : '');
   }
+  // word highlight in the preview: each word is its own span, the spoken one gets the colour
+  function hlPreview(d, c, text){
+    var words = String(text).split(/\s+/).filter(Boolean), key = words.join(' ');
+    if (d._hlTxt !== key){
+      d._sp.textContent = ''; d._hlSp = [];
+      words.forEach(function (w, i){ if (i) d._sp.appendChild(document.createTextNode(' ')); var s = mk('span', null, w); d._sp.appendChild(s); d._hlSp.push(s); });
+      d._hlTxt = key; d._txt = null;
+    }
+    var wt = P.wordTimes(c, c.dur), on = P.wordIndexAt(wt, E.t - c.start);
+    d._hlSp.forEach(function (s, i){ var col = i === on ? c.hl : ''; if (s._col !== col){ s.style.color = col; s._col = col; } });
+  }
   function renderTexts(list){
     var layer = E.ui.textlayer; if (!layer) return;
     var want = {};
@@ -2959,7 +2982,11 @@ crop: { title: 'Crop', build: function (body){
       }
       var shownText = c.text || '', stt = (c.anim && NMO) ? NMO.textState(c.anim, E.t - c.start, c.dur) : null;   // typewriter: only the typed part
       if (stt && stt.chars < 1) shownText = NMO.visibleText(shownText, stt.chars);
-      if (d._txt !== shownText){ d._sp.textContent = shownText; d._txt = shownText; }
+      if (c.hl && !stt && P.wordTimes) hlPreview(d, c, shownText);
+      else {
+        if (d._hlSp){ d._hlSp = null; d._hlTxt = null; d._txt = null; }
+        if (d._txt !== shownText){ d._sp.textContent = shownText; d._txt = shownText; }
+      }
       var st = lookLib().titleStyle(c, layer.clientHeight || 240);
       d.style.fontSize = st.px + 'px'; d.style.fontFamily = st.fontFamily; d.style.textShadow = st.shadow;
       d.style.webkitTextStroke = st.stroke; d.style.paintOrder = 'stroke fill';

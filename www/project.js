@@ -720,6 +720,7 @@ function addCaptions(p, items, opts, out){
   opts = opts || {};
   var total = p.durationMs; if (!(total > 0)) return p;
   var q = cloneProject(p), tr = ensureCaptionTrack(q), added = 0, skipped = 0;
+  var keepHl = tr.clips.length ? tr.clips[0].hl : null;
   if (opts.replace) tr.clips = [];
   var list = (items || []).map(function (it){ return { s: Math.round(+it.startMs), e: Math.round(+it.endMs), t: String(it.text == null ? '' : it.text).trim() }; })
     .filter(function (it){ return it.t && isFinite(it.s) && isFinite(it.e); }).sort(function (a, b){ return a.s - b.s; });
@@ -728,7 +729,9 @@ function addCaptions(p, items, opts, out){
     if (next && next.s < e0) e0 = Math.max(s0, next.s);
     var clash = tr.clips.some(function (c){ return s0 < clipEnd(c) && e0 > c.start; });
     if (e0 - s0 < 200 || clash){ skipped++; return; }
-    tr.clips.push(Object.assign({ id: newId('c'), type: 'text', asset: null, start: s0, dur: e0 - s0, in: 0, speed: 1, text: it.t, caption: true }, CAPTION_STYLE));
+    var nc = Object.assign({ id: newId('c'), type: 'text', asset: null, start: s0, dur: e0 - s0, in: 0, speed: 1, text: it.t, caption: true }, CAPTION_STYLE);
+    if (keepHl) nc.hl = keepHl;
+    tr.clips.push(nc);
     added++;
   });
   if (out){ out.added = added; out.skipped = skipped; }
@@ -1309,6 +1312,38 @@ function captionsFromVoice(p, segs){
   return out.sort(function (a, b){ return a.startMs - b.startMs; });
 }
 
+// ---------- word highlight (captions) ----------
+// A caption clip with clip.hl = '#rrggbb' lights up the word being spoken in that colour. Each word gets a share of the caption's time by its length
+// (a pause after a comma or full stop), so it works for any language and for captions you typed. If a clip ever carries clip.words = [[startMs, endMs], ...]
+// (times since the caption started, one pair per word) those exact times are used instead.
+function wordsOf(text){ return String(text == null ? '' : text).split(/\s+/).filter(Boolean); }
+function wordTimes(c, durMs){
+  var words = wordsOf(c && c.text), dur = Math.round(durMs > 0 ? durMs : (c && c.dur) || 0);
+  if (!words.length || !(dur > 0)) return [];
+  if (c.words && c.words.length === words.length){
+    return c.words.map(function (w){ return [Math.max(0, Math.min(dur, Math.round(w[0]))), Math.max(0, Math.min(dur, Math.round(w[1])))]; });
+  }
+  var wt = words.map(function (x){
+    var n = x.replace(/[.,;:!?\u2026"'()\-]/g, '').length;
+    return Math.max(2, n) + (/[,;:]$/.test(x) ? 2 : 0) + (/[.!?\u2026]$/.test(x) ? 4 : 0);
+  }), tot = wt.reduce(function (a, b){ return a + b; }, 0), out = [], acc = 0, prev = 0;
+  wt.forEach(function (w, i){ acc += w; var end = i === wt.length - 1 ? dur : Math.round(dur * acc / tot); out.push([prev, end]); prev = end; });
+  return out;
+}
+// Which word is on at relMs since the caption started.
+function wordIndexAt(times, relMs){
+  for (var i = 0; i < times.length; i++) if (relMs < times[i][1]) return i;
+  return Math.max(0, times.length - 1);
+}
+// color = '#rrggbb' turns it on for every caption; null turns it off.
+function setCaptionHighlight(p, color){
+  var tr = captionTrackOf(p); if (!tr || !tr.clips.length) return p;
+  if (color && !/^#[0-9a-fA-F]{6}$/.test(color)) return p;
+  var q = cloneProject(p);
+  captionTrackOf(q).clips.forEach(function (c){ if (color) c.hl = color; else delete c.hl; });
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
 // ---------- adding another video to the picture line ----------
 // Appends a whole video file (with its own sound) after the last picture clip, like CapCut's "Add". The file itself is kept by the page; the project only
 // knows its name, length and shape (project.assets). The new picture clip and its sound are linked, so they split, trim, move, change speed and cut together,
@@ -1758,7 +1793,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
   addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, keyframeEase: keyframeEase, setKeyframeEase: setKeyframeEase,
   keyframeProps: keyframeProps, keyframeTimes: keyframeTimes, keyframesHere: keyframesHere, neighbourKeyframe: neighbourKeyframe, toggleKeyframes: toggleKeyframes, setAnimatedAuto: setAnimatedAuto, setKeyframeEaseAll: setKeyframeEaseAll, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
-  setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset,
+  setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset, wordTimes: wordTimes, wordIndexAt: wordIndexAt, setCaptionHighlight: setCaptionHighlight,
   addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps, setVoiceEnhance: setVoiceEnhance, voiceFloorDb: voiceFloorDb,
   duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences, addLayout: addLayout, setLayoutProps: setLayoutProps, layoutsAt: layoutsAt,
   copyClip: copyClip, pasteClip: pasteClip, captureLook: captureLook, pasteLook: pasteLook, moveClips: moveClips, selectRight: selectRight, deleteClips: deleteClips };

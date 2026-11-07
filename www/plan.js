@@ -78,6 +78,7 @@ var NakiPlan = (function () {
           var tx = { startMs: s, durMs: e - s, text: String(c.text), size: c.size, color: c.color, pos: c.pos, weight: c.weight, bg: !!c.bg };
           if (c.font) tx.font = c.font; if (c.outline) tx.outline = c.outline; if (c.shadow != null) tx.shadow = c.shadow;
           if (c.anim) tx.anim = JSON.parse(JSON.stringify(c.anim));
+          if (c.hl && P.wordTimes){ var wt = P.wordTimes(c, e - s); if (wt.length){ tx.text = String(c.text).split(/\s+/).filter(Boolean).join(' '); tx.hl = { color: c.hl, t: wt }; } }   // word highlight
           texts.push(tx);
         }
       });

@@ -199,7 +199,16 @@ var NakiLook = (function () {
       lines.forEach(function (l, i){ g.strokeText(l, W / 2, y0 + i * lh); });
       g.fillStyle = t.color || '#ffffff'; g.shadowColor = 'rgba(0,0,0,0)'; g.shadowBlur = 0; g.shadowOffsetY = 0;
     } else { g.fillStyle = t.color || '#ffffff'; shadow(); }
-    lines.forEach(function (l, i){ g.fillText(l, W / 2, y0 + i * lh); });
+    if (t.hlWord != null && t.hlColor && g.measureText){
+      // word highlight: the word being spoken (t.hlWord, counted from 0 over all the lines) in its own colour, the rest in the title colour
+      var wi = 0, base = t.color || '#ffffff', spw = g.measureText(' ').width;
+      g.textAlign = 'left';
+      lines.forEach(function (l, i){
+        var x = W / 2 - g.measureText(l).width / 2;
+        l.split(' ').forEach(function (tk){ g.fillStyle = wi === t.hlWord ? t.hlColor : base; g.fillText(tk, x, y0 + i * lh); x += g.measureText(tk).width + spw; wi++; });
+      });
+      g.textAlign = 'center'; g.fillStyle = base;
+    } else lines.forEach(function (l, i){ g.fillText(l, W / 2, y0 + i * lh); });
     return lines;
   }
 
