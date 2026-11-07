@@ -984,6 +984,41 @@ var NakiFx = (function () {
     def('over', 'light', 'Overexposed', { dur: 3000, ff: function (s) { return 'eq=gamma=' + n(1.2 + 0.8 * s) + ':brightness=' + n(0.05 + 0.1 * s); }, pv: function (s) { return { fl: 'brightness(' + n(1.15 + 0.4 * s) + ') contrast(0.9)' }; } });
     def('under', 'light', 'Underexposed', { dur: 3000, ff: function (s) { return 'eq=gamma=' + n(0.8 - 0.35 * s) + ':brightness=-' + n(0.03 + 0.08 * s); }, pv: function (s) { return { fl: 'brightness(' + n(0.85 - 0.4 * s) + ') contrast(1.1)' }; } });
 
+    // ----- lens flare & light (apply-small-additions.js) -----
+    // A soft glow added to the picture at a position that moves with time. Coordinates are fractions of the frame, so the same text works for the
+    // brightness plane and the (smaller) colour planes of geq.
+    function glow(cx, cy, r, k, asp) {
+      var dx = '((X/W-(' + cx + '))*' + n(asp) + ')', dy = '(Y/H-(' + cy + '))';
+      return n(k) + '*exp(-(' + dx + '*' + dx + '+' + dy + '*' + dy + ')/' + n(r * r) + ')';
+    }
+    function sweep(T, from, to) { return n(from) + '+(' + n(to - from) + ')*clip((T-' + n(T.a) + ')/' + n(Math.max(0.1, T.b - T.a)) + ',0,1)'; }
+    function lightGeq(l, cbv, crv) { return "geq=lum='lum(X,Y)+" + l + "':cb='cb(X,Y)-" + cbv + "':cr='cr(X,Y)+" + crv + "'"; }
+    def('flare', 'light', 'Lens flare', { dur: 2500, ff: function (s, T) {
+      var asp = T.w / T.h, k = 0.4 + 0.6 * s, cx = sweep(T, 0.15, 0.85), cx2 = '1-(' + cx + ')', r = 0.16 + 0.2 * s;
+      return lightGeq(glow(cx, '0.3', r, 150 * k, asp) + '+' + glow(cx2, '0.7', r * 0.5, 60 * k, asp), glow(cx, '0.3', r, 18 * k, asp), glow(cx, '0.3', r, 14 * k, asp));
+    }, pv: function (s, u, d) {
+      var a = n(0.45 + 0.5 * s), x = Math.round(15 + 70 * c01(u / Math.max(0.1, d)));
+      return { tint: tint('radial-gradient(circle at ' + x + '% 30%, rgba(255,246,215,' + a + ') 0%, rgba(255,190,90,' + n(a * 0.45) + ') 16%, rgba(255,150,60,0) 42%), radial-gradient(circle at ' + (100 - x) + '% 70%, rgba(255,210,150,' + n(a * 0.4) + ') 0%, rgba(255,210,150,0) 14%)', 'screen') };
+    } });
+    def('leak', 'light', 'Light leak', { dur: 2500, ff: function (s, T) {
+      var asp = T.w / T.h, k = 0.4 + 0.6 * s, cx = sweep(T, -0.1, 0.45), r = 0.3 + 0.2 * s;
+      return lightGeq(glow(cx, '0.5', r, 110 * k, asp), glow(cx, '0.5', r, 30 * k, asp), glow(cx, '0.5', r, 40 * k, asp));
+    }, pv: function (s, u, d) {
+      var a = n(0.35 + 0.5 * s), p = Math.round(20 + 40 * c01(u / Math.max(0.1, d)));
+      return { tint: tint('linear-gradient(100deg, rgba(255,110,60,' + a + ') 0%, rgba(255,190,80,' + n(a * 0.5) + ') ' + p + '%, rgba(255,90,140,0) ' + (p + 35) + '%)', 'screen') };
+    } });
+    def('burn', 'light', 'Film burn', { dur: 1500, ff: function (s) {
+      return wash('orange', 0.08 + 0.25 * s) + ",eq=brightness='" + n(0.1 + 0.3 * s) + "*pow(max(0,sin(t*3.2)),4)':eval=frame";
+    }, pv: function (s, u) {
+      return { tint: tint('rgba(255,140,40,' + n(0.08 + 0.25 * s) + ')', 'screen'), fl: 'brightness(' + n(1 + (0.1 + 0.3 * s) * Math.pow(Math.max(0, Math.sin(u * 3.2)), 4)) + ')' };
+    } });
+    def('streak', 'light', 'Light streak', { dur: 2500, ff: function (s) {
+      var k = 0.4 + 0.6 * s, cy = '0.5+0.08*sin(T*1.5)', band = 'exp(-((Y/H-(' + cy + '))*(Y/H-(' + cy + ')))/' + n(0.0004) + ')';
+      return "geq=lum='lum(X,Y)+" + n(60 * k) + '*' + band + "':cb='cb(X,Y)-" + n(20 * k) + '*' + band + "':cr='cr(X,Y)'";
+    }, pv: function (s) {
+      return { tint: tint('linear-gradient(0deg, rgba(120,170,255,0) 42%, rgba(150,190,255,' + n(0.35 + 0.45 * s) + ') 50%, rgba(120,170,255,0) 58%)', 'screen') };
+    } });
+
     // ----- colour -----
     def('invert', 'colour', 'Invert', { dur: 1500, fixed: true, ff: function () { return 'negate'; }, pv: function () { return { fl: 'invert(1)' }; } });
     def('bw', 'colour', 'Black & white', { dur: 3000, fixed: true, ff: function () { return 'hue=s=0'; }, pv: function () { return { fl: 'grayscale(1)' }; } });

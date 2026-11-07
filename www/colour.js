@@ -196,6 +196,29 @@ var NakiColour = (function () {
     return px;
   }
 
+  // ----- matching one picture to another (apply-small-additions.js) -----
+  // Measures the average and the spread of each colour channel of canvas pixel data (RGBA bytes). Looks at about 4000 pixels. Values are 0..1.
+  function frameStats(px) {
+    var n = px.length / 4, step = Math.max(1, Math.floor(n / 4000)), s = [0, 0, 0], q = [0, 0, 0], cnt = 0, i, c;
+    for (i = 0; i < n; i += step) { for (c = 0; c < 3; c++) { var v = px[i * 4 + c] / 255; s[c] += v; q[c] += v * v; } cnt++; }
+    if (!cnt) return { mean: [0.5, 0.5, 0.5], std: [0.2, 0.2, 0.2] };
+    var mean = s.map(function (x) { return x / cnt; });
+    return { mean: mean.map(r3), std: q.map(function (x, k) { return r3(Math.sqrt(Math.max(0, x / cnt - mean[k] * mean[k]))); }) };
+  }
+  // Curves (red, green, blue) that move the picture with stats "cur" toward the one with stats "ref". strength 0..1. Returns { r, g, b } where a channel that
+  // needs no change is null, ready for merge({ curves: ... }).
+  function matchGrade(ref, cur, strength) {
+    var s = strength == null ? 1 : clamp01(strength), out = {};
+    ['r', 'g', 'b'].forEach(function (k, c) {
+      var shift = Math.max(-0.25, Math.min(0.25, (ref.mean[c] - cur.mean[c]) * s));
+      var slope = cur.std[c] > 0.01 ? Math.max(0.7, Math.min(1.4, ref.std[c] / cur.std[c])) : 1;
+      slope = 1 + (slope - 1) * s;
+      var target = cur.mean[c] + shift, pts = [0, 0.25, 0.5, 0.75, 1].map(function (x) { return [x, clamp01(slope * (x - cur.mean[c]) + target)]; });
+      out[k] = cleanCurve(pts);
+    });
+    return out;
+  }
+
   var PRESETS = [
     { key: 'warm', label: 'Warm', grade: { curves: { r: [[0, 0], [0.5, 0.55], [1, 1]], b: [[0, 0.03], [0.5, 0.45], [1, 0.95]] }, hsl: { orange: [0, 0.2, 0.05] } } },
     { key: 'tealorange', label: 'Teal & orange', grade: { curves: { m: [[0, 0], [0.25, 0.2], [0.75, 0.8], [1, 1]] }, hsl: { orange: [0, 0.25, 0.05], blue: [-0.2, 0.2, -0.1], cyan: [0.1, 0.2, -0.05] } } },
@@ -205,7 +228,7 @@ var NakiColour = (function () {
   ];
 
   var api = { BANDS: BANDS, CHANNELS: CHANNELS, PRESETS: PRESETS, cleanCurve: cleanCurve, curveFn: curveFn, cleanGrade: cleanGrade, merge: merge, parseCube: parseCube,
-    encodeLut: encodeLut, decodeLut: decodeLut, bakeLut: bakeLut, toCube: toCube, applyToImageData: applyToImageData, sampleLut: sampleLut };
+    encodeLut: encodeLut, decodeLut: decodeLut, bakeLut: bakeLut, toCube: toCube, applyToImageData: applyToImageData, sampleLut: sampleLut, frameStats: frameStats, matchGrade: matchGrade };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') { window.NakiColour = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['colour.js'] = 'colour'; }
   return api;

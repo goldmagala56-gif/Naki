@@ -2605,6 +2605,41 @@ crop: { title: 'Crop', build: function (body){
     };
     inp.click();
   }
+  // Colour match: this clip is measured near its start, the clip before it near its end, and red / green / blue curves are made to bring this one toward that one.
+  function sampleStats(url, ms){
+    return new Promise(function (resolve, reject){
+      var vid = document.createElement('video'), done = false;
+      function fin(err, val){ if (done) return; done = true; try { vid.removeAttribute('src'); vid.load(); } catch (e){} if (err) reject(err); else resolve(val); }
+      vid.muted = true; vid.preload = 'auto'; vid.setAttribute('playsinline', '');
+      vid.onerror = function (){ fin(new Error('This clip could not be read.')); };
+      vid.onloadedmetadata = function (){ try { vid.currentTime = Math.max(0, Math.min(ms / 1000, (vid.duration || 1e9) - 0.05)); } catch (e){ fin(e); } };
+      vid.onseeked = function (){
+        try {
+          var w = 96, ht = Math.max(2, Math.round(w * (vid.videoHeight || 9) / (vid.videoWidth || 16))), cv = document.createElement('canvas');
+          cv.width = w; cv.height = ht; var cx = cv.getContext('2d', { willReadFrequently: true }); cx.drawImage(vid, 0, 0, w, ht);
+          fin(null, NCL.frameStats(cx.getImageData(0, 0, w, ht).data));
+        } catch (e){ fin(e); }
+      };
+      setTimeout(function (){ fin(new Error('Reading the clip took too long.')); }, 8000);
+      vid.src = url;
+    });
+  }
+  function matchPrevious(c){
+    var f = P.findClip(E.proj, c.id); if (!f) return;
+    var list = f.track.clips.filter(function (x){ return x.type === 'video' || x.type === 'freeze'; }).sort(function (a, b){ return a.start - b.start; }), i = list.indexOf(c), prev = i > 0 ? list[i - 1] : null;
+    if (!prev){ toast('There is no picture clip before this one to match.'); return; }
+    var u1 = clipUrl(f.track, prev), u2 = clipUrl(f.track, c);
+    if (!u1 || !u2){ toast('The movie file for one of these clips is not loaded.'); return; }
+    var t1 = prev.in + Math.max(0, prev.dur * (prev.speed || 1) - 300), t2 = c.in + 200;
+    toast('Measuring the two pictures...', 2500);
+    Promise.all([sampleStats(u1, t1), sampleStats(u2, t2)]).then(function (stats){
+      var m = NCL.matchGrade(stats[0], stats[1], 1);
+      if (!m.r && !m.g && !m.b){ toast('These two pictures already look alike.'); return; }
+      var q = P.setGrade(E.hist.cur, c.id, { curves: { r: m.r, g: m.g, b: m.b } });
+      if (q === E.hist.cur) renderDock(); else commit(q);
+      toast('Matched to the clip before. Fine-tune it under Curves.', 5000);
+    }, function (err){ toast(err && err.message ? err.message : 'Could not match the colour.', 7000); });
+  }
   PANELS.grade = { title: 'Colour', build: function (body){
     if (!NCL){ body.appendChild(mk('div', 'ed-hint', 'colour.js is not loaded. Add <script src="colour.js"></script> to index.html, before project.js.')); return; }
     var c = needPicture(body); if (!c) return;
@@ -2683,6 +2718,7 @@ crop: { title: 'Crop', build: function (body){
       body.appendChild(mk('div', 'ed-hint', 'A look sets the curves and the colour mixer together, replacing what was there (and any LUT). Open Curves or Colour mixer afterwards to fine-tune it.'));
     }
     body.appendChild(actions([
+      { id: 'edGradeMatch', label: 'Match previous clip', run: function (){ matchPrevious(c); } },
       { id: 'edGradeAll', label: 'Apply to all', run: function (){ commit(P.setGrade(E.hist.cur, null, { replace: c.grade || null })); toast('This colour is on every clip now.'); } },
       { id: 'edGradeReset', label: 'Reset colour', run: function (){ E.chip.grsel = -1; set({ replace: null }); } }]));
     body.appendChild(mk('div', 'ed-hint', 'The preview is a close match. The exported video uses the compatible engine, which takes longer. A cropped clip previews without colour; the export has both.'));
