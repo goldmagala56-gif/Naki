@@ -169,8 +169,144 @@ var NakiLook = (function () {
     return { px: L.px, fontFamily: fontCss(t.font), stroke: L.outlinePx ? (L.outlinePx * 2) + 'px #000' : '',
       shadow: L.shadow > 0 ? '0 ' + r4(L.offY) + 'px ' + r4(L.blur) + 'px rgba(0,0,0,0.7)' : 'none' };
   }
+  /* ---------- text effects: gradient fill, curved text, glow, bubble, 3D (and word art, which is a mix of these) ----------
+     A title clip can carry:  grad { c1, c2, angle }   arc -1..1 (+ arch, - smile)   glow { color, amount }   bubble { color, width }   extrude { color, depth }
+     Stored only when used. A title with none of them is drawn by the original code below, exactly as before. */
+  var FX_KEYS = ['grad', 'arc', 'glow', 'bubble', 'extrude'];
+  function hex6(v, d){ var m = /^#?([0-9a-f]{6})$/i.exec(String(v == null ? '' : v)); return m ? '#' + m[1].toLowerCase() : d; }
+  function hasTitleFx(t){ if (!t) return false; for (var i = 0; i < FX_KEYS.length; i++) if (t[FX_KEYS[i]] != null && t[FX_KEYS[i]] !== false) return true; return false; }
+  // Tidies one effect value. null (or an empty / tiny one) means "off".
+  function cleanStyle(k, v){
+    if (v == null || v === false) return null;
+    if (k === 'arc'){ var c = +v; if (isNaN(c)) return null; c = r4(clamp(c, -1, 1)); return Math.abs(c) < 0.02 ? null : c; }
+    if (typeof v !== 'object') return null;
+    if (k === 'grad') return { c1: hex6(v.c1, '#ff512f'), c2: hex6(v.c2, '#f9d423'), angle: ((Math.round(num(v.angle)) % 360) + 360) % 360 };
+    var key = k === 'glow' ? 'amount' : k === 'bubble' ? 'width' : k === 'extrude' ? 'depth' : null; if (!key) return null;
+    var a = clamp(num(v[key] == null ? 0.7 : v[key]), 0, 1); if (a < 0.02) return null;
+    var out = { color: hex6(v.color, k === 'glow' ? '#00e5ff' : k === 'bubble' ? '#ff4fa3' : '#ee4266') }; out[key] = Math.round(a * 1000) / 1000;
+    return out;
+  }
+  // Ready-made looks ("word art"). Each one sets every effect (so choosing one replaces what was there) plus a font, colour, outline and shadow.
+  function mkArt(key, label, over){
+    var p = { grad: null, arc: null, glow: null, bubble: null, extrude: null, color: '#ffffff', outline: 0, shadow: 1 };
+    Object.keys(over).forEach(function (k){ p[k] = over[k]; });
+    return { key: key, label: label, patch: p };
+  }
+  var ART = [
+    { key: 'plain', label: 'Plain', patch: { grad: null, arc: null, glow: null, bubble: null, extrude: null, outline: 0, shadow: 1 } },
+    mkArt('sunset', 'Sunset', { font: 'anton', outline: 0.4, grad: { c1: '#ff512f', c2: '#f9d423', angle: 90 } }),
+    mkArt('neon', 'Neon', { font: 'righteous', shadow: 0, glow: { color: '#00e5ff', amount: 0.9 } }),
+    mkArt('bubblegum', 'Bubblegum', { font: 'luckiestguy', bubble: { color: '#ff4fa3', width: 0.55 } }),
+    mkArt('retro', 'Retro 3D', { font: 'bungee', color: '#ffd23f', outline: 0.3, shadow: 0, extrude: { color: '#ee4266', depth: 0.8 } }),
+    mkArt('comic', 'Comic', { font: 'bangers', color: '#ffe600', outline: 1, shadow: 0, extrude: { color: '#000000', depth: 0.45 } }),
+    mkArt('chrome', 'Chrome', { font: 'archivo', outline: 0.45, grad: { c1: '#ffffff', c2: '#6b7a8f', angle: 90 } }),
+    mkArt('fire', 'Fire', { font: 'anton', outline: 0.2, shadow: 0, grad: { c1: '#fff200', c2: '#ff3b00', angle: 90 }, glow: { color: '#ff6a00', amount: 0.7 } }),
+    mkArt('ice', 'Ice', { font: 'montserrat', shadow: 0, grad: { c1: '#ffffff', c2: '#7fd8ff', angle: 90 }, glow: { color: '#4fc3ff', amount: 0.8 } }),
+    mkArt('rainbow', 'Rainbow arc', { font: 'pacifico', outline: 0.3, grad: { c1: '#ff5f6d', c2: '#4facfe', angle: 0 }, arc: 0.6 }),
+    mkArt('smile', 'Smile', { font: 'lobster', outline: 0.35, arc: -0.5 })
+  ];
+  function art(key){
+    for (var i = 0; i < ART.length; i++) if (ART[i].key === key) return JSON.parse(JSON.stringify(ART[i].patch));
+    return null;
+  }
+  // A scratch canvas the size of the title picture (used to fill letters with a gradient). null when this place cannot make one.
+  function mkLayer(W, H){
+    try {
+      if (typeof OffscreenCanvas !== 'undefined') return new OffscreenCanvas(W, H);
+      if (typeof document !== 'undefined'){ var c = document.createElement('canvas'); c.width = W; c.height = H; return c; }
+    } catch (e) {}
+    return null;
+  }
+  // Draws a title that has effects. Same layout as the plain drawing (wrapped to 88%, same heights); returns the lines like drawTitle does.
+  // Passes, back to front: glow, 3D, bubble outline, black outline, then the letters (colour or gradient). One drop shadow, under the first thing drawn.
+  function drawStyledTitle(g, t, W, H){
+    var L = titleLook(t, H), px = L.px, base = t.color || '#ffffff', fontStr = (t.weight || 700) + ' ' + px + 'px ' + fontCss(t.font);
+    function setup(gx){ gx.font = fontStr; gx.textAlign = 'center'; gx.textBaseline = 'top'; }
+    setup(g);
+    var maxW = W * 0.88, lines = [];
+    String(t.text || '').split('\n').forEach(function (par){
+      var line = '';
+      par.split(' ').forEach(function (w){
+        var test = line ? line + ' ' + w : w;
+        if (line && g.measureText(test).width > maxW){ lines.push(line); line = w; } else line = test;
+      });
+      lines.push(line);
+    });
+    var lh = Math.round(px * 1.2), y0 = Math.round((TITLE_POS[t.pos] != null ? TITLE_POS[t.pos] : TITLE_POS.bottom) * H), widest = 0;
+    lines.forEach(function (l){ widest = Math.max(widest, g.measureText(l).width); });
+    if (t.bg){
+      var bw = Math.min(W, widest + px * 0.8);
+      g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillRect(Math.round(W / 2 - bw / 2), Math.round(y0 - px * 0.2), Math.round(bw), Math.round(lines.length * lh + px * 0.4));
+    }
+    // where every piece of text goes: a whole line, or (curved) one letter at a time along an arc
+    var arc = t.arc ? clamp(num(t.arc), -1, 1) : 0, theta = Math.abs(arc) * Math.PI, items = [];
+    lines.forEach(function (l, i){
+      var yy = y0 + i * lh;
+      if (!arc || !l){ items.push({ s: l, x: W / 2, y: yy, rot: 0 }); return; }
+      var chars = Array.from(l), ws = chars.map(function (ch){ return g.measureText(ch).width; }), total = 0;
+      ws.forEach(function (w){ total += w; });
+      var R = total / theta, acc = -total / 2;
+      chars.forEach(function (ch, k){
+        var s = acc + ws[k] / 2, phi = s / R, sag = R * (1 - Math.cos(phi)); acc += ws[k];
+        items.push({ s: ch, x: W / 2 + R * Math.sin(phi), y: yy + (arc > 0 ? sag : -sag), rot: arc > 0 ? phi : -phi });
+      });
+    });
+    function paint(gx, how){
+      items.forEach(function (it){
+        if (!it.s) return;
+        if (!it.rot){ if (how === 'fill') gx.fillText(it.s, it.x, it.y); else gx.strokeText(it.s, it.x, it.y); return; }
+        gx.save(); gx.translate(it.x, it.y); gx.rotate(it.rot);
+        if (how === 'fill') gx.fillText(it.s, 0, 0); else gx.strokeText(it.s, 0, 0);
+        gx.restore();
+      });
+    }
+    function noShadow(gx){ gx.shadowColor = 'rgba(0,0,0,0)'; gx.shadowBlur = 0; gx.shadowOffsetX = 0; gx.shadowOffsetY = 0; }
+    var shadowLeft = L.shadow > 0;
+    function dropShadow(gx){
+      if (shadowLeft){ gx.shadowColor = 'rgba(0,0,0,0.7)'; gx.shadowBlur = L.blur; gx.shadowOffsetX = 0; gx.shadowOffsetY = L.offY; shadowLeft = false; } else noShadow(gx);
+    }
+    noShadow(g);
+    if (t.glow){
+      var ga = clamp(num(t.glow.amount), 0, 1), gc = hex6(t.glow.color, '#00e5ff');
+      if (ga > 0){
+        [0.35, 0.7, 1.2].forEach(function (m){ g.shadowColor = gc; g.shadowBlur = px * 0.5 * ga * m; g.shadowOffsetX = 0; g.shadowOffsetY = 0; g.fillStyle = gc; paint(g, 'fill'); });
+        noShadow(g);
+      }
+    }
+    if (t.extrude){
+      var steps = Math.max(1, Math.round(px * 0.1 * clamp(num(t.extrude.depth), 0, 1))), ec = hex6(t.extrude.color, '#ee4266');
+      for (var k = steps; k >= 1; k--){ g.save(); g.translate(k, k); dropShadow(g); g.fillStyle = ec; paint(g, 'fill'); g.restore(); }
+    }
+    g.lineJoin = 'round'; g.miterLimit = 2;
+    if (t.bubble){
+      g.lineWidth = px * (0.10 + 0.20 * clamp(num(t.bubble.width), 0, 1)); g.strokeStyle = hex6(t.bubble.color, '#ff4fa3');
+      dropShadow(g); paint(g, 'stroke'); noShadow(g);
+    }
+    if (L.outlinePx > 0){ g.lineWidth = L.outlinePx * 2; g.strokeStyle = '#000'; dropShadow(g); paint(g, 'stroke'); noShadow(g); }
+    // the letters: a colour, or a gradient across the whole text
+    var sag0 = arc ? widest / theta * (1 - Math.cos(theta / 2)) : 0;
+    function gradient(gx){
+      var gr0 = t.grad, ang = num(gr0.angle) * Math.PI / 180, bx0 = W / 2 - widest / 2, bx1 = W / 2 + widest / 2, by0 = y0 - (arc < 0 ? sag0 : 0), by1 = y0 + lines.length * lh + (arc > 0 ? sag0 : 0);
+      var cx = (bx0 + bx1) / 2, cy = (by0 + by1) / 2, half = (Math.abs(Math.cos(ang)) * (bx1 - bx0) + Math.abs(Math.sin(ang)) * (by1 - by0)) / 2;
+      var dx = Math.cos(ang) * half, dy = Math.sin(ang) * half, gr = gx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy);
+      gr.addColorStop(0, hex6(gr0.c1, '#ff512f')); gr.addColorStop(1, hex6(gr0.c2, '#f9d423'));
+      return gr;
+    }
+    var layer = (t.grad && widest > 0) ? mkLayer(W, H) : null;
+    if (layer){
+      // letters in solid ink on a scratch picture, then the gradient poured into them, so a curved line gets ONE smooth gradient
+      var lg = layer.getContext('2d'); setup(lg); noShadow(lg); lg.clearRect(0, 0, W, H);
+      lg.globalCompositeOperation = 'source-over'; lg.fillStyle = '#000'; paint(lg, 'fill');
+      lg.globalCompositeOperation = 'source-in'; lg.fillStyle = gradient(lg); lg.fillRect(0, 0, W, H); lg.globalCompositeOperation = 'source-over';
+      dropShadow(g); g.drawImage(layer, 0, 0); noShadow(g);
+    } else {
+      g.fillStyle = (t.grad && widest > 0) ? gradient(g) : base; dropShadow(g); paint(g, 'fill'); noShadow(g);
+    }
+    return lines;
+  }
   // Draws a title onto a canvas context of W x H pixels: wrapped to 88% of the width, at the same heights as the preview.
   function drawTitle(g, t, W, H){
+    if (hasTitleFx(t)) return drawStyledTitle(g, t, W, H);
     var L = titleLook(t, H), px = L.px;
     g.font = (t.weight || 700) + ' ' + px + 'px ' + fontCss(t.font);
     g.textAlign = 'center'; g.textBaseline = 'top';
@@ -215,11 +351,12 @@ var NakiLook = (function () {
   var api = { KEYS: KEYS, extras: extras, hasExtras: hasExtras, tint: tint, tintCss: tintCss, matteAlpha: matteAlpha, matteCss: matteCss,
     vignetteAngle: vignetteAngle, vignetteLevel: vignetteLevel, vignetteStops: vignetteStops, vignetteCss: vignetteCss,
     sharpenKernel: sharpenKernel, ffmpegExtras: ffmpegExtras, MATTE_GRAY: MATTE_GRAY,
-    fontCss: fontCss, fontList: fontList, loadFonts: loadFonts, titleLook: titleLook, titleStyle: titleStyle, drawTitle: drawTitle, TITLE_POS: TITLE_POS };
+    fontCss: fontCss, fontList: fontList, loadFonts: loadFonts, titleLook: titleLook, titleStyle: titleStyle, drawTitle: drawTitle, TITLE_POS: TITLE_POS,
+    hasTitleFx: hasTitleFx, cleanStyle: cleanStyle, ART: ART, art: art, FX_KEYS: FX_KEYS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.NakiLook = api;
   return api;
 })();
 
 // Which version of this file is running (the Home screen lists these, so a stale copy is easy to spot).
-if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['look.js'] = 'fonts'; }
+if (typeof window !== 'undefined'){ window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['look.js'] = 'textfx'; }

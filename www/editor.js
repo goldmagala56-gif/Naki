@@ -668,7 +668,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     } else d.appendChild(u.toolbar);
     updateButtons();
     if (E.isOpen) layoutTextLayer();
-    syncPicker(); syncCrop();
+    syncPicker(); syncCrop(); addEyedroppers();
   }
   function toolRow(items){
     var row = mk('div', 'ed-trow'), back = iconBtn('edBack', G.back, 'Back', 'ed-ibtn ed-back'), sc = mk('div', 'ed-tscroll');
@@ -740,10 +740,12 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edFreeze', label: 'Freeze', icon: G.freeze, run: P2('freeze') },
         { id: 'edStill', label: 'Save still', icon: G.still, run: exportStill },
         { id: 'edAdjust', label: 'Adjust', icon: G.adjust, run: P2('adjust') },
+        { id: 'edScopes', label: 'Scopes', icon: G.scopes, run: P2('scopes') },
         { id: 'edGrade', label: 'Colour', icon: G.grade, run: P2('grade') },
         { id: 'edFilters', label: 'Filters', icon: G.filters, run: P2('filters') },
         { id: 'edTransition', label: 'Transition', icon: G.transition, run: P2('transition') },
         { id: 'edMotion', label: 'Motion', icon: G.motion, run: P2('motion') },
+        { id: 'edMotionBlur', label: 'Motion blur', icon: G.mblur, run: P2('motionblur') },
         { id: 'edFade', label: 'Fade', icon: G.fade, run: P2('fade') },
         { id: 'edAddVideo', label: 'Add video', icon: G.addVideo, run: addVideoFromFile },
         { id: 'edReplace', label: 'Replace', icon: G.replace, run: replaceMovie },
@@ -779,6 +781,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edOverlayRemoveBg', label: 'Remove BG', icon: G.rembg, run: function (){ openPanel('removebg'); }, disabled: !isO || !!selGen() },
         { id: 'edOverlayChroma', label: 'Chroma key', icon: G.pick, run: function (){ openPanel('chromakey'); }, disabled: !isO || !!selGen() },
         { id: 'edOverlayMotion', label: 'Motion', icon: G.motion, run: function (){ openPanel('motion'); }, disabled: !isO },
+        { id: 'edOverlayMblur', label: 'Motion blur', icon: G.mblur, run: function (){ openPanel('motionblur'); }, disabled: !isO },
         { id: 'edOverlayDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isO },
         { id: 'edOverlayDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isO }
       ];
@@ -801,6 +804,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       items.push({ id: 'edDuck', label: 'Duck music', icon: G.mix, run: function (){ openPanel('duck'); }, disabled: !has });
       items.push({ id: 'edSilence', label: 'Remove pauses', icon: G.quiet, run: function (){ openPanel('silences'); } });
       items.push({ id: 'edVoiceFx', label: 'Enhance voice', icon: G.volume, run: function (){ openPanel('voicefx'); } });
+      items.push({ id: 'edDenoise', label: 'Noise reduction', icon: G.denoise, run: function (){ openPanel('denoise'); } });
       items.push({ id: 'edMix', label: 'Volume', icon: G.mix, run: function (){ openPanel('mix'); } });
       items.push({ id: 'edClipAudio', label: 'Clip', icon: G.clip, run: function (){ openPanel('clipaudio'); } });
       items.push({ id: 'edAudioFx', label: 'Sound FX', icon: G.mix, run: function (){ openPanel('audiofx'); } });
@@ -813,9 +817,11 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edAddText', label: 'Add text', icon: G.addText, run: addText },
         { id: 'edTextTpl', label: 'Templates', icon: G.style, run: function (){ openPanel('templates'); } },
         { id: 'edCaptions', label: 'Captions', icon: G.captions, run: function (){ openPanel('captions'); } },
+        { id: 'edPieces', label: 'Intro / outro', icon: G.piece, run: function (){ openPanel('pieces'); } },
         { id: 'edTextEdit', label: 'Edit', icon: G.pencil, run: function (){ openPanel('textedit'); }, disabled: !isText },
         { id: 'edTextStyle', label: 'Style', icon: G.style, run: function (){ openPanel('textstyle'); }, disabled: !isText },
         { id: 'edTextAnim', label: 'Animate', icon: G.anim, run: function (){ openPanel('textanim'); }, disabled: !isText },
+        { id: 'edTextFx', label: 'Effects', icon: G.fx, run: function (){ openPanel('textfx'); }, disabled: !isText },
         { id: 'edTextList', label: 'Texts', icon: G.list, run: function (){ openPanel('texts'); }, disabled: !any },
         { id: 'edTextDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isText },
         { id: 'edTextDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isText }
@@ -1772,6 +1778,128 @@ crop: { title: 'Crop', build: function (body){
     body.appendChild(mk('div', 'ed-hint', 'Zoom moves each box in on the middle of its part of the picture. The layout works on the whole frame, after the clip\'s own zoom, filters and fade; titles, stickers and overlays stay on top. The preview ignores Crop; the exported video does not.'));
   } };
 
+  /* ---------- small tools: noise reduction, motion blur, intro / outro pieces and countdown ---------- */
+  G.mblur = svg('<path d="M3 8h8M3 12h12M3 16h8"/><circle cx="17" cy="12" r="4"/>');
+  G.denoise = svg('<path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4"/>');
+  G.piece = svg('<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M8 10h8M8 14h5"/>');
+  function addPieceHere(key, n){
+    var out = {}, q = P.addPiece(E.hist.cur, Math.round(E.t), key, n, out);
+    if (q === E.hist.cur){ toast('There is no room for a title at the playhead. Move it or shorten the other text.'); return; }
+    E.sel = out.id; commit(q); openPanel('textedit', 'text');
+  }
+  function addCountdownHere(from){
+    var out = {}, q = P.addCountdown(E.hist.cur, Math.round(E.t), from, out);
+    if (q === E.hist.cur){ toast('There is no room for the countdown. It needs ' + from + ' free seconds of text row from the playhead.', 6000); return; }
+    E.sel = out.ids[0]; commit(q); closePanel(); toast('Countdown added: one second for each number.');
+  }
+  PANELS.denoise = { title: 'Noise reduction', build: function (body){
+    var tracks = E.proj.tracks.filter(function (t){ return t.kind === 'audio'; });
+    if (!tracks.length){ body.appendChild(mk('div', 'ed-hint', 'There is no sound to clean.')); return; }
+    var keys = tracks.map(function (t){ return { key: t.id, label: ROLE_NAME[t.role] || t.role }; }), cur = chipKey('denoise', keys, keys[0].key), tr = tracks.filter(function (t){ return t.id === cur; })[0];
+    var set = function (v){ return P.setDenoise(E.hist.cur, tr.id, v / 100); };
+    body.appendChild(chips(keys, cur, pickChip('denoise')));
+    body.appendChild(sliderRow('Strength', 0, 100, 5, Math.round((tr.denoise || 0) * 100), pct, function (v){ live(set(v)); }, function (v){ commit(set(v)); }));
+    body.appendChild(actions([{ id: 'edDenoiseOff', label: tr.denoise ? 'Turn off' : 'Off', on: !tr.denoise, run: function (){ commit(set(0)); } }]));
+    body.appendChild(mk('div', 'ed-hint', 'Takes out steady background noise such as hiss, hum and fan noise from the sound you pick. Start low: a high setting can make voices sound thin. The exported video has it, the preview does not. Videos with noise reduction export with the compatible engine, which takes longer.'));
+  } };
+  PANELS.motionblur = { title: 'Motion blur', build: function (body){
+    var f = E.sel && P.findClip(E.proj, E.sel), isO = !!(f && f.track.kind === 'overlay'), c = isO ? f.clip : needPicture(body); if (!c) return;
+    var set = function (v){ return P.setMotionBlur(E.hist.cur, c.id, v / 100); }, moves = !!(c.kf && Object.keys(c.kf).length);
+    body.appendChild(sliderRow('Motion blur', 0, 100, 5, Math.round((c.mblur || 0) * 100), pct, function (v){ live(set(v)); }, function (v){ commit(set(v)); }));
+    body.appendChild(mk('div', 'ed-hint', moves ? 'Blends the frames while this clip moves or zooms, so fast movement looks smooth instead of stepping. The preview does not show it, the exported video does (compatible engine, slower).' : 'This clip does not move yet, so there is nothing to blur. Add keyframes, or pick a Motion preset, then come back.'));
+  } };
+  PANELS.pieces = { title: 'Intro / outro', build: function (body){
+    var tabs = [{ key: 'title', label: 'Titles' }, { key: 'count', label: 'Countdown' }], tab = chipKey('pieces', tabs, 'title'), o = E.chip.pieceOpt || (E.chip.pieceOpt = { n: 1, from: 3 });
+    body.appendChild(chips(tabs, tab, pickChip('pieces')));
+    if (tab === 'title'){
+      body.appendChild(chips(P.PIECES.map(function (d){ return { key: d.key, label: d.label }; }), null, function (k){ addPieceHere(k, o.n); }));
+      body.appendChild(chips([1, 2, 3, 4, 5, 6].map(function (n){ return { key: n, label: 'No. ' + n }; }), o.n, function (k){ o.n = k; renderDock(); }));
+      body.appendChild(mk('div', 'ed-hint', 'Tap a title to put it at the playhead (the number is for Part and Chapter). It is a normal text clip, so you can change the words, style and animation afterwards.'));
+    } else {
+      body.appendChild(chips([3, 5, 10].map(function (n){ return { key: n, label: n + ' to 1' }; }), o.from, function (k){ o.from = k; renderDock(); }));
+      body.appendChild(actions([{ id: 'edCountdownAdd', label: 'Add countdown here', run: function (){ addCountdownHere(o.from); } }]));
+      body.appendChild(mk('div', 'ed-hint', 'Adds one big number for each second, starting at the playhead. Each number is its own text clip, so you can restyle or move them.'));
+    }
+  } };
+
+  /* ---------- scopes and the eyedropper ---------- */
+  var NSC = (typeof module !== 'undefined' && module.exports) ? require('./scopes.js') : (typeof window !== 'undefined' ? window.NakiScopes : null);
+  G.scopes = svg('<path d="M3 20h18M5 20V12M9 20V6M13 20V10M17 20V4"/>');
+  // The frame at the playhead, with the colour look, as a small picture; the scope is worked out from it.
+  function drawScopesNow(){
+    var m = E.hooks && E.hooks.movie, cv = E.scopeCv; if (!NSC || !m || !cv || !m.videoWidth || m.readyState < 2) return;
+    var sc = E.scopeSrc || (E.scopeSrc = document.createElement('canvas')); sc.width = 160; sc.height = Math.max(2, Math.round(160 * m.videoHeight / m.videoWidth));
+    var g = sc.getContext('2d', { willReadFrequently: true });
+    try { g.filter = String(E.lastFilter || 'none').replace(/url\([^)]*\)\s*/g, '').trim() || 'none'; } catch (e) {}
+    g.drawImage(m, 0, 0, sc.width, sc.height); try { g.filter = 'none'; } catch (e) {}
+    var px; try { px = g.getImageData(0, 0, sc.width, sc.height); } catch (e) { return; }
+    var a = NSC.analyze(px.data, sc.width, sc.height), type = E.chip.scopes || 'hist', c = cv.getContext('2d');
+    if (type === 'hist') NSC.drawHistogram(c, a, cv.width, cv.height); else NSC.drawWaveform(c, a, cv.width, cv.height, type === 'parade' ? 'parade' : 'luma');
+  }
+  function syncScopes(){
+    if (E.panel !== 'scopes' || !E.scopeCv || !E.scopeCv.parentNode) return;
+    var now = performance.now(); if (now - (E.scopeAt || 0) < 120) return; E.scopeAt = now;
+    drawScopesNow();
+  }
+  PANELS.scopes = { title: 'Scopes', build: function (body){
+    if (!NSC){ body.appendChild(mk('div', 'ed-hint', 'Scopes are not loaded. Add <script src="scopes.js"></script> to index.html, before editor.js.')); return; }
+    var types = [{ key: 'hist', label: 'Histogram' }, { key: 'wave', label: 'Waveform' }, { key: 'parade', label: 'RGB parade' }], cur = chipKey('scopes', types, 'hist');
+    body.appendChild(chips(types, cur, pickChip('scopes')));
+    var cv = mk('canvas', 'ed-scopecv'); cv.width = 320; cv.height = 140; E.scopeCv = cv; E.scopeAt = 0; body.appendChild(cv);
+    body.appendChild(mk('div', 'ed-hint', cur === 'hist' ? 'How much of the picture sits at each level, dark on the left, bright on the right. A pile against the left edge means crushed shadows; against the right, blown highlights.'
+      : cur === 'wave' ? 'Left to right is the picture left to right; up is brighter. Keep the bright parts under the top and the dark parts above the bottom.' : 'Red, green and blue shown side by side. If one is higher than the others, the picture leans that colour.'));
+    drawScopesNow();
+  } };
+  // ----- eyedropper: a small dropper next to every colour box -----
+  function eyeFrame(g, W, H){
+    var m = E.hooks.movie, s = P.sourceAt(E.proj, E.t), vc = s.video && s.video.clip;
+    if (typeof previewFrame === 'function' && vc){ previewFrame(g, m, vc, W, H); return; }
+    g.fillStyle = '#111b24'; g.fillRect(0, 0, W, H); if (m.videoWidth && m.readyState >= 2) g.drawImage(m, 0, 0, W, H);
+  }
+  function stopEyedrop(){ E.eye = null; if (E.ui.eyelayer) E.ui.eyelayer.style.display = 'none'; if (E.ui.eyering) E.ui.eyering.style.display = 'none'; }
+  function startEyedrop(inp){
+    if (E.eye){ stopEyedrop(); return; }
+    var done = function (hex){ if (!hex) return; inp.value = hex; inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true })); };
+    if (typeof window !== 'undefined' && window.EyeDropper){   // desktop Chrome has its own
+      try { new window.EyeDropper().open().then(function (r){ done(r.sRGBHex); }, function (){}); return; } catch (e) {}
+    }
+    var u = E.ui, lay = u.eyelayer;
+    if (!lay){
+      lay = u.eyelayer = mk('div', 'ed-eyelayer'); u.eyering = mk('div', 'ed-eyering'); lay.appendChild(u.eyering); u.stage.appendChild(lay);
+      lay.addEventListener('pointerdown', function (ev){ if (!E.eye) return; ev.preventDefault(); try { lay.setPointerCapture(ev.pointerId); } catch (e) {} E.eye.drag = true; eyeAt(ev); });
+      lay.addEventListener('pointermove', function (ev){ if (E.eye && E.eye.drag) eyeAt(ev); });
+      lay.addEventListener('pointerup', function (ev){ if (!E.eye) return; var hx = eyeAt(ev), d = E.eye.done; stopEyedrop(); if (hx) d(hx); });
+      lay.addEventListener('pointercancel', stopEyedrop);
+    }
+    E.eye = { done: done, drag: false }; lay.style.display = 'block';
+    toast('Drag over the picture and let go to pick a colour. Tap the dropper again to cancel.', 5000);
+  }
+  // The colour of the picture under the pointer (average of a small square) as #rrggbb; moves the ring and fills it with that colour.
+  function eyeAt(ev){
+    var u = E.ui, r = u.picframe.getBoundingClientRect(), sr = u.stage.getBoundingClientRect(), W = Math.max(2, Math.round(r.width)), H = Math.max(2, Math.round(r.height));
+    var fx = (ev.clientX - r.left) / (r.width || 1), fy = (ev.clientY - r.top) / (r.height || 1);
+    if (fx < 0 || fx > 1 || fy < 0 || fy > 1){ u.eyering.style.display = 'none'; return null; }
+    var cv = E.eyeCv || (E.eyeCv = document.createElement('canvas')); cv.width = W; cv.height = H;
+    var g = cv.getContext('2d', { willReadFrequently: true }); eyeFrame(g, W, H);
+    var x = clamp(Math.round(fx * W) - 1, 0, W - 3), y = clamp(Math.round(fy * H) - 1, 0, H - 3), d;
+    try { d = g.getImageData(x, y, 3, 3).data; } catch (e) { return null; }
+    var rr = 0, gg = 0, bb = 0, k, hx = function (v){ var t = Math.round(v / 9).toString(16); return t.length < 2 ? '0' + t : t; };
+    for (k = 0; k < d.length; k += 4){ rr += d[k]; gg += d[k + 1]; bb += d[k + 2]; }
+    var col = '#' + hx(rr) + hx(gg) + hx(bb);
+    u.eyering.style.display = 'block'; u.eyering.style.left = (ev.clientX - sr.left) + 'px'; u.eyering.style.top = (ev.clientY - sr.top) + 'px'; u.eyering.style.background = col;
+    return col;
+  }
+  function addEyedroppers(){
+    if (!E.ui.dock) return;
+    var list = E.ui.dock.querySelectorAll('input[type=color]');
+    for (var i = 0; i < list.length; i++){
+      var inp = list[i]; if (inp._eye) continue; inp._eye = true;
+      var b = btn(null, null, 'ed-ibtn ed-eyebtn', 'Pick a colour from the picture'); b.innerHTML = G.pick;
+      b.onclick = (function (x){ return function (){ startEyedrop(x); }; })(inp);
+      inp.parentNode.insertBefore(b, inp.nextSibling);
+    }
+  }
+
   /* ---------- titles drawn over the preview ---------- */
   // ----- format and background (the shape of the video, and what fills the space around the picture) -----
   function frameAspect(){
@@ -2634,6 +2762,77 @@ crop: { title: 'Crop', build: function (body){
     body.appendChild(actions([{ id: 'edStabilizeAll', label: 'Apply to all', run: function (){ commit(P.setStabilize(E.hist.cur, null, cur / 100)); toast('This stabilization is on every clip now.'); } }]));
     body.appendChild(mk('div', 'ed-hint', 'Steadies shaky, handheld footage. It is done when you export, so the preview does not show it. Stronger steadies more but can look floaty. Exporting takes longer, and uses the compatible engine. It cannot be used on a paused or reversed picture.'));
   } };
+  // ----- text effects: gradient, curve, glow, bubble, 3D, word art -----
+  function isStyledText(c){ var L = lookLib(); return !!(L.hasTitleFx && L.hasTitleFx(c)); }
+  // Draws a title with effects on a canvas laid over the whole text layer, using look.js (the same drawing as both exports).
+  function paintStyledText(layer, c){
+    var LK = lookLib(), d = E.textEls[c.id], W = layer.clientWidth || 320, H = layer.clientHeight || 240;
+    if (!d){
+      d = E.textEls[c.id] = mk('canvas', 'ed-textstyled'); d._styled = true;
+      d.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none';
+      layer.appendChild(d);
+    }
+    var stt = (c.anim && NMO) ? NMO.textState(c.anim, E.t - c.start, c.dur) : null, shown = c.text || '';
+    if (stt && stt.chars < 1) shown = NMO.visibleText(shown, stt.chars);
+    var dpr = Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1), cw = Math.max(2, Math.round(W * dpr)), ch = Math.max(2, Math.round(H * dpr));
+    var key = JSON.stringify([shown, c.size, c.color, c.pos, c.weight, c.bg, c.font, c.outline, c.shadow, c.grad, c.arc, c.glow, c.bubble, c.extrude, cw, ch]);
+    if (d._key !== key){
+      if (d.width !== cw) d.width = cw;
+      if (d.height !== ch) d.height = ch;
+      var g = d.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cw, ch);
+      d._lines = LK.drawTitle(g, Object.assign({}, c, { text: shown }), cw, ch) || []; d._key = key;
+    }
+    var fk = c.font || 'sans'; E.fontsAsked = E.fontsAsked || {};
+    if (!E.fontsAsked[fk] && LK.loadFonts){   // a canvas needs the font loaded first: draw again when it arrives
+      E.fontsAsked[fk] = 1;
+      LK.loadFonts([{ font: c.font, weight: c.weight, text: c.text }]).then(function (){
+        Object.keys(E.textEls).forEach(function (id){ if (E.textEls[id]._styled) E.textEls[id]._key = null; });
+        if (E.isOpen) syncMedia();
+      });
+    }
+    if (stt){
+      var py = NMO.pivotY(c, H, (d._lines || [1]).length);
+      d.style.transformOrigin = '50% ' + py + 'px'; d.style.opacity = shown ? String(stt.alpha) : '0';
+      d.style.transform = 'translate(' + (stt.dx * W) + 'px,' + (stt.dy * H) + 'px) rotate(' + stt.rot + 'deg) scale(' + stt.scale + ')';
+    } else { if (d.style.transform) d.style.transform = ''; if (d.style.opacity) d.style.opacity = ''; }
+  }
+  PANELS.textfx = { title: 'Text effects', build: function (body){
+    var c = selText(), LK = lookLib();
+    if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a text on the timeline first.')); return; }
+    if (!LK.ART){ body.appendChild(mk('div', 'ed-hint', 'look.js is out of date. Copy the new look.js into the www folder.')); return; }
+    var keys = [{ key: 'art', label: 'Word art' }, { key: 'grad', label: 'Gradient' }, { key: 'arc', label: 'Curve' }, { key: 'glow', label: 'Glow' }, { key: 'bubble', label: 'Bubble' }, { key: 'extrude', label: '3D' }];
+    var cur = chipKey('textfx', keys, 'art'), pt = function (o){ return P.setTextProps(E.hist.cur, c.id, o); };
+    body.appendChild(chips(keys, cur, pickChip('textfx')));
+    function colorRow(label, val, put){
+      var ci = mk('input'); ci.type = 'color'; ci.value = val; ci.setAttribute('aria-label', label);
+      ci.oninput = function (){ live(put(ci.value)); }; ci.onchange = function (){ commit(put(ci.value)); };
+      var r = mk('div', 'ed-mixrow wide'); add(r, mk('span', 'ed-mixname', label), ci); return r;
+    }
+    if (cur === 'art'){
+      body.appendChild(chips(LK.ART.map(function (a){ return { key: a.key, label: a.label }; }), E.chip.artKey || null, function (k){ E.chip.artKey = k; commit(pt(LK.art(k))); }));
+    } else if (cur === 'arc'){
+      body.appendChild(sliderRow('Curve', -100, 100, 5, Math.round((c.arc || 0) * 100), function (v){ return v === 0 ? 'Off' : (v > 0 ? 'Arch ' : 'Smile ') + Math.abs(v); },
+        function (v){ live(pt({ arc: v / 100 })); }, function (v){ commit(pt({ arc: v / 100 })); }));
+    } else {
+      var D = { grad: { c1: '#ff512f', c2: '#f9d423', angle: 90 }, glow: { color: '#00e5ff', amount: 0.8 }, bubble: { color: '#ff4fa3', width: 0.6 }, extrude: { color: '#ee4266', depth: 0.7 } }[cur];
+      var prop = { glow: 'amount', bubble: 'width', extrude: 'depth' }[cur], lab = { glow: 'Strength', bubble: 'Thickness', extrude: 'Depth' }[cur], v0 = c[cur];
+      body.appendChild(actions([{ id: 'edTextFxOn', label: v0 ? 'On: tap to turn off' : 'Off: tap to turn on', on: !!v0, run: function (){ var o = {}; o[cur] = v0 ? null : D; commit(pt(o)); } }]));
+      if (v0){
+        var put = function (k){ return function (val){ var o = {}, n = Object.assign({}, c[cur]); n[k] = val; o[cur] = n; return pt(o); }; };
+        if (cur === 'grad'){
+          body.appendChild(colorRow('Top / left colour', v0.c1, put('c1'))); body.appendChild(colorRow('Bottom / right colour', v0.c2, put('c2')));
+          body.appendChild(sliderRow('Direction', 0, 345, 15, v0.angle, function (x){ return x + '\u00b0'; }, function (x){ live(put('angle')(x)); }, function (x){ commit(put('angle')(x)); }));
+        } else {
+          body.appendChild(colorRow('Colour', v0.color, put('color')));
+          body.appendChild(sliderRow(lab, 5, 100, 5, Math.round(v0[prop] * 100), pct, function (x){ live(put(prop)(x / 100)); }, function (x){ commit(put(prop)(x / 100)); }));
+        }
+      }
+    }
+    if (c.caption) body.appendChild(actions([{ id: 'edTextFxAll', label: 'Apply this to all captions', run: function (){
+      commit(P.setCaptionStyle(E.hist.cur, { color: c.color, font: c.font || 'sans', outline: c.outline || 0, shadow: c.shadow == null ? 1 : c.shadow, grad: c.grad || null, arc: c.arc || null, glow: c.glow || null, bubble: c.bubble || null, extrude: c.extrude || null }));
+      toast('Every caption has this look now.'); } }]));
+    body.appendChild(mk('div', 'ed-hint', 'The effects are drawn the same way in the preview and in the exported video, and can be mixed. Word art sets a whole look at once, with its own font. Curve bends the whole text. Word-by-word highlight is not used on a text that has effects.'));
+  } };
   // ----- crop (CapCut style): a dimmed picture with a frame you drag -----
   function cropAspectOf(k, vw, vh){
     if (k === 'orig') return vw / vh;
@@ -2995,6 +3194,9 @@ crop: { title: 'Crop', build: function (body){
     list.forEach(function (c){
       want[c.id] = true;
       var d = E.textEls[c.id];
+      var sty = isStyledText(c);   // a title with effects is drawn on a canvas by look.js, the same drawing the exports use
+      if (d && !!d._styled !== sty){ d.remove(); delete E.textEls[c.id]; d = null; }
+      if (sty){ paintStyledText(layer, c); return; }
       if (!d){
         // the dark box is a box around the words only (like the export draws it): an inline box with the same padding the export uses (0.4 letters each side, 0.2 above and below)
         d = E.textEls[c.id] = mk('div', 'ed-textov'); d._sp = mk('span'); d._sp.style.cssText = 'display:inline-block;padding:0.2em 0.4em;white-space:pre-wrap;word-break:break-word';
@@ -3100,7 +3302,7 @@ crop: { title: 'Crop', build: function (body){
     }
     renderTexts(P.textsAt(E.proj, E.t));
     syncBackdrop(m);
-    syncStickers(); syncOverlays(); syncSfx(s); syncFx(); syncTransition(m, s, vc); syncLayout(m, vc, css); syncGrade(m, vc, css);
+    syncStickers(); syncOverlays(); syncSfx(s); syncFx(); syncTransition(m, s, vc); syncScopes(); syncLayout(m, vc, css); syncGrade(m, vc, css);
     var ms = null, vo = null, mu = null;
     s.audio.forEach(function (a){ if (a.role === 'movieSound') ms = a; else if (a.role === 'voice') vo = a; else if (a.role === 'music') mu = a; });
     h.setMovieGain(ms && !ms.clip.reverse ? ms.gain : 0);
@@ -3320,6 +3522,7 @@ crop: { title: 'Crop', build: function (body){
     renderTexts([]);
     E.layoutOn = false; try { E.ui.layoutcv.style.display = 'none'; } catch (e) {}
     E.gradeOn = false; try { if (E.ui.gradecv) E.ui.gradecv.style.display = 'none'; } catch (e) {}
+    try { stopEyedrop(); } catch (e) {}
     E.xOn = false; try { E.ui.xvid.pause(); E.ui.xvid.style.display = 'none'; } catch (e) {}
     removeOverlays(); removeSfx();
     if (TS) TS.release(); if (PS) PS.release();

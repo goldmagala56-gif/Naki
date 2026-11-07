@@ -128,6 +128,8 @@ var WebCodecsExport = (function () {
     if ((plan.video || []).some(function (s) { return s.stabilize; })) return false;   // stabilize is made by the ffmpeg engine   // crops are made by the ffmpeg engine
     if ((plan.audio || []).some(function (a) { return a.afx; })) return false;   // sound effects (pitch, equalizer, echo, loudness) are made by the ffmpeg engine
     if ((plan.audio || []).some(function (a) { return a.speed && a.speed !== 1; })) return false;
+    if ((plan.audio || []).some(function (a) { return a.denoise; })) return false;   // noise reduction is made by the ffmpeg engine
+    if ((plan.video || []).some(function (s) { return s.mblur; }) || (plan.overlays || []).some(function (o) { return o.mblur; })) return false;   // so is motion blur
     if ((plan.video || []).some(function (s) { return s.transitionIn; })) return false;
     if ((plan.fx || []).length) return false;   // video effects are made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return s.filter && (s.filter.highlights || s.filter.shadows || s.filter.tint || s.filter.hue || s.filter.grain); })) return false;   // so are the extra Adjust sliders

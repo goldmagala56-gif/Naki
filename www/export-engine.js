@@ -177,6 +177,7 @@ function planToJobs(plan, movieInfo, opts) {
     (_LK.ffmpegExtras(f) || []).forEach(function (x) { parts.push(x); });
     if (_L2 && f) _L2.ffmpegAdjust(f).forEach(function (x) { parts.push(x); });
     if (sp.grade && _CL) parts.push('format=rgb24,lut3d=file=' + gradeFile(sp.grade) + ':interp=trilinear,format=yuv420p');
+    if (sp.mblur && sp.kf) parts.push('tmix=frames=' + Math.round(2 + 3 * sp.mblur));   // motion blur on a zoom / pan: blend the last few frames
     if (sp.vFadeIn) parts.push('fade=t=in:st=0:d=' + (sp.vFadeIn / 1000).toFixed(3));
     if (sp.vFadeOut) parts.push('fade=t=out:st=' + Math.max(0, spanSec - sp.vFadeOut / 1000).toFixed(3) + ':d=' + (sp.vFadeOut / 1000).toFixed(3));
     return parts.join(',');
@@ -213,6 +214,16 @@ function planToJobs(plan, movieInfo, opts) {
     });
     ovs.forEach(function (o) {
       var op = overlayParts(o, sp), bm = _FX && op.blend ? _FX.ffBlend(op.blend) : null;
+      if (o.mblur && o.kf && !bm) {   // motion blur: the overlay is drawn on a see-through frame, the last few frames are blended, and that is laid over the picture
+        var Lm = 'mb' + next, ci2 = next, oi2 = next + 1, part2 = ((sp.sessionEnd - sp.sessionStart) / 1000 + 1).toFixed(3);
+        inputs.push('-f', 'lavfi', '-i', 'color=c=black@0:s=' + width + 'x' + height + ':r=' + FPS + ':d=' + part2 + ',format=rgba');
+        inputs.push.apply(inputs, op.inputs);
+        fc.push('[' + oi2 + ':v]' + op.chain + '[' + Lm + 'o]');
+        fc.push('[' + ci2 + ':v][' + Lm + "o]overlay=x='" + op.x + "':y='" + op.y + "':eof_action=pass:format=auto,tmix=frames=" + Math.round(2 + 3 * o.mblur) + '[' + Lm + 'g]');
+        fc.push('[' + cur + '][' + Lm + "g]overlay=eof_action=pass:enable='between(t," + op.a.toFixed(3) + ',' + op.b.toFixed(3) + ")'[v" + (++n) + ']');
+        cur = 'v' + n; next += 2;
+        return;
+      }
       if (!bm) {   // the normal way: laid over the picture
         inputs.push.apply(inputs, op.inputs);
         fc.push('[' + next + ':v]' + op.chain + '[ov' + next + ']');
@@ -443,6 +454,8 @@ function planToJobs(plan, movieInfo, opts) {
     return p.length ? ',' + p.join(',') : '';
   }
   // Voice enhance (gate, tone, compressor), after the usual voice clean-up. Nothing for other sounds or when it is off.
+  // Noise reduction on a sound row: ffmpeg's own noise remover, 6 to 30 dB.
+  function denoiseChain(c) { return c.denoise ? ',afftdn=nr=' + (6 + 24 * c.denoise).toFixed(1) + ':nf=-45:tn=1' : ''; }
   function enhanceChain(src, c) { return (src === 'voice' && c.enhance && _FX && _FX.voice) ? _FX.voice.ffmpegChain(c.enhance, c.enhance.floorDb).map(function (s) { return ',' + s; }).join('') : ''; }
   // ffmpeg's atempo only accepts 0.5 to 2 per step, so 0.25x and 4x take two steps.
   function tempoChain(speed) {
@@ -471,7 +484,7 @@ function planToJobs(plan, movieInfo, opts) {
     var lostMs = (startS - Sm(c.startMs)) * 1000 / SR;   // only non-zero if clips overlapped
     var spd = c.speed && c.speed !== 1 ? c.speed : 1;
     var rev = !!c.reverse && src === 'movie';
-    var fc = '[0:a]' + sourceChain(src, ai) + enhanceChain(src, c) + afxChain(c) + (rev ? ',areverse' : '') + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
+    var fc = '[0:a]' + sourceChain(src, ai) + denoiseChain(c) + enhanceChain(src, c) + afxChain(c) + (rev ? ',areverse' : '') + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
       '[1:a]aresample=' + SR + ',aformat=sample_fmts=fltp:channel_layouts=stereo[g];' +
       '[a][g]amultiply,aformat=sample_fmts=s16:channel_layouts=stereo[o]';
     var files = {}; files[gfile] = buildGainRaw(c.points, c.durMs + lostMs);

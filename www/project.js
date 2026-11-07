@@ -19,6 +19,7 @@ var _CV = (typeof module !== 'undefined' && module.exports) ? require('./speedcu
 var _MO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
 var _LY = (typeof module !== 'undefined' && module.exports) ? require('./layout.js') : (typeof window !== 'undefined' ? window.NakiLayout : null);
 var _CL = (typeof module !== 'undefined' && module.exports) ? require('./colour.js') : (typeof window !== 'undefined' ? window.NakiColour : null);
+var _LK = (typeof module !== 'undefined' && module.exports) ? require('./look.js') : (typeof window !== 'undefined' ? window.NakiLook : null);
 var _idn = 0;
 function newId(p){ _idn++; return p + _idn.toString(36) + Math.random().toString(36).slice(2, 6); }
 function r3(x){ return Math.round(x * 1000) / 1000; }
@@ -340,18 +341,28 @@ function addTextClip(p, t, dur, out){
 var TEXT_FONTS = ['sans', 'serif', 'mono', 'bold', 'script', 'inter', 'montserrat', 'poppins', 'bebas', 'anton', 'oswald', 'archivo', 'bangers', 'righteous', 'playfair', 'pacifico', 'lobster', 'caveat', 'dancing', 'lora', 'merriweather', 'librebaskerville', 'crimsontext', 'ebgaramond', 'cormorantgaramond', 'ptserif', 'sourceserif4', 'librecaslontext', 'abrilfatface', 'dmserifdisplay', 'cinzel', 'cinzeldecorative', 'marcellus', 'oldstandardtt', 'alfaslabone', 'unifrakturcook', 'greatvibes', 'sacramento', 'allura', 'parisienne', 'alexbrush', 'pinyonscript', 'italianno', 'tangerine', 'satisfy', 'kaushanscript', 'yellowtail', 'courgette', 'cookie', 'playball', 'shadowsintolight', 'indieflower', 'permanentmarker', 'rocksalt', 'amaticsc', 'gloriahallelujah', 'luckiestguy', 'chewy', 'creepster', 'bungee', 'staatliches', 'monoton', 'blackopsone', 'russoone', 'pressstart2p', 'orbitron', 'specialelite', 'lilitaone', 'fredoka', 'teko', 'lato', 'opensans', 'roboto', 'raleway', 'nunito', 'quicksand', 'comfortaa', 'josefinsans', 'barlowcondensed', 'baloo2'];
 // Changes the look of one text clip (in place). size 3 to 16 (% of the picture height), font, outline 0 to 1 and shadow 0 to 1
 // (shadow 1 is the look titles always had, so it is not stored; outline 0 is not stored either).
+// Text effects (see look.js): grad, arc, glow, bubble, extrude. null / empty turns one off.
+function applyTextStyleExtras(clip, patch){
+  if (!_LK || !_LK.cleanStyle) return;
+  ['grad', 'arc', 'glow', 'bubble', 'extrude'].forEach(function (k){
+    if (patch[k] === undefined) return;
+    var v = _LK.cleanStyle(k, patch[k]);
+    if (v == null) delete clip[k]; else clip[k] = v;
+  });
+}
 function applyTextPatch(clip, patch){
   ['text', 'size', 'color', 'pos', 'weight', 'bg'].forEach(function (k){ if (patch[k] !== undefined) clip[k] = patch[k]; });
   clip.size = Math.max(3, Math.min(16, +clip.size || 7));
   if (patch.font !== undefined){ if (patch.font && patch.font !== 'sans' && TEXT_FONTS.indexOf(patch.font) >= 0) clip.font = patch.font; else delete clip.font; }
   if (patch.outline !== undefined){ var o = r3(Math.max(0, Math.min(1, +patch.outline || 0))); if (o > 0) clip.outline = o; else delete clip.outline; }
   if (patch.shadow !== undefined){ var sh = r3(Math.max(0, Math.min(1, isNaN(+patch.shadow) ? 1 : +patch.shadow))); if (sh < 1) clip.shadow = sh; else delete clip.shadow; }
+  applyTextStyleExtras(clip, patch);
 }
 function setTextProps(p, id, patch){
   var q = cloneProject(p), f = findClip(q, id);
   if (!f || f.clip.type !== 'text') return p;
   applyTextPatch(f.clip, patch || {});
-  return finish(q);
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);   // nothing changed: same project, so no empty undo step
 }
 function textsAt(p, t){
   var out = [];
@@ -696,6 +707,66 @@ function setSmooth(p, id, on){
   return finish(q);
 }
 
+// ---------- noise reduction, motion blur, intro / outro pieces and countdowns ----------
+// Noise reduction lives on a sound row (track.denoise, 0 to 1); the export takes steady background noise out of that row. Motion blur (clip.mblur, 0 to 1)
+// blends the frames while a picture clip zooms / pans or an overlay moves (it needs keyframes or a motion preset to have anything to blur).
+function setDenoise(p, trackId, amount){
+  var tr0 = p.tracks.filter(function (t){ return t.id === trackId && t.kind === 'audio'; })[0]; if (!tr0) return p;
+  var v = r3(Math.max(0, Math.min(1, +amount))); if (isNaN(v)) return p; if (v < 0.01) v = 0;
+  if ((tr0.denoise || 0) === v) return p;
+  var q = cloneProject(p), tr = q.tracks.filter(function (t){ return t.id === trackId; })[0];
+  if (v) tr.denoise = v; else delete tr.denoise;
+  return q;
+}
+function setMotionBlur(p, id, amount){
+  var f = findClip(p, id), kind = f && kfKind(f.track); if (kind !== 'overlay' && kind !== 'picture') return p;
+  if (f.clip.gen && f.clip.gen.full) return p;
+  var v = r3(Math.max(0, Math.min(1, +amount))); if (isNaN(v)) return p; if (v < 0.05) v = 0;
+  if ((f.clip.mblur || 0) === v) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip; if (v) c.mblur = v; else delete c.mblur;
+  return finish(q);
+}
+var PIECE_LIST = [
+  { key: 'part', label: 'Part', numbered: true, text: function (n){ return 'Part ' + n; }, size: 14, pos: 'center', dur: 2500, bg: true },
+  { key: 'chapter', label: 'Chapter', numbered: true, text: function (n){ return 'Chapter ' + n; }, size: 12, pos: 'center', dur: 2500, bg: true },
+  { key: 'welcome', label: 'Welcome', text: 'Welcome', size: 14, pos: 'center', dur: 3000, bg: true },
+  { key: 'thanks', label: 'Thanks for watching', text: 'Thanks for watching', size: 9, pos: 'center', dur: 3500, bg: true },
+  { key: 'end', label: 'The End', text: 'The End', size: 14, pos: 'center', dur: 3000, bg: true },
+  { key: 'tbc', label: 'To be continued', text: 'To be continued...', size: 8, pos: 'bottom', dur: 3000, bg: true }
+];
+// The text animation to use for a piece: the first of prefs that exists in motion.js, else any "in" animation, else none.
+function pieceAnim(list, prefs){
+  if (!_MO || !list) return null;
+  for (var i = 0; i < prefs.length; i++) if (_MO.has(list, prefs[i])) return prefs[i];
+  for (var j = 0; j < list.length; j++) if (list[j] && list[j].key && list[j].key !== 'none') return list[j].key;
+  return null;
+}
+// A ready-made title card as an ordinary text clip at t. n = the number for Part / Chapter.
+function addPiece(p, t, key, n, out){
+  var d = PIECE_LIST.filter(function (x){ return x.key === key; })[0]; if (!d) return p;
+  var o = {}, q = addTextClip(p, t, d.dur, o); if (q === p) return p;
+  var num = Math.max(1, Math.min(99, Math.round(+n || 1)));
+  q = setTextProps(q, o.id, { text: typeof d.text === 'function' ? d.text(num) : d.text, size: d.size, pos: d.pos, bg: d.bg, color: '#ffffff', weight: 700, outline: 0 });
+  var a = pieceAnim(_MO && _MO.TEXT_IN, ['pop', 'zoom', 'fade']); if (a) q = setTextAnim(q, o.id, { in: a });
+  if (out) out.id = o.id;
+  return q;
+}
+// A countdown: one text clip a second long for each number, back to back from t. If anything in the way would move one of them, nothing is added.
+function addCountdown(p, t, from, out){
+  from = Math.max(2, Math.min(10, Math.round(+from || 3)));
+  var q = p, ids = [], a = pieceAnim(_MO && _MO.TEXT_IN, ['pop', 'zoom', 'fade']);
+  for (var i = 0; i < from; i++){
+    var o = {}, want = Math.round(t) + i * 1000, r = addTextClip(q, want, 1000, o);
+    if (r === q) return p;
+    var f = findClip(r, o.id); if (!f || f.clip.start !== want || f.clip.dur < 900) return p;
+    q = setTextProps(r, o.id, { text: String(from - i), size: 16, pos: 'center', color: '#ffffff', weight: 700, bg: false, outline: 0.5 });
+    if (a) q = setTextAnim(q, o.id, { in: a });
+    ids.push(o.id);
+  }
+  if (out){ out.id = ids[0]; out.ids = ids; }
+  return q;
+}
+
 // ---------- picture in picture presets ----------
 // A preset puts an overlay (photo or video) in a corner, the middle or one half of the frame. x, y = its centre and size = its width, as fractions of the frame.
 var PIP_PRESETS = [{ key: 'tl', label: 'Top left' }, { key: 'tr', label: 'Top right' }, { key: 'bl', label: 'Bottom left' }, { key: 'br', label: 'Bottom right' },
@@ -825,7 +896,7 @@ function captionList(p){
 function setCaptionStyle(p, patch){
   var tr = captionTrackOf(p); if (!tr || !tr.clips.length) return p;
   var q = cloneProject(p), style = {};
-  ['size', 'color', 'pos', 'weight', 'bg', 'font', 'outline', 'shadow'].forEach(function (k){ if (patch[k] !== undefined) style[k] = patch[k]; });
+  ['size', 'color', 'pos', 'weight', 'bg', 'font', 'outline', 'shadow', 'grad', 'arc', 'glow', 'bubble', 'extrude'].forEach(function (k){ if (patch[k] !== undefined) style[k] = patch[k]; });
   captionTrackOf(q).clips.forEach(function (c){ applyTextPatch(c, style); });
   return finish(q);
 }
@@ -1719,7 +1790,7 @@ function setKeyframeEaseAll(p, id, relMs, ease){
 var LOOK_KEYS = {
   video: ['filter', 'opacity', 'transform', 'crop', 'grade', 'stabilize', 'vFadeIn', 'vFadeOut'],
   audio: ['volume', 'afx', 'fadeIn', 'fadeOut'],
-  text: ['size', 'color', 'pos', 'weight', 'bg', 'font', 'outline', 'shadow', 'anim'],
+  text: ['size', 'color', 'pos', 'weight', 'bg', 'font', 'outline', 'shadow', 'anim', 'grad', 'arc', 'glow', 'bubble', 'extrude'],
   overlay: ['x', 'y', 'size', 'rot', 'opacity', 'blend', 'mask', 'chroma'],
   sticker: ['color', 'size', 'rot']
 };
@@ -1852,7 +1923,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, groupIds: groupIds, groupClips: groupClips, ungroupClips: ungroupClips, copyGroup: copyGroup, pasteGroup: pasteGroup, setSmooth: setSmooth, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setDenoise: setDenoise, setMotionBlur: setMotionBlur, addPiece: addPiece, addCountdown: addCountdown, PIECES: PIECE_LIST.map(function (d){ return { key: d.key, label: d.label, numbered: !!d.numbered }; }), groupIds: groupIds, groupClips: groupClips, ungroupClips: ungroupClips, copyGroup: copyGroup, pasteGroup: pasteGroup, setSmooth: setSmooth, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,

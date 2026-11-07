@@ -32,6 +32,7 @@ var NakiPlan = (function () {
       if (c.crop) sp.crop = { x: c.crop.x, y: c.crop.y, w: c.crop.w, h: c.crop.h };
       if (c.grade) sp.grade = JSON.parse(JSON.stringify(c.grade));
       if (sp.type === 'play' && c.stabilize && !c.reverse) sp.stabilize = c.stabilize;
+      if (c.mblur) sp.mblur = c.mblur;
       if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;
       if (c.vFadeOut) sp.vFadeOut = c.vFadeOut;
       if (c.kf && (c.kf.zoom || c.kf.x || c.kf.y)) { sp.kf = {}; ['zoom', 'x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sp.kf[k] = NAN && NAN.bakeKf ? NAN.bakeKf({ v: c.kf[k] }).v : JSON.parse(JSON.stringify(c.kf[k])); }); }
@@ -62,6 +63,7 @@ var NakiPlan = (function () {
         if (src === 'movie' && c.reverse) a.reverse = true;
         if (src === 'voice' && tr.enhance) a.enhance = { preset: tr.enhance.preset, amount: tr.enhance.amount, floorDb: P.voiceFloorDb ? P.voiceFloorDb(p) : -50 };
         if (c.afx) a.afx = JSON.parse(JSON.stringify(c.afx));
+        if (tr.denoise) a.denoise = tr.denoise;
         if (tr.role === 'sfx') a.file = c.asset + '.in';
         if (src === 'movie' && c.asset && c.asset !== 'movie') a.asset = c.asset;
         audio.push(a);
@@ -78,6 +80,7 @@ var NakiPlan = (function () {
         if (e > s){
           var tx = { startMs: s, durMs: e - s, text: String(c.text), size: c.size, color: c.color, pos: c.pos, weight: c.weight, bg: !!c.bg };
           if (c.font) tx.font = c.font; if (c.outline) tx.outline = c.outline; if (c.shadow != null) tx.shadow = c.shadow;
+          ['grad', 'arc', 'glow', 'bubble', 'extrude'].forEach(function (k) { if (c[k] != null) tx[k] = JSON.parse(JSON.stringify(c[k])); });
           if (c.anim) tx.anim = JSON.parse(JSON.stringify(c.anim));
           if (c.hl && P.wordTimes){ var wt = P.wordTimes(c, e - s); if (wt.length){ tx.text = String(c.text).split(/\s+/).filter(Boolean).join(' '); tx.hl = { color: c.hl, t: wt }; } }   // word highlight
           texts.push(tx);
@@ -104,6 +107,7 @@ var NakiPlan = (function () {
         var o = { startMs: s, durMs: e - s, asset: c.asset, kind: c.type === 'freeze' ? 'image' : 'video', inMs: Math.round(c.in || 0), x: c.x, y: c.y, size: c.size, rot: c.rot || 0, opacity: c.opacity != null ? c.opacity : 1, w: a.w || 0, h: a.h || 0 };
         if (c.gen){ o.gen = JSON.parse(JSON.stringify(c.gen)); o.asset = 'gen_' + c.id; o.kind = 'image'; o.inMs = 0; o.w = c.gen.full ? 0 : 1000; o.h = c.gen.full ? 0 : Math.max(2, Math.round(1000 * (c.gen.ar || 1))); }
         if (c.kf) o.kf = NAN && NAN.bakeKf ? NAN.bakeKf(c.kf) : JSON.parse(JSON.stringify(c.kf));
+        if (c.mblur) o.mblur = c.mblur;
         if (c.blend) o.blend = c.blend;
         if (c.mask) o.mask = JSON.parse(JSON.stringify(c.mask));
         if (c.chroma) o.chroma = JSON.parse(JSON.stringify(c.chroma));

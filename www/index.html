@@ -416,6 +416,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="reframe.js"></script>
 <script src="autocut.js"></script>
 <script src="speedramp.js"></script>
+<script src="scopes.js"></script>
 <script src="editor.js"></script>
 <script>
 'use strict';
@@ -1721,7 +1722,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'speedcurve.js': 'curve', 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'ease', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'fonts', 'layout.js': 'layout', 'reverse.js': 'reverse', 'markers.js': 'markers' };
+  var want = { 'speedcurve.js': 'curve', 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'ease', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'textfx', 'scopes.js': 'scopes', 'layout.js': 'layout', 'reverse.js': 'reverse', 'markers.js': 'markers' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';
