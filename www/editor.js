@@ -799,6 +799,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       items.push({ id: 'edVoiceFx', label: 'Enhance voice', icon: G.volume, run: function (){ openPanel('voicefx'); } });
       items.push({ id: 'edMix', label: 'Volume', icon: G.mix, run: function (){ openPanel('mix'); } });
       items.push({ id: 'edClipAudio', label: 'Clip', icon: G.clip, run: function (){ openPanel('clipaudio'); } });
+      items.push({ id: 'edAudioFx', label: 'Sound FX', icon: G.mix, run: function (){ openPanel('audiofx'); } });
       if (has) items.push({ id: 'edRemoveMusic', label: 'Remove music', icon: G.trash, run: function (){ if (E.hooks.setMusicFile) E.hooks.setMusicFile(null); commit(P.removeMusic(E.hist.cur)); } });
       return items;
     },
@@ -2270,6 +2271,32 @@ crop: { title: 'Crop', build: function (body){
     body.appendChild(chips([{ key: 'clip', label: 'This clip' }, { key: 'all', label: 'Whole track' }], o.all ? 'all' : 'clip', function (k){ o.all = k === 'all'; renderDock(); }));
     body.appendChild(chips([{ key: 'auto', label: 'Auto' }].concat(NRP.PRESETS.map(function (p){ return { key: p.key, label: p.label }; }), [{ key: 'none', label: 'Normal' }]), null, function (k){ applyRamp(k, o.all); }));
     body.appendChild(mk('div', 'ed-hint', 'Tap one to apply it. Auto picks a ramp for each clip: the first speeds up, the last slows down, short clips stay gentle. Whole track does every picture clip at once. The movie sound follows the speed; your voice does not. Videos with a speed export with the compatible engine, which takes longer. Undo takes it all back.'));
+  } };
+
+  // ----- audio effects: equalizer, pitch, echo, loudness -----
+  var AFX_PRESETS = [
+    { key: 'none', label: 'Normal', v: { bass: 0, mid: 0, treble: 0, pitch: 0, echo: 0, normalize: false } },
+    { key: 'deep', label: 'Deep voice', v: { bass: 4, mid: 0, treble: -2, pitch: -4, echo: 0, normalize: false } },
+    { key: 'high', label: 'High voice', v: { bass: -2, mid: 0, treble: 3, pitch: 4, echo: 0, normalize: false } },
+    { key: 'chip', label: 'Chipmunk', v: { bass: -4, mid: 0, treble: 4, pitch: 8, echo: 0, normalize: false } },
+    { key: 'radio', label: 'Radio', v: { bass: -12, mid: 6, treble: -6, pitch: 0, echo: 0, normalize: false } },
+    { key: 'boost', label: 'Bass boost', v: { bass: 9, mid: 0, treble: 0, pitch: 0, echo: 0, normalize: false } },
+    { key: 'cave', label: 'Cave', v: { bass: 0, mid: 0, treble: 0, pitch: 0, echo: 0.7, normalize: false } }];
+  PANELS.audiofx = { title: 'Audio effects', build: function (body){
+    var f = E.sel && P.findClip(E.proj, E.sel), c = f && f.track.kind === 'audio' ? f.clip : null;
+    if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a sound clip on the timeline first (your voice, music, movie sound or an effect).')); return; }
+    var a = Object.assign({ bass: 0, mid: 0, treble: 0, pitch: 0, echo: 0, normalize: false }, c.afx || {}), o = E.chip.afx || (E.chip.afx = { all: false });
+    var set = function (patch){ var q = P.setAudioFx(E.hist.cur, c.id, patch, o.all); if (q === E.hist.cur) renderDock(); else commit(q); };
+    var keys = [{ key: 'bass', label: 'Bass' }, { key: 'mid', label: 'Mid' }, { key: 'treble', label: 'Treble' }, { key: 'pitch', label: 'Pitch' }, { key: 'echo', label: 'Echo' }], cur = chipKey('audiofx', keys, 'bass');
+    body.appendChild(chips([{ key: 'clip', label: 'This clip' }, { key: 'all', label: 'Whole row' }], o.all ? 'all' : 'clip', function (k){ o.all = k === 'all'; renderDock(); }));
+    body.appendChild(chips(AFX_PRESETS, null, function (k){ var p = AFX_PRESETS.filter(function (x){ return x.key === k; })[0]; if (p) set(p.v); }));
+    body.appendChild(chips(keys, cur, pickChip('audiofx')));
+    var one = function (v){ var patch = {}; patch[cur] = cur === 'echo' ? v / 100 : v; set(patch); };
+    if (cur === 'echo') body.appendChild(sliderRow('Echo', 0, 100, 5, Math.round(a.echo * 100), pct, null, one));
+    else if (cur === 'pitch') body.appendChild(sliderRow('Pitch', -12, 12, 1, a.pitch, function (v){ return (v > 0 ? '+' : '') + v + ' st'; }, null, one));
+    else body.appendChild(sliderRow(cur === 'bass' ? 'Bass' : cur === 'mid' ? 'Mid' : 'Treble', -12, 12, 1, a[cur], function (v){ return (v > 0 ? '+' : '') + v + ' dB'; }, null, one));
+    body.appendChild(actions([{ id: 'edAfxNorm', label: a.normalize ? 'Even out loudness: on' : 'Even out loudness: off', on: !!a.normalize, run: function (){ set({ normalize: !a.normalize }); } }]));
+    body.appendChild(mk('div', 'ed-hint', 'Pitch changes how high the voice sounds without changing its speed. Even out loudness makes quiet and loud parts closer. The preview plays the sound without these effects; the exported video has them. Videos with sound effects export with the compatible engine, which takes longer. Undo takes them back.'));
   } };
 
   // ----- save still: the picture at the playhead as a PNG, in one tap -----

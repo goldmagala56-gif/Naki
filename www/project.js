@@ -780,6 +780,28 @@ function toSrt(p){
   return items.map(function (it, i){ return (i + 1) + '\n' + srtTime(it.start) + ' --> ' + srtTime(it.end) + '\n' + it.text + '\n'; }).join('\n');
 }
 
+// ---------- audio effects ----------
+// clip.afx = { bass, mid, treble (dB, -12 to 12), pitch (semitones, -12 to 12), echo (0 to 1), normalize (true) }. Only what is not neutral is stored.
+function cleanAfx(a){
+  if (!a) return null;
+  function num(k, lo, hi, int){ var v = +a[k]; if (isNaN(v)) v = 0; v = Math.max(lo, Math.min(hi, v)); return int ? Math.round(v) : r3(v); }
+  var o = {}, bass = num('bass', -12, 12, true), mid = num('mid', -12, 12, true), treble = num('treble', -12, 12, true), pitch = num('pitch', -12, 12, true), echo = num('echo', 0, 1, false);
+  if (bass) o.bass = bass; if (mid) o.mid = mid; if (treble) o.treble = treble; if (pitch) o.pitch = pitch; if (echo) o.echo = echo;
+  if (a.normalize) o.normalize = true;
+  return Object.keys(o).length ? o : null;
+}
+// Changes the effects of one sound clip, or of every clip on its row when all is true. Only what the patch mentions changes.
+function setAudioFx(p, id, patch, all){
+  var f = findClip(p, id); if (!f || f.track.kind !== 'audio') return p;
+  var q = cloneProject(p), tr = q.tracks.filter(function (t){ return t.id === f.track.id; })[0];
+  var targets = all ? tr.clips : [findClip(q, id).clip];
+  targets.forEach(function (c){
+    var cl = cleanAfx(Object.assign({}, c.afx || {}, patch || {}));
+    if (cl) c.afx = cl; else delete c.afx;
+  });
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
 // ---------- detach audio ----------
 // Lets a movie clip and its sound go their own ways: afterwards the sound can be moved, trimmed or deleted without the picture
 // (and the picture without the sound). They still cut together; a speed change no longer reaches the detached sound.
@@ -902,6 +924,7 @@ function canMerge(a, b){
   if (a.type === 'freeze'){ if (a.in !== b.in) return false; }
   else if (Math.abs(a.in + a.dur * sp - b.in) > 2) return false;
   if (JSON.stringify([a.filter || null, a.opacity, a.transform || null, a.crop || null, a.stabilize || null]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null, b.crop || null, b.stabilize || null])) return false;
+  if (JSON.stringify(a.afx || null) !== JSON.stringify(b.afx || null)) return false;
   if (a.vFadeOut || b.vFadeIn) return false;
   if (a.fadeOut > 0 && !(a.fadeOutOff > 0)) return false;
   if (b.fadeIn > 0 && !(b.fadeInOff > 0)) return false;
@@ -1600,7 +1623,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,

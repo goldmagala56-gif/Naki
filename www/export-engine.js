@@ -417,6 +417,18 @@ function planToJobs(plan, movieInfo, opts) {
       '-af', 'aformat=sample_fmts=s16:channel_layouts=stereo,atrim=end_sample=' + samples,
       '-t', (samples / SR + 0.05).toFixed(3), '-c:a', 'pcm_s16le', '-f', 'wav', name] };
   }
+  // Audio effects (equalizer, pitch, echo, loudness) from the Sound FX panel. Pitch changes the sample rate and then puts the speed back with atempo.
+  function afxChain(c) {
+    var a = c.afx; if (!a) return '';
+    var p = [];
+    if (a.bass) p.push('bass=g=' + a.bass + ':f=100');
+    if (a.mid) p.push('equalizer=f=1000:t=q:w=1:g=' + a.mid);
+    if (a.treble) p.push('treble=g=' + a.treble + ':f=5000');
+    if (a.pitch) { var k = Math.pow(2, a.pitch / 12); p.push('asetrate=' + Math.round(SR * k), 'aresample=' + SR, 'atempo=' + (1 / k).toFixed(5)); }
+    if (a.echo > 0) p.push('aecho=0.8:0.9:' + Math.round(40 + a.echo * 160) + '|' + Math.round(80 + a.echo * 320) + ':' + (0.2 + a.echo * 0.3).toFixed(2) + '|' + (0.1 + a.echo * 0.2).toFixed(2));
+    if (a.normalize) p.push('loudnorm=I=-16:TP=-1.5:LRA=11', 'aresample=' + SR);
+    return p.length ? ',' + p.join(',') : '';
+  }
   // Voice enhance (gate, tone, compressor), after the usual voice clean-up. Nothing for other sounds or when it is off.
   function enhanceChain(src, c) { return (src === 'voice' && c.enhance && _FX && _FX.voice) ? _FX.voice.ffmpegChain(c.enhance, c.enhance.floorDb).map(function (s) { return ',' + s; }).join('') : ''; }
   // ffmpeg's atempo only accepts 0.5 to 2 per step, so 0.25x and 4x take two steps.
@@ -446,7 +458,7 @@ function planToJobs(plan, movieInfo, opts) {
     var lostMs = (startS - Sm(c.startMs)) * 1000 / SR;   // only non-zero if clips overlapped
     var spd = c.speed && c.speed !== 1 ? c.speed : 1;
     var rev = !!c.reverse && src === 'movie';
-    var fc = '[0:a]' + sourceChain(src, ai) + enhanceChain(src, c) + (rev ? ',areverse' : '') + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
+    var fc = '[0:a]' + sourceChain(src, ai) + enhanceChain(src, c) + afxChain(c) + (rev ? ',areverse' : '') + tempoChain(spd) + ',aformat=sample_fmts=fltp:channel_layouts=stereo,apad,atrim=end_sample=' + n + '[a];' +
       '[1:a]aresample=' + SR + ',aformat=sample_fmts=fltp:channel_layouts=stereo[g];' +
       '[a][g]amultiply,aformat=sample_fmts=s16:channel_layouts=stereo[o]';
     var files = {}; files[gfile] = buildGainRaw(c.points, c.durMs + lostMs);
