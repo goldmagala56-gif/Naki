@@ -1018,7 +1018,8 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       body.appendChild(chips([0.5, 0.75, 1, 1.5, 2, 3].map(function (v){ return { key: v, label: v + '×' }; }), cur, set));
       body.appendChild(sliderRow('Speed', 0.25, 4, 0.05, cur, function (v){ return v.toFixed(2) + '×'; }, null, set));
       body.appendChild(actions([{ id: 'edSpeedCurve', label: 'Speed curve (graph)', run: function (){ openPanel('speedcurve'); } }, { id: 'edSpeedAuto', label: 'Auto ramp', run: function (){ openPanel('speedramp'); } }]));
-      body.appendChild(mk('div', 'ed-hint', 'The picture and its sound change together. The movie clips after it move up or back. Your voice stays where it is.'));
+      if (cur < 1 && !c.reverse) body.appendChild(actions([{ id: 'edSmooth', label: c.smooth ? 'Smooth slow-mo: on' : 'Smooth slow-mo: off', run: function (){ commit(P.setSmooth(E.hist.cur, c.id)); } }]));
+      body.appendChild(mk('div', 'ed-hint', 'The picture and its sound change together. The movie clips after it move up or back. Your voice stays where it is.' + (cur < 1 ? ' Smooth slow-mo blends the frames in between when you export, so slow parts flow instead of stepping. The preview still shows plain frames.' : '')));
     } },
     volume: { title: 'Volume', build: function (body){
       var c = needPicture(body); if (!c) return;

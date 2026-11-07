@@ -631,6 +631,18 @@ function setReverse(p, id, on){
   return finish(q);
 }
 
+// ---------- smooth slow-motion ----------
+// clip.smooth = true: when the clip plays slower than normal, the export blends the frames in between (the plain way repeats the same frame several times,
+// which steps). Only a picture clip that plays the movie (not a paused picture, not a reversed one) can have it. on undefined = switch.
+function setSmooth(p, id, on){
+  var f = findClip(p, id); if (!f || f.track.kind !== 'video' || f.clip.type !== 'video' || f.clip.reverse) return p;
+  var want = on === undefined ? !f.clip.smooth : !!on;
+  if (want === !!f.clip.smooth) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip;
+  if (want) c.smooth = true; else delete c.smooth;
+  return finish(q);
+}
+
 // ---------- picture in picture presets ----------
 // A preset puts an overlay (photo or video) in a corner, the middle or one half of the frame. x, y = its centre and size = its width, as fractions of the frame.
 var PIP_PRESETS = [{ key: 'tl', label: 'Top left' }, { key: 'tr', label: 'Top right' }, { key: 'bl', label: 'Bottom left' }, { key: 'br', label: 'Bottom right' },
@@ -940,7 +952,7 @@ function canMerge(a, b){
   if (sp !== (b.speed || 1) || (a.volume != null ? a.volume : 1) !== (b.volume != null ? b.volume : 1)) return false;
   if (a.type === 'freeze'){ if (a.in !== b.in) return false; }
   else if (Math.abs(a.in + a.dur * sp - b.in) > 2) return false;
-  if (JSON.stringify([a.filter || null, a.opacity, a.transform || null, a.crop || null, a.stabilize || null]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null, b.crop || null, b.stabilize || null])) return false;
+  if (JSON.stringify([a.filter || null, a.opacity, a.transform || null, a.crop || null, a.stabilize || null, !!a.smooth]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null, b.crop || null, b.stabilize || null, !!b.smooth])) return false;
   if (JSON.stringify(a.afx || null) !== JSON.stringify(b.afx || null)) return false;
   if (JSON.stringify(a.grade || null) !== JSON.stringify(b.grade || null)) return false;
   if (a.vFadeOut || b.vFadeIn) return false;
@@ -1784,7 +1796,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setSmooth: setSmooth, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,

@@ -21,6 +21,7 @@ var NakiPlan = (function () {
         : { type: 'play', sessionStart: s, sessionEnd: e, movieStart: c.in + (c.reverse ? 0 : Math.round((s - Math.round(c.start)) * (c.speed || 1))) };
       if (sp.type === 'play' && c.reverse) sp.reverse = true;   // movieStart is then the START of the stretch; the part plays from its end back to it
       if (sp.type === 'play' && c.speed && c.speed !== 1) sp.speed = c.speed;
+      if (sp.type === 'play' && c.smooth && c.speed && c.speed < 1 && !c.reverse) sp.smooth = true;   // smooth slow-motion
       if (c.asset && c.asset !== 'movie') sp.asset = c.asset;   // a picture from a video added with Add video
       if (c.filter){
         sp.filter = { brightness: c.filter.brightness, contrast: c.filter.contrast, saturate: c.filter.saturate };

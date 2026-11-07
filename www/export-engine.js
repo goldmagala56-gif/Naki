@@ -199,7 +199,7 @@ function planToJobs(plan, movieInfo, opts) {
       return sourceArgs.concat(['-an', '-vf', fitChain + (tpad ? ',' + tpad : '') + ',setsar=1,fps=' + FPS + ',format=yuv420p', '-frames:v', String(nFrames)], tailEnc);
     }
     var inputs = sourceArgs.slice(), next = 1, fc = [], n = 0;
-    var head = (isGraph || fitChain === 'null' ? '' : fitChain + ',') + 'setsar=1' + (speed && speed !== 1 ? ',setpts=PTS/' + speed : '') + ',fps=' + FPS +
+    var head = (isGraph || fitChain === 'null' ? '' : fitChain + ',') + 'setsar=1' + (speed && speed !== 1 ? ',setpts=PTS/' + speed : '') + (sp.smooth && speed && speed < 1 ? ',framerate=fps=' + FPS : ',fps=' + FPS) +
       (tpad ? ',' + tpad : '') + ',format=yuv420p' + (look ? ',' + look : '');
     fc.push(isGraph ? fitChain.graph('[0:v]', '[f0]') + ';[f0]' + head + '[v0]' : '[0:v]' + head + '[v0]');
     var cur = 'v0';
