@@ -94,6 +94,7 @@ function sourceChain(src, movieInfo) {
 
 function planToJobs(plan, movieInfo, opts) {
   opts = opts || {};
+  FPS = opts.fps > 0 ? opts.fps : 30;   // the frame rate chosen on the export sheet (30 when none)
   var tier = opts.height || 480;
   var preset = opts.preset || 'veryfast';
   var crf = opts.crf != null ? opts.crf : 26;
@@ -741,7 +742,35 @@ var NakiExport = (function () {
     return new Blob([data.buffer], { type: 'video/mp4' });
   }
 
-  return { run: run, convertToMp4: convertToMp4 };
+// Turns a finished export (an MP4) into a GIF or a sound-only M4A.
+  // kind = 'gif' (opts.fps, opts.width) or 'audio'. Returns a Blob.
+  async function convertMedia(file, kind, opts, callbacks) {
+    callbacks = callbacks || {}; opts = opts || {};
+    var say = callbacks.onStatus || function () {}, prog = callbacks.onProgress || function () {};
+    say('Starting the video engine (first time only, this can take a moment)...');
+    var ffmpeg = await ensureLoaded(callbacks.onLog);
+    ffmpeg.writeFile('conv.in', await fetchFile(file));
+    var args, out, type;
+    if (kind === 'gif') {
+      out = 'conv.gif'; type = 'image/gif';
+      args = ['-i', 'conv.in', '-an', '-vf', 'fps=' + (opts.fps || 12) + ',scale=' + (opts.width || 480) + ':-2:flags=lanczos,split[a][b];[a]palettegen=max_colors=128[p];[b][p]paletteuse=dither=bayer:bayer_scale=4', '-loop', '0', out];
+      say('Making the GIF...');
+    } else {
+      out = 'conv.m4a'; type = 'audio/mp4';
+      args = ['-i', 'conv.in', '-vn', '-c:a', 'copy', '-movflags', '+faststart', out];
+      say('Taking out the sound...');
+    }
+    var off = function (e) { if (e && typeof e.progress === 'number') prog(Math.min(1, Math.max(0, e.progress))); };
+    ffmpeg.on('progress', off);
+    var code = await ffmpeg.exec(args);
+    ffmpeg.off('progress', off);
+    if (code !== 0) { try { await ffmpeg.deleteFile('conv.in'); } catch (e) {} throw new Error('The conversion failed (code ' + code + ').'); }
+    var data = await ffmpeg.readFile(out);
+    try { await ffmpeg.deleteFile('conv.in'); await ffmpeg.deleteFile(out); } catch (e) {}
+    return new Blob([data.buffer], { type: type });
+  }
+
+  return { run: run, convertToMp4: convertToMp4, convertMedia: convertMedia };
 })();
 
 if (typeof module !== 'undefined' && module.exports) {

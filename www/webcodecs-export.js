@@ -386,7 +386,7 @@ var WebCodecsExport = (function () {
       return (ratio !== 'original' && FM && ratio !== '9:16') ? FM.frameSize(t, ratio, srcW, srcH, 1) : targetSize(t, ratio !== 'original', srcW, srcH);
     }
     var duration = Math.max(1, plan.durationMs / 1000);
-    FPS = await pickFps(videoTrack);
+    FPS = opts.fps > 0 ? opts.fps : await pickFps(videoTrack);   // the sheet's choice, or the movie's own rate
     // At least the size that was asked for, and the movie's own size (up to 1080) when that is bigger: the slow engine needs the small cap, this one does not.
         var tier = (opts.exact && opts.height) ? opts.height : Math.max(opts.height || 720, ownTier(ratio, srcW, srcH)), size = sizeFor(tier), bitrate = pickBitrate(size.width, size.height, opts.quality, duration, FPS);
     // Ask the device first whether it can encode that. If its video chip cannot do the big size, use 720 (software encoding of 1080 would be very slow);

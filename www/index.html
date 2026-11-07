@@ -323,6 +323,9 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
   <div class="opt"><label>Shape <span>TikTok is tall</span></label><div class="seg"><button type="button" id="bShapeLandscape" aria-pressed="true">Landscape</button><button type="button" id="bShapeVertical" aria-pressed="false">Vertical (TikTok)</button></div></div>
   <div class="opt"><label>Resolution <span>Original = the movie's own size</span></label><div class="seg" id="segRes"><button type="button" data-res="480" aria-pressed="false">480p</button><button type="button" data-res="720" aria-pressed="true">720p</button><button type="button" data-res="1080" aria-pressed="true">1080p</button><button type="button" data-res="orig" aria-pressed="false">Original</button></div></div>
   <div class="opt"><label>Quality <span>bigger file, sharper picture</span></label><div class="seg"><button type="button" id="bQualityFaster" aria-pressed="true">Recommended</button><button type="button" id="bQualitySharper" aria-pressed="false">Higher (slower)</button></div></div>
+  <div class="opt"><label>Preset <span>sets the choices below</span></label><div class="seg" id="segPreset"><button type="button" data-preset="tiktok">TikTok</button><button type="button" data-preset="youtube">YouTube</button><button type="button" data-preset="status">WhatsApp</button><button type="button" data-preset="small">Small file</button></div></div>
+  <div class="opt"><label>Frame rate <span>Auto keeps the movie's own</span></label><div class="seg" id="segFps"><button type="button" data-fps="auto" aria-pressed="true">Auto</button><button type="button" data-fps="24" aria-pressed="false">24</button><button type="button" data-fps="30" aria-pressed="false">30</button><button type="button" data-fps="60" aria-pressed="false">60</button></div></div>
+  <div class="opt"><label>Save as <span>Sound only gives an M4A</span></label><div class="seg" id="segKind"><button type="button" data-kind="video" aria-pressed="true">Video</button><button type="button" data-kind="audio" aria-pressed="false">Sound only</button><button type="button" data-kind="gif" aria-pressed="false">GIF</button></div></div>
   <div class="opt"><label>Logo <span>optional</span></label><div class="row wrap" style="margin:0"><button type="button" id="bPickLogo" class="btn">Add logo</button><span id="logoName" class="dim small" style="align-self:center"></span><button type="button" id="bClearLogo" class="btn" hidden>Remove logo</button></div></div>
   <div class="est"><span data-ic="info" data-s="18"></span><span id="shEst"></span></div>
   <div id="exportBox" hidden>
@@ -1566,6 +1569,8 @@ $('bExport').onclick = function(){
     var vd = el.voice.duration;
     var plan = NakiEditor.planFor(S.sess, { voiceDurMs: isFinite(vd) && vd > 0 ? Math.round(vd * 1000) : null, saved: S.sess.savedProject });
   if (!S.sess.musicFile) plan.audio = plan.audio.filter(function(a){ return a.src !== 'music'; });
+  // Sound only: export a tiny black picture (fast), then take the sound out of it afterwards.
+  if (S.exportKind === 'audio'){ plan.video = [{ type: 'black', sessionStart: 0, sessionEnd: plan.durationMs }]; ['texts', 'stickers', 'overlays', 'fx', 'layouts'].forEach(function(k){ delete plan[k]; }); }
   // Match the source movie's own resolution instead of a fixed tier, so a higher-res
   // source isn't needlessly softened -- but cap it per the speed/quality choice, since
   // the fallback ffmpeg.wasm engine is single-threaded and a phone can be far slower
@@ -1575,11 +1580,13 @@ $('bExport').onclick = function(){
   var sharper = S.exportQuality === 'sharper';
   var targetH = S.exportRes === 'orig' ? sourceH : Math.max(240, Math.min(+S.exportRes || 720, sourceH));
   targetH -= targetH % 2;
+  if (S.exportKind === 'audio') targetH = 240; else if (S.exportKind === 'gif') targetH = Math.min(targetH, 480);
   var ffmpegOpts = { height: targetH, crf: sharper ? 17 : 20, preset: 'veryfast', vertical: S.exportVertical };
     var webcodecsOpts = { height: targetH, exact: true, quality: S.exportQuality, vertical: S.exportVertical };
   // The shape chosen in the editor (Format) wins; otherwise the Landscape / Vertical buttons decide.
   var fmt0 = plan.format, ratio0 = (fmt0 && fmt0.ratio && fmt0.ratio !== 'original') ? fmt0.ratio : (S.exportVertical ? '9:16' : 'original');
   ffmpegOpts.ratio = webcodecsOpts.ratio = ratio0; ffmpegOpts.bg = webcodecsOpts.bg = (fmt0 && fmt0.bg) || null;
+  if (S.exportFps && S.exportFps !== 'auto'){ ffmpegOpts.fps = webcodecsOpts.fps = +S.exportFps; }
   // The files behind the overlays. An overlay whose file is missing is left out, and you are told.
   var ovFiles = {};
   (plan.overlays || []).forEach(function(o){ var f = S.overlays[o.asset]; if (f && f.file) ovFiles[o.asset] = f.file; });
@@ -1608,6 +1615,7 @@ $('bExport').onclick = function(){
     lostVid = true; sp.type = 'black';
     ['movieStart', 'movieAt', 'speed', 'reverse', 'transitionIn', 'kf', 'asset'].forEach(function(k){ delete sp[k]; });
   });
+  if (S.exportKind === 'audio') plan.audio.forEach(function(a){ var f = a.asset && S.videos[a.asset]; if (f && f.file) vidFiles[a.asset] = f.file; });   // sound only still needs the sound of added videos
   plan.audio = plan.audio.filter(function(a){ return !a.asset || vidFiles[a.asset]; });
   if (lostVid) toast('A video you added is missing, so that part is blank. Open Edit and use Add video to add it again.', 9000);
   ffmpegOpts.videoFiles = webcodecsOpts.videoFiles = vidFiles;
@@ -1620,12 +1628,15 @@ $('bExport').onclick = function(){
     onStatus: function(t){ statusEl.textContent = t; },
     onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
   }).then(function(blob){
+    return postExport(blob, statusEl, bar, pctEl);
+  }).then(function(res){
+    var blob = res.blob;
     if (S.exportUrl) { try { URL.revokeObjectURL(S.exportUrl); } catch (e) {} }
     var url = URL.createObjectURL(blob); S.exportUrl = url;
-    var filename = safeName(S.sess.name) + '_naki.mp4';
-    preview.src = url;
+    var filename = safeName(S.sess.name) + '_naki.' + res.ext;
+    preview.hidden = (res.ext === 'gif'); preview.src = url;
     dl.href = url; dl.download = filename;
-    var file = new File([blob], filename, { type: 'video/mp4' });
+    var file = new File([blob], filename, { type: res.type });
     if (navigator.share && navigator.canShare && navigator.canShare({ files: [file] })){
       shareBtn.hidden = false;
       shareBtn.onclick = function(){
@@ -2178,6 +2189,40 @@ if (rec && rec.status === 'stopped' && S.view === 'home') openSaved(rec.id);
     if (on){ var tx = 'Recording ' + $('recTime').textContent; if ($('recPillT').textContent !== tx) $('recPillT').textContent = tx; }
     var oc = $('offlineChip'), off = !IS_DEV && !!(navigator.serviceWorker && navigator.serviceWorker.controller); if (oc.hidden === off) oc.hidden = !off;
   }, 300);
+  /* export options: frame rate, save as, presets */
+  S.exportFps = 'auto'; S.exportKind = 'video';
+  function press(sel, attr, val){ [].forEach.call(document.querySelectorAll(sel + ' button'), function(b){ b.setAttribute('aria-pressed', String(b.getAttribute(attr) === String(val))); }); }
+  function setFps(v){ S.exportFps = String(v); press('#segFps', 'data-fps', v); }
+  function setKind(v){ S.exportKind = v; press('#segKind', 'data-kind', v); }
+  function kindNote(){
+    if (!S.sess) return;
+    if (S.exportKind === 'audio'){ var mb = Math.max(1, Math.round(planMs() / 1000 * 192 / 8 / 1000)); $('shEst').innerHTML = 'Sound only: about <b>' + mb + ' MB</b> \u00b7 M4A'; }
+    else if (S.exportKind === 'gif') $('shEst').innerHTML = 'GIF: 480 px wide, 12 pictures a second. Best under about 15 seconds; long GIFs get very big.';
+  }
+  [].forEach.call(document.querySelectorAll('#segFps button'), function(b){ b.addEventListener('click', function(){ setFps(b.getAttribute('data-fps')); }); });
+  [].forEach.call(document.querySelectorAll('#segKind button'), function(b){ b.addEventListener('click', function(){ setKind(b.getAttribute('data-kind')); est(); kindNote(); }); });
+  [].forEach.call(document.querySelectorAll('#exportSheet .seg button'), function(b){ b.addEventListener('click', function(){ setTimeout(kindNote, 0); }); });
+  var PRESETS = { tiktok: { vertical: true, res: '1080', q: 'faster', fps: 30 }, youtube: { vertical: false, res: '1080', q: 'sharper', fps: 30 },
+    status: { vertical: true, res: '720', q: 'faster', fps: 30 }, small: { vertical: false, res: '480', q: 'faster', fps: 24 } };
+  [].forEach.call(document.querySelectorAll('#segPreset button'), function(b){
+    b.addEventListener('click', function(){
+      var p = PRESETS[b.getAttribute('data-preset')]; if (!p) return;
+      $(p.vertical ? 'bShapeVertical' : 'bShapeLandscape').click(); $(p.q === 'sharper' ? 'bQualitySharper' : 'bQualityFaster').click();
+      var r = document.querySelector('#segRes [data-res="' + p.res + '"]'); if (r) r.click();
+      setFps(p.fps); setKind('video'); est();
+      toast('Preset set. If you chose a video shape in the editor (Format), that shape is used.', 5000);
+    });
+  });
+  // what happens to the finished MP4: nothing for a video; a GIF or a sound-only file is made from it
+  window.postExport = function(blob, statusEl, bar, pctEl){
+    var kind = S.exportKind;
+    if (kind !== 'audio' && kind !== 'gif') return Promise.resolve({ blob: blob, ext: 'mp4', type: 'video/mp4' });
+    return loadExportEngine().then(function(){
+      return NakiExport.convertMedia(blob, kind, { fps: 12, width: 480 }, {
+        onStatus: function(t){ statusEl.textContent = t; },
+        onProgress: function(p){ var pc = Math.round(p * 100); bar.style.width = pc + '%'; pctEl.textContent = pc + '%'; } });
+    }).then(function(out){ return kind === 'gif' ? { blob: out, ext: 'gif', type: 'image/gif' } : { blob: out, ext: 'm4a', type: 'audio/mp4' }; });
+  };
   icons(); window.markNav(S.view); document.documentElement.setAttribute('data-view', S.view);
   new MutationObserver(icons).observe(document.body, { childList: true, subtree: true });
 })();
