@@ -6,7 +6,7 @@
 var NakiAnim = (function () {
   var OVERLAY = { x: 0.75, y: 0.25, size: 0.35, rot: 0, opacity: 1 };   // centre (fraction of the frame), width (fraction of the frame width), degrees, 0 to 1
   var PICTURE = { zoom: 1, x: 0, y: 0 };
-  var RANGE = { overlay: { x: [0, 1], y: [0, 1], size: [0.05, 1.5], rot: [-180, 180], opacity: [0, 1] }, picture: { zoom: [1, 4], x: [-1, 1], y: [-1, 1] } };
+  var RANGE = { overlay: { x: [0, 1], y: [0, 1], size: [0.05, 1.5], rot: [-180, 180], opacity: [0, 1] }, picture: { zoom: [1, 4], x: [-1, 1], y: [-1, 1] }, audio: { volume: [0, 2] } };
 
   // ---------- easing: how a value travels from one keyframe to the next ----------
   // A keyframe can carry a third item that says how the value moves from IT to the NEXT keyframe: nothing = in a straight line; 'hold' = it stays
@@ -128,6 +128,7 @@ var NakiAnim = (function () {
   function valueOf(c, kind, prop, relMs) {
     var pts = c.kf && c.kf[prop];
     if (pts && pts.length) return kfValue(pts, relMs);
+    if (kind === 'audio') return c.volume != null ? c.volume : 1;
     if (kind === 'overlay') return c[prop] != null ? c[prop] : OVERLAY[prop];
     return c.transform && c.transform[prop] != null ? c.transform[prop] : PICTURE[prop];
   }

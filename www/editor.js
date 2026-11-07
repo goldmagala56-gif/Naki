@@ -284,7 +284,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     d.wasSnapped = true;
   }
   function clipEl(tr, c){
-    var e = mk('div', 'ed-clip ' + clipKind(tr, c) + (c.id === E.sel ? ' sel' : '') + (E.multi && E.multi[c.id] ? ' multi' : ''));
+    var e = mk('div', 'ed-clip ' + clipKind(tr, c) + (c.id === E.sel ? ' sel' : '') + (E.multi && E.multi[c.id] ? ' multi' : '') + (c.group ? ' grp' : ''));
     e.dataset.id = c.id; e.style.left = tx(c.start) + 'px'; e.style.width = Math.max(3, c.dur * E.ppm) + 'px';
     if (c.dur * E.ppm > 46) e.appendChild(mk('span', 'ed-cl', clipTitle(tr, c)));
     if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); } else { try { decorateClip(e, tr, c); } catch (err){ console.warn('clip picture/waveform failed', err); } }
@@ -642,7 +642,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   };
 
   function openTool(name){ E.tool = name || null; E.panel = null; E.autoDock = false; renderDock(); }
-  function closeTool(){ E.multi = {}; E.tool = null; E.panel = null; E.autoDock = false; E.sel = null; renderTimeline(); renderDock(); }   // the back arrow, like CapCut, lets go of the clip too
+  function closeTool(){ E.multi = {}; E.pickMulti = false; E.tool = null; E.panel = null; E.autoDock = false; E.sel = null; renderTimeline(); renderDock(); }   // the back arrow, like CapCut, lets go of the clip too
   function openPanel(name, tool){ if (tool) E.tool = tool; E.panel = name; renderDock(); }
   function closePanel(){ E.panel = null; renderDock(); }
   // Tapping a clip brings up the tools for that kind of clip; letting go of it (when the tools came up by themselves) takes them away again.
@@ -1194,11 +1194,15 @@ crop: { title: 'Crop', build: function (body){
       var c = f && f.track.kind === 'audio' ? f.clip : (mt && mt.clips[0]);
       if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a sound clip on the timeline first.')); return; }
       var half = Math.min(5000, Math.floor(c.dur / 2)), keys = [{ key: 'volume', label: 'Volume' }, { key: 'fadeIn', label: 'Fade in' }, { key: 'fadeOut', label: 'Fade out' }], cur = chipKey('clipaudio', keys, 'volume');
-      var set = function (v){ var o = {}; if (cur === 'volume') o.volume = v / 100; else { o[cur] = v; o[cur + 'Off'] = 0; } return P.setClipProps(E.hist.cur, c.id, o); };
+      var set = function (v){ if (cur === 'volume' && c.kf && c.kf.volume && c.kf.volume.length) return P.setAnimated(E.hist.cur, c.id, 'volume', v / 100, relNow(c)); var o = {}; if (cur === 'volume') o.volume = v / 100; else { o[cur] = v; o[cur + 'Off'] = 0; } return P.setClipProps(E.hist.cur, c.id, o); };
       body.appendChild(chips(keys, cur, pickChip('clipaudio')));
       body.appendChild(cur === 'volume'
-        ? sliderRow('Volume', 0, 200, 5, Math.round((c.volume != null ? c.volume : 1) * 100), pct, function (v){ live(set(v)); }, function (v){ commit(set(v)); })
+        ? sliderRow('Volume', 0, 200, 5, Math.round((NANIM ? NANIM.valueOf(c, 'audio', 'volume', relNow(c)) : (c.volume != null ? c.volume : 1)) * 100), pct, function (v){ live(set(v)); }, function (v){ commit(set(v)); })
         : sliderRow(cur === 'fadeIn' ? 'Fade in' : 'Fade out', 0, half, 100, Math.min(half, c[cur] || 0), secs, function (v){ live(set(v)); }, function (v){ commit(set(v)); }));
+      if (cur === 'volume'){
+        body.appendChild(keyframeActions(c, 'volume'));
+        body.appendChild(mk('div', 'ed-hint', 'Move the playhead, tap Add keyframe, then change the volume. The sound glides between keyframes, so you can lower it for a line and bring it back.'));
+      }
     } },
     textedit: { title: 'Text', build: function (body){
       var c = selText(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a text on the timeline first.')); return; }
@@ -2476,14 +2480,26 @@ crop: { title: 'Crop', build: function (body){
     var delta = Math.round(E.t) - first; if (!delta){ toast('They already start here.'); return; }
     moveSel(delta);
   }
+  function selInGroup(){ return selIds().some(function (id){ return P.groupIds(E.proj, id).length > 1; }); }
+  function groupSel(){
+    var ids = selIds(); if (ids.length < 2){ toast('Pick two or more clips first (Pick clips, Select right or Select all).', 5000); return; }
+    var q = P.groupClips(E.hist.cur, ids); if (q === E.hist.cur){ toast('They could not be grouped. Clips on locked rows cannot join a group.', 5000); return; }
+    E.pickMulti = false; commit(q); toast('Grouped. Tap one clip to select the whole group. They move, copy and delete together.', 6000);
+  }
+  function ungroupSel(){
+    var q = E.hist.cur; selIds().forEach(function (id){ q = P.ungroupClips(q, id); });
+    if (q === E.hist.cur){ toast('Those clips are not in a group.'); return; }
+    E.multi = {}; E.sel = null; commit(q); toast('Ungrouped.');
+  }
+  function togglePick(){ E.pickMulti = !E.pickMulti; toast(E.pickMulti ? 'Tap clips to add or remove them. Tap Pick clips again when you are done.' : 'Picking is off.', 5000); renderDock(); }
   function copySel(){
     var id = E.sel || selIds()[0]; if (!id){ toast('Tap a clip first.'); return; }
-    var cb = P.copyClip(E.hist.cur, id); if (!cb){ toast('That clip cannot be copied.'); return; }
+    var cb = (P.copyGroup && P.copyGroup(E.hist.cur, id)) || P.copyClip(E.hist.cur, id); if (!cb){ toast('That clip cannot be copied.'); return; }
     CB = cb; toast('Copied. Move the playhead, then tap Paste.'); renderDock();
   }
   function pasteHere(){
     if (!CB){ toast('Copy a clip first.'); return; }
-    var out = {}, q = P.pasteClip(E.hist.cur, CB, Math.round(E.t), out);
+    var out = {}, q = CB.group ? P.pasteGroup(E.hist.cur, CB, Math.round(E.t), out) : P.pasteClip(E.hist.cur, CB, Math.round(E.t), out);
     if (q === E.hist.cur){ toast('There is no room to paste here. Move the playhead earlier.'); return; }
     var nf = out.id && P.findClip(q, out.id); if (nf) E.t = nf.clip.start;
     E.multi = {}; E.sel = out.id || null; commit(q); toast('Pasted.');
@@ -2521,6 +2537,9 @@ crop: { title: 'Crop', build: function (body){
       { id: 'edSelRight', label: 'Select right', icon: G.gap, run: selectRightHere },
       { id: 'edSelAll', label: 'Select all', icon: G.sel, run: selectAllClips },
       { id: 'edSelClear', label: 'Clear', icon: G.reset, run: clearMulti, disabled: !n },
+      { id: 'edSelPick', label: E.pickMulti ? 'Picking: on' : 'Pick clips', icon: G.sel, run: togglePick, on: !!E.pickMulti },
+      { id: 'edSelGroup', label: 'Group', icon: G.join, run: groupSel, disabled: selIds().length < 2 },
+      { id: 'edSelUngroup', label: 'Ungroup', icon: G.gap, run: ungroupSel, disabled: !selInGroup() },
       { id: 'edSelMove', label: 'Move', icon: G.join, run: function (){ openPanel('shiftclips'); }, disabled: !any },
       { id: 'edSelDelete', label: 'Delete', icon: G.trash, run: deleteMulti, disabled: !any },
       { id: 'edSnap', label: 'Snapping', icon: G.magnet, run: toggleSnap, on: E.snap !== false }
@@ -3139,8 +3158,12 @@ crop: { title: 'Crop', build: function (body){
     if (E.pinch) return;
     if (clipE){
       var id = clipE.dataset.id, f = P.findClip(E.proj, id); if (!f) return;
+      if (E.pickMulti && E.tool === 'select' && !handle){   // Pick clips: each tap adds the clip to the selection or takes it out
+        delete E.pointers[ev.pointerId]; E.multi = E.multi || {}; if (E.multi[id]) delete E.multi[id]; else E.multi[id] = true; E.sel = null; renderSelectionOnly(); return;
+      }
       if (E.multi && Object.keys(E.multi).length) E.multi = {};
       var wasSel = E.sel === id; E.sel = id; var tr = f.track, c = f.clip;
+      var gm = P.groupIds ? P.groupIds(E.proj, id) : [id]; if (gm.length > 1){ E.multi = {}; gm.forEach(function (g){ E.multi[g] = true; }); }   // a group is selected as a whole
       if (tr.locked){ renderSelectionOnly(); toast('This row is locked. Tap its lock to edit it.'); return; }
       E.drag = { mode: handle ? (handle.classList.contains('ed-hl') ? 'trimL' : 'trimR') : 'pending', id: id, x0: ev.clientX, y0: ev.clientY, el: clipE, tr: tr,
         s0: c.start, e0: c.start + c.dur, touch: ev.pointerType === 'touch', moved: false, press: 0, timer: 0, wasSel: wasSel, sl0: E.ui.scroll.scrollLeft, lastX: ev.clientX };
@@ -3187,7 +3210,13 @@ crop: { title: 'Crop', build: function (body){
     if (cancel){ renderTimeline(); return; }
     if (d.mode === 'trimL' || d.mode === 'trimR') finishTrim(d);
     else if (d.mode === 'move' && d.moved){
-      var cur0 = E.hist.cur, rowMove = d.target ? P.moveClipToRow(cur0, d.id, d.target.track, d.newStart, d.target.pos) : cur0;
+      var cur0 = E.hist.cur, gm0 = (P.groupIds && !d.target) ? P.groupIds(cur0, d.id) : [];
+      if (gm0.length > 1 && d.newStart !== d.s0){
+        var gq = P.moveClips(cur0, gm0, d.newStart - d.s0);
+        if (gq === cur0){ renderTimeline(); toast('There is no room to move the group there.'); } else commit(gq);
+        return;
+      }
+      var rowMove = d.target ? P.moveClipToRow(cur0, d.id, d.target.track, d.newStart, d.target.pos) : cur0;
       if (rowMove !== cur0){ commit(rowMove); return; }
       var q = P.placeClip(cur0, d.id, d.newStart), pic0 = d.tr.role === 'movie' || d.tr.role === 'movieSound';
       if (q === cur0){ renderTimeline(); var pl0 = P.planPlace(cur0, d.id, d.newStart); if (pl0 && (pl0.start !== d.s0 || pl0.pushed)) toast('There is no room for it there.'); } else commit(pic0 ? tidy(q) : q);

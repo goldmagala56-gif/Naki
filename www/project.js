@@ -250,7 +250,8 @@ function setTrackProps(p, trackId, patch){
 // ---------- reading ----------
 function clipGainAt(tr, c, t){
   if (tr.muted) return 0;
-  var rel = t - c.start, g = (tr.volume != null ? tr.volume : 1) * (c.volume != null ? c.volume : 1) * gainAt(c.gain, rel);
+  var rel = t - c.start, vol = (c.kf && c.kf.volume && c.kf.volume.length && _AN) ? _AN.kfValue(c.kf.volume, rel) : (c.volume != null ? c.volume : 1);   // volume keyframes
+  var g = (tr.volume != null ? tr.volume : 1) * vol * gainAt(c.gain, rel);
   if (c.fadeIn > 0){ var xi = rel + (c.fadeInOff || 0); if (xi < c.fadeIn) g *= xi / c.fadeIn; }
   if (c.fadeOut > 0){ var xo = c.dur + (c.fadeOutOff || 0) - rel; if (xo < c.fadeOut) g *= Math.max(0, xo / c.fadeOut); }
   return g;
@@ -628,6 +629,58 @@ function setReverse(p, id, on){
   if (want === !!f.clip.reverse) return p;
   var q = cloneProject(p);
   linkedIds(q, id).forEach(function (cid){ var c = findClip(q, cid).clip; if (want) c.reverse = true; else delete c.reverse; });
+  return finish(q);
+}
+
+// ---------- groups ----------
+// Clips with the same clip.group move, copy and delete together. A group is only a tag: every clip keeps its own row, look and length.
+function groupIds(p, id){   // the clip and everyone in its group (just [id] when it is alone)
+  var f = findClip(p, id); if (!f) return [];
+  var out = [id], g = f.clip.group; if (!g) return out;
+  p.tracks.forEach(function (tr){ tr.clips.forEach(function (c){ if (c.group === g && c.id !== id) out.push(c.id); }); });
+  return out;
+}
+// Puts the clips in one group (clips already in a group bring their whole group along). Clips on locked rows cannot join. Fewer than two: nothing happens.
+function groupClips(p, ids){
+  var q = cloneProject(p), set = {}, list = [];
+  (ids || []).forEach(function (id){ groupIds(q, id).forEach(function (cid){ if (!set[cid]){ set[cid] = 1; list.push(cid); } }); });
+  var g = newId('g'), n = 0;
+  list.forEach(function (cid){ var f = findClip(q, cid); if (f && !f.track.locked){ f.clip.group = g; n++; } });
+  return n < 2 ? p : finish(q);
+}
+function ungroupClips(p, id){
+  var f = findClip(p, id); if (!f || !f.clip.group) return p;
+  var q = cloneProject(p), g = f.clip.group;
+  q.tracks.forEach(function (tr){ tr.clips.forEach(function (c){ if (c.group === g) delete c.group; }); });
+  return finish(q);
+}
+// A copy of a whole group (null when the clip is not in one): each clip with its distance from the first one.
+function copyGroup(p, id){
+  var ids = groupIds(p, id); if (ids.length < 2) return null;
+  var inSet = {}; ids.forEach(function (cid){ inSet[cid] = 1; });
+  var items = [], first = Infinity;
+  ids.forEach(function (cid){
+    var f = findClip(p, cid); if (!f) return;
+    if (f.track.role === 'movieSound' && f.clip.link && linkedIds(p, cid).some(function (x){ var g = findClip(p, x); return x !== cid && g && g.track.role === 'movie' && inSet[x]; })) return;   // a movie's sound is copied with its picture
+    first = Math.min(first, f.clip.start); items.push({ cb: copyClip(p, cid), start: f.clip.start });
+  });
+  if (items.length < 2) return null;
+  return { group: items.map(function (it){ return { cb: it.cb, off: it.start - first }; }) };
+}
+// Puts a copied group at time t as a new group. If one clip does not fit, nothing is pasted. out.ids = the new clips.
+function pasteGroup(p, cbg, t, out){
+  out = out || {};
+  if (!cbg || !cbg.group || !cbg.group.length) return p;
+  var items = cbg.group.slice().sort(function (a, b){ return ((a.cb.role === 'movie') ? 0 : 1) - ((b.cb.role === 'movie') ? 0 : 1) || a.off - b.off; });
+  var q = p, ids = [];
+  for (var i = 0; i < items.length; i++){
+    var o = {}, q2 = pasteClip(q, items[i].cb, Math.round(t) + items[i].off, o);
+    if (q2 === q || !o.id) return p;
+    q = q2; ids.push(o.id);
+  }
+  q = cloneProject(q); var g = newId('g');
+  ids.forEach(function (id){ var f = findClip(q, id); if (f) f.clip.group = g; });
+  out.ids = ids; out.id = ids[0];
   return finish(q);
 }
 
@@ -1100,8 +1153,9 @@ function stickersAt(p, t){
 // ---------- keyframes and overlays ----------
 // Keyframes live on a clip as clip.kf = { prop: [[msSinceClipStart, value], ...] }. They work on overlay clips (x, y, size, rot, opacity) and on a picture
 // clip's zoom and pan (zoom, x, y). A property with no keyframes keeps its one fixed value.
-function kfKind(tr){ return tr.kind === 'overlay' ? 'overlay' : (tr.role === 'movie' ? 'picture' : null); }
+function kfKind(tr){ return tr.kind === 'overlay' ? 'overlay' : (tr.role === 'movie' ? 'picture' : (tr.kind === 'audio' ? 'audio' : null)); }
 function setStaticProp(c, kind, prop, v){
+  if (kind === 'audio'){ c.volume = v; return; }
   if (kind === 'overlay'){ c[prop] = v; return; }
   var t = Object.assign({ zoom: 1, x: 0, y: 0, rot: 0, flipH: false }, c.transform || {});   // same tidy-up as setTransform
   t[prop] = v; t.zoom = r3(Math.max(1, Math.min(4, +t.zoom || 1)));
@@ -1429,7 +1483,7 @@ function setCaptionAnim(p, patch){
 // A ready-made movement for a picture clip (zoom, pan) or an overlay (slide, pop, spin, fade), made of keyframes (see anim.js).
 // It replaces the clip's other keyframes. 'none' takes them all away; the clip keeps its fixed look.
 function setMotionPreset(p, id, key){
-  var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !_MO) return p;
+  var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || kind === 'audio' || !_MO) return p;
   var q = cloneProject(p), c = findClip(q, id).clip;
   if (!key || key === 'none'){ if (!c.kf) return p; delete c.kf; return finish(q); }
   var base = kind === 'overlay' ? { x: c.x, y: c.y, size: c.size, rot: c.rot || 0, opacity: c.opacity != null ? c.opacity : 1 } : {};
@@ -1613,6 +1667,7 @@ function setKeyframeEase(p, id, prop, relMs, ease){
 function keyframeProps(p, id){
   var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !_AN) return [];
   if (kind === 'overlay' && f.clip.gen && f.clip.gen.full) return [];   // a frame or a spotlight covers the picture: nothing to move
+  if (kind === 'audio') return ['volume'];
   return kind === 'overlay' ? ['x', 'y', 'size', 'rot', 'opacity'] : ['zoom', 'x', 'y'];
 }
 // The moments (ms since the clip started) that have a keyframe on any property; keyframes within a frame of each other count as one.
@@ -1681,7 +1736,7 @@ function pasteClip(p, cb, t, out){
   out = out || {};
   if (!cb || !cb.clip || !(p.durationMs > 0)) return p;
   var q = cloneProject(p), dur = Math.round(cb.clip.dur), start = Math.max(0, Math.round(t)), copy = JSON.parse(JSON.stringify(cb.clip));
-  delete copy.curve; delete copy.transition;
+  delete copy.curve; delete copy.transition; delete copy.group;
   if (copy.asset && !q.assets[copy.asset]) return p;
   if (cb.role === 'movie'){
     var lane = pictureLane(q); if (!lane || lane.locked) return p;
@@ -1692,7 +1747,7 @@ function pasteClip(p, cb, t, out){
     lane.clips.push(copy); out.id = copy.id;
     (cb.linked || []).forEach(function (l){
       var tr = q.tracks.filter(function (x){ return x.role === l.role; })[0]; if (!tr) return;
-      var cc = JSON.parse(JSON.stringify(l.clip)); delete cc.curve; cc.id = newId('c'); cc.start = start; cc.link = link; tr.clips.push(cc);
+      var cc = JSON.parse(JSON.stringify(l.clip)); delete cc.curve; delete cc.group; cc.id = newId('c'); cc.start = start; cc.link = link; tr.clips.push(cc);
     });
     return finish(q);
   }
@@ -1752,7 +1807,7 @@ function pasteLook(p, look, ids){
 function moveClips(p, ids, delta){
   delta = Math.round(delta); if (!delta || !ids || !ids.length) return p;
   var q = cloneProject(p), seen = {}, list = [];
-  ids.forEach(function (id){ linkedIds(q, id).forEach(function (cid){ if (seen[cid]) return; seen[cid] = 1; var f = findClip(q, cid); if (f && !f.track.locked) list.push(f.clip); }); });
+  ids.forEach(function (id0){ groupIds(q, id0).forEach(function (id){ linkedIds(q, id).forEach(function (cid){ if (seen[cid]) return; seen[cid] = 1; var f = findClip(q, cid); if (f && !f.track.locked) list.push(f.clip); }); }); });
   if (!list.length) return p;
   var minStart = Math.min.apply(null, list.map(function (c){ return c.start; }));
   if (minStart + delta < 0) delta = -minStart;
@@ -1767,7 +1822,8 @@ function selectRight(p, t){
   return out;
 }
 function deleteClips(p, ids){
-  var q = p; (ids || []).forEach(function (id){ q = deleteClip(q, id); });
+  var q = p, all = [], seen = {}; (ids || []).forEach(function (id0){ groupIds(p, id0).forEach(function (g){ if (!seen[g]){ seen[g] = 1; all.push(g); } }); });
+  all.forEach(function (id){ q = deleteClip(q, id); });
   return q;
 }
 
@@ -1796,7 +1852,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setSmooth: setSmooth, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, groupIds: groupIds, groupClips: groupClips, ungroupClips: ungroupClips, copyGroup: copyGroup, pasteGroup: pasteGroup, setSmooth: setSmooth, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,

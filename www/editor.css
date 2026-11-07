@@ -260,3 +260,4 @@
 /* layouts: mirror and split screen */
 .ed-picframe canvas.ed-layoutcv{position:absolute;inset:0;width:100%;height:100%;display:none;pointer-events:none}
 .ed-clip.k-layout{background:#2b7a78;border-color:#5fd0cb}
+.ed-clip.grp{box-shadow:inset 0 -3px 0 #ffd400}
