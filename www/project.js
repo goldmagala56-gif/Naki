@@ -631,6 +631,79 @@ function setGrade(p, id, patch){
   return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
 }
 
+// ---------- text to speech ----------
+// A speech clip is an ordinary sound-effect clip (it moves, cuts, fades and exports like any sound). Its sound file belongs to an asset, and the asset
+// remembers how it was made: assets[id].tts = { text, voice, speed, pitch }, so the speech can be changed later.
+function cleanTts(m){
+  return { text: String(m.text == null ? '' : m.text).slice(0, 4000), voice: String(m.voice || ''),
+    speed: Math.round(Math.max(0.5, Math.min(3, +m.speed || 1)) * 100) / 100, pitch: Math.round(Math.max(-12, Math.min(12, +m.pitch || 0))) };
+}
+function setAssetTts(p, asset, meta){
+  if (!p.assets[asset]) return p;
+  var q = cloneProject(p); if (meta) q.assets[asset].tts = cleanTts(meta); else delete q.assets[asset].tts;
+  return JSON.stringify(q.assets) === JSON.stringify(p.assets) ? p : q;
+}
+function ttsOf(p, id){
+  var f = findClip(p, id), a = f && f.clip.asset ? p.assets[f.clip.asset] : null;
+  return a && a.tts ? a.tts : null;
+}
+// Puts a new take of the speech behind a speech clip: the clip keeps its place, volume and fades. The new sound gets a NEW asset (out.asset), so nothing
+// old (a cached waveform, say) is shown for it. The clip is made as long as the new speech, but never past the next clip on its row or the end of the video
+// (out.cut says it was cut short). info = { durMs, name }.
+function replaceSpeech(p, id, info, meta, out){
+  out = out || {};
+  var f = findClip(p, id); if (!f || f.track.role !== 'sfx' || !f.clip.asset || !p.assets[f.clip.asset]) return p;
+  var d0 = Math.round(+(info && info.durMs) || 0); if (d0 < 100) return p;
+  var q = cloneProject(p), qf = findClip(q, id), c = qf.clip, nextStart = null, old = c.asset;
+  qf.track.clips.forEach(function (x){ if (x.id !== id && x.start >= c.start && (nextStart === null || x.start < nextStart)) nextStart = x.start; });
+  var room = Math.min(q.durationMs - c.start, nextStart === null ? Infinity : nextStart - c.start), d = Math.min(d0, room);
+  if (d < 100){ out.error = 'There is no room for the new speech there.'; return p; }
+  var n = 1; while (q.assets['fx' + n]) n++;
+  var asset = 'fx' + n; q.assets[asset] = { type: 'audio', name: (info && info.name) || q.assets[old].name, durMs: d0 };
+  if (meta) q.assets[asset].tts = cleanTts(meta);
+  c.asset = asset; c.in = 0; c.dur = d; c.fadeInOff = 0; c.fadeOutOff = 0;
+  var half = Math.floor(d / 2); if (c.fadeIn > half) c.fadeIn = half; if (c.fadeOut > half) c.fadeOut = half;
+  out.asset = asset; out.cut = d < d0;
+  return finish(q);
+}
+
+// ---------- multi-camera ----------
+// Every added video (Add video) is a camera. assets[id].syncMs says how it lines up with the main movie: time in that camera's file = time in the movie file + syncMs
+// (positive: that camera started recording earlier). The main movie is 0. Without a syncMs a camera cannot be switched to.
+function setAssetSync(p, asset, ms){
+  if (!/^v\d+$/.test(asset) || !p.assets[asset]) return p;
+  var v = ms == null ? null : Math.round(Math.max(-600000, Math.min(600000, +ms)));
+  if (v !== null && isNaN(v)) return p;
+  if (v === null ? p.assets[asset].syncMs === undefined : p.assets[asset].syncMs === v) return p;
+  var q = cloneProject(p); if (v === null) delete q.assets[asset].syncMs; else q.assets[asset].syncMs = v;
+  return q;
+}
+function angleSyncOf(p, a){ if (!a || a === 'movie') return 0; var x = p.assets[a]; return x && typeof x.syncMs === 'number' ? x.syncMs : null; }
+// The cameras: the main movie and every added video, with their sync (null = not synced yet).
+function angleList(p){
+  var out = [{ asset: 'movie', name: (p.assets.movie && p.assets.movie.name) || 'Main video', sync: 0 }];
+  Object.keys(p.assets).filter(function (k){ return /^v\d+$/.test(k) && p.assets[k].type === 'video'; }).sort(function (a, b){ return +a.slice(1) - +b.slice(1); })
+    .forEach(function (k){ out.push({ asset: k, name: p.assets[k].name || k, sync: angleSyncOf(p, k) }); });
+  return out;
+}
+// Shows another camera in a picture clip, at the same moment of the event. Its sound is not touched (the sound you already have goes on).
+// Refuses (out.error) when the camera is not synced, did not film that moment, or the clip is reversed.
+function switchAngle(p, id, to, out){
+  out = out || {}; to = to || 'movie';
+  var f = findClip(p, id);
+  if (!f || f.track.role !== 'movie' || (f.clip.type !== 'video' && f.clip.type !== 'freeze')){ out.error = 'Pick a picture clip first.'; return p; }
+  var c = f.clip, from = c.asset || 'movie';
+  if (from === to) return p;
+  if (to !== 'movie' && !p.assets[to]){ out.error = 'That camera is not in the project.'; return p; }
+  var sf = angleSyncOf(p, from), st = angleSyncOf(p, to);
+  if (sf === null || st === null){ out.error = 'Sync that camera first (Sync automatically).'; return p; }
+  if (c.reverse && to !== 'movie'){ out.error = 'A reversed clip can only use the main video.'; return p; }
+  var nin = Math.round(c.in + (st - sf)), need = c.type === 'freeze' ? 0 : c.dur * (c.speed || 1), D = p.assets[to] && p.assets[to].durMs;
+  if (nin < 0 || (D && nin + need > D + 40)){ out.error = 'That camera did not film this part: it started or stopped too soon.'; out.short = true; return p; }
+  var q = cloneProject(p), qc = findClip(q, id).clip; qc.asset = to; qc.in = nin;
+  return finish(q);
+}
+
 // ---------- reverse ----------
 // Plays a movie clip backwards: the same stretch of the movie, last picture first. Its linked movie sound is
 // reversed with it. A paused picture has nothing to play backwards. on = true / false, or leave out to switch.
@@ -1963,7 +2036,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setDenoise: setDenoise, setMotionBlur: setMotionBlur, addPiece: addPiece, addCountdown: addCountdown, PIECES: PIECE_LIST.map(function (d){ return { key: d.key, label: d.label, numbered: !!d.numbered }; }), groupIds: groupIds, groupClips: groupClips, ungroupClips: ungroupClips, copyGroup: copyGroup, pasteGroup: pasteGroup, setSmooth: setSmooth, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setDenoise: setDenoise, setMotionBlur: setMotionBlur, addPiece: addPiece, addCountdown: addCountdown, PIECES: PIECE_LIST.map(function (d){ return { key: d.key, label: d.label, numbered: !!d.numbered }; }), groupIds: groupIds, groupClips: groupClips, ungroupClips: ungroupClips, copyGroup: copyGroup, pasteGroup: pasteGroup, setSmooth: setSmooth, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setAssetSync: setAssetSync, angleList: angleList, switchAngle: switchAngle, setAssetTts: setAssetTts, ttsOf: ttsOf, replaceSpeech: replaceSpeech, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,

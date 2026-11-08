@@ -24,6 +24,8 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   var NRB = (typeof module !== 'undefined' && module.exports) ? require('./removebg.js') : (typeof window !== 'undefined' ? window.NakiRemoveBg : null);
   var NBS = (typeof module !== 'undefined' && module.exports) ? require('./beatsync.js') : (typeof window !== 'undefined' ? window.NakiBeats : null);
   var NMO = (typeof module !== 'undefined' && module.exports) ? require('./motion.js') : (typeof window !== 'undefined' ? window.NakiMotion : null);
+  var NMC = (typeof module !== 'undefined' && module.exports) ? require('./multicam.js') : (typeof window !== 'undefined' ? window.NakiMulticam : null);
+  var NTTS = (typeof module !== 'undefined' && module.exports) ? require('./tts.js') : (typeof window !== 'undefined' ? window.NakiTTS : null);
   var NRF = (typeof module !== 'undefined' && module.exports) ? require('./reframe.js') : (typeof window !== 'undefined' ? window.NakiReframe : null);
   var NCL = (typeof module !== 'undefined' && module.exports) ? require('./colour.js') : (typeof window !== 'undefined' ? window.NakiColour : null);
   var NAC = (typeof module !== 'undefined' && module.exports) ? require('./autocut.js') : (typeof window !== 'undefined' ? window.NakiAutoCut : null);
@@ -748,6 +750,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edMotionBlur', label: 'Motion blur', icon: G.mblur, run: P2('motionblur') },
         { id: 'edFade', label: 'Fade', icon: G.fade, run: P2('fade') },
         { id: 'edAddVideo', label: 'Add video', icon: G.addVideo, run: addVideoFromFile },
+        { id: 'edCameras', label: 'Cameras', icon: G.cam, run: P2('cameras') },
         { id: 'edReplace', label: 'Replace', icon: G.replace, run: replaceMovie },
         { id: 'edBeats', label: 'Beat sync', icon: G.music, run: P2('beats') },
         { id: 'edQuiet', label: 'Quiet', icon: G.quiet, run: scanQuiet },
@@ -802,6 +805,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       if (E.hooks.pickMusic) items.push({ id: 'edAddMusic', label: has ? 'Change music' : 'Add music', icon: G.music, run: addMusic });
       items.push({ id: 'edVoiceOver', label: (E.vo && E.vo.on) ? 'Stop' : 'Voice-over', icon: svg('<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v4"/>'), run: voiceOverToggle, on: !!(E.vo && E.vo.on) });
       items.push({ id: 'edSfx', label: 'Effects', icon: G.music, run: function (){ openPanel('sfxpick'); } });
+      items.push({ id: 'edTts', label: 'Text to speech', icon: G.speak, run: openTts });
       items.push({ id: 'edBeatsA', label: 'Beat sync', icon: G.mix, run: function (){ openPanel('beats'); } });
       items.push({ id: 'edDuck', label: 'Duck music', icon: G.mix, run: function (){ openPanel('duck'); }, disabled: !has });
       items.push({ id: 'edSilence', label: 'Remove pauses', icon: G.quiet, run: function (){ openPanel('silences'); } });
@@ -826,6 +830,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edTextFx', label: 'Effects', icon: G.fx, run: function (){ openPanel('textfx'); }, disabled: !isText },
         { id: 'edTextTrack', label: 'Track', icon: G.track, run: function (){ openPanel('track'); }, disabled: !isText },
         { id: 'edTextList', label: 'Texts', icon: G.list, run: function (){ openPanel('texts'); }, disabled: !any },
+        { id: 'edTextSpeak', label: 'Read aloud', icon: G.speak, run: openTts, disabled: !isText },
         { id: 'edTextDup', label: 'Duplicate', icon: G.dup, run: duplicateSel, disabled: !isText },
         { id: 'edTextDel', label: 'Delete', icon: G.trash, run: deleteSel, disabled: !isText }
       ];
@@ -2992,6 +2997,185 @@ crop: { title: 'Crop', build: function (body){
       commit(P.setCaptionStyle(E.hist.cur, { color: c.color, font: c.font || 'sans', outline: c.outline || 0, shadow: c.shadow == null ? 1 : c.shadow, grad: c.grad || null, arc: c.arc || null, glow: c.glow || null, bubble: c.bubble || null, extrude: c.extrude || null }));
       toast('Every caption has this look now.'); } }]));
     body.appendChild(mk('div', 'ed-hint', 'The effects are drawn the same way in the preview and in the exported video, and can be mixed. Word art sets a whole look at once, with its own font. Curve bends the whole text. Word-by-word highlight is not used on a text that has effects.'));
+  } };
+  // ----- text to speech -----
+  G.speak = svg('<path d="M4 5h16v11H9l-5 4z"/><path d="M8 9h8M8 12h5"/>');
+  function ttsState(){
+    if (!E.chip.tts) E.chip.tts = Object.assign({ text: '', voice: null, lang: 'all', speed: 1, pitch: 0, vol: 100, fit: true, edit: null, from: null }, NTTS ? NTTS.getPrefs() : {});
+    return E.chip.tts;
+  }
+  function ttsSave(o){ if (NTTS) NTTS.setPrefs({ voice: o.voice, lang: o.lang, speed: o.speed, pitch: o.pitch, vol: o.vol, fit: o.fit }); }
+  function ttsSay(m){ if (E.tts) E.tts.msg = m; if (E.ttsStatus) E.ttsStatus.textContent = m; }
+  function ttsFail(err){ E.tts = null; renderDock(); toast('Text to speech did not work' + (err && err.message ? ': ' + err.message : '') + '.', 9000); }
+  function shortText(t){ t = String(t || '').replace(/\s+/g, ' ').trim(); return t.length > 28 ? t.slice(0, 27) + '\u2026' : t; }
+  // Opens the panel. A speech clip that is selected is opened for changing; a selected title or caption is opened for reading aloud.
+  function openTts(){
+    var o = ttsState(), f = E.sel && P.findClip(E.proj, E.sel), m = (f && P.ttsOf) ? P.ttsOf(E.proj, f.clip.id) : null;
+    o.edit = null; o.from = null;
+    if (m){ o.edit = f.clip.id; o.text = m.text; if (m.voice) o.voice = m.voice; o.speed = m.speed; o.pitch = m.pitch; o.vol = Math.round((f.clip.volume != null ? f.clip.volume : 1) * 100); }
+    else if (f && f.track.kind === 'text' && f.clip.text){ o.text = f.clip.text; o.from = f.clip.id; }
+    openPanel('tts', 'audio');
+  }
+  // The voices to choose from: the offline ones once they are loaded, otherwise the browser's own (for listening only).
+  function ttsVoices(){
+    var off = NTTS && NTTS.offlineEngine(), list = [];
+    if (off) off.voices().forEach(function (v){ list.push({ key: off.id + ':' + v.id, label: v.label, lang: v.langLabel || v.lang, offline: true }); });
+    else (E.ttsBrowser || []).forEach(function (v){ list.push({ key: 'browser:' + v.voiceURI, label: String(v.name).replace(/^(Microsoft|Google) /, ''), lang: NTTS.langName(v.lang), offline: false }); });
+    return list;
+  }
+  function ttsLoadEngine(){
+    if (!NTTS || (E.tts && E.tts.running)) return;
+    E.tts = { running: true, msg: 'Loading the offline voices...' }; renderDock();
+    NTTS.loadEngine('piper', ttsSay).then(function (){
+      E.tts = null; NTTS.setPrefs({ engine: 'piper' }); ttsState().voice = null; renderDock(); toast('Offline voices are ready.');
+    }, ttsFail);
+  }
+  function ttsListen(){
+    var o = ttsState(); if (!NTTS) return;
+    if (!NTTS.hasSpeech(o.text)){ toast('Type some words first.'); return; }
+    ttsSave(o);
+    var off = NTTS.offlineEngine(), v = o.voice || '';
+    if (!off || !v || v.indexOf('browser:') === 0){
+      if (!NTTS.previewSpeak(o.text, { voiceURI: v.replace(/^browser:/, ''), rate: o.speed, pitch: NTTS.pitchToBrowser(o.pitch), volume: Math.min(1, o.vol / 100) })) toast('This browser cannot speak text aloud.');
+      return;
+    }
+    if (E.tts && E.tts.running) return;
+    pause(); E.tts = { running: true, msg: 'Starting...' }; renderDock();
+    NTTS.synthRaw(o.text, v, ttsSay).then(function (raw){
+      var r = NTTS.render(raw, { speed: o.speed, pitch: o.pitch }); E.tts = null; renderDock(); NTTS.playBlob(r.blob);
+    }, ttsFail);
+  }
+  // jobs = [{ text, at (ms), fitMs (0 = natural length) }]. Each job becomes a speech clip; all of them are one undo step.
+  // When editing a speech clip (o.edit), the one job replaces that clip's sound instead.
+  function ttsGenerate(jobs){
+    var o = ttsState(), v = o.voice, off = NTTS.offlineEngine(), editId = o.edit;
+    if (!off || !v || v.indexOf('browser:') === 0){ toast('Speech can only go on the timeline with an offline voice: tap Load offline voices first. Listen works with the browser voices.', 9000); return; }
+    if (E.tts && E.tts.running) return;
+    ttsSave(o); pause(); E.tts = { running: true, msg: 'Starting...' }; renderDock();
+    var q = E.hist.cur, made = 0, cut = 0, skipped = 0, over = 0, lastId = null;
+    jobs.reduce(function (chain, job, i){
+      return chain.then(function (){
+        return NTTS.synthRaw(job.text, v, function (m){ ttsSay(jobs.length > 1 ? (i + 1) + ' of ' + jobs.length + ': ' + m : m); });
+      }).then(function (raw){
+        var r = NTTS.render(raw, { speed: o.speed, pitch: o.pitch });
+        if (job.fitMs){   // too long for its caption: speed it up (up to 1.6 times) so it ends with it
+          var m = r.durMs / job.fitMs;
+          if (m > 1.02){ r = NTTS.render(raw, { speed: o.speed * Math.min(1.6, m), pitch: o.pitch }); if (m > 1.6) over++; }
+        }
+        var file = new File([r.blob], 'speech.wav', { type: 'audio/wav' }), name = 'Speech: ' + shortText(job.text), meta = { text: job.text, voice: v, speed: o.speed, pitch: o.pitch }, out = {}, q2;
+        if (editId){
+          q2 = P.replaceSpeech(q, editId, { durMs: r.durMs, name: name }, meta, out);
+          if (q2 === q){ skipped++; return; }
+          E.hooks.setSfxFile(out.asset, file); q = P.setClipProps(q2, editId, { volume: o.vol / 100 }); lastId = editId; made++; if (out.cut) cut++;
+        } else {
+          q2 = P.addSfx(q, job.at, { file: file, name: name, durMs: r.durMs }, out);
+          if (q2 === q){ skipped++; return; }
+          E.hooks.setSfxFile(out.asset, file); q2 = P.setAssetTts(q2, out.asset, meta); q = P.setClipProps(q2, out.id, { volume: o.vol / 100 }); lastId = out.id; made++;
+          var nc = P.findClip(q, out.id); if (nc && nc.clip.dur < r.durMs - 50) cut++;
+        }
+      });
+    }, Promise.resolve()).then(function (){
+      E.tts = null; o.edit = null; o.from = null;
+      if (!made){ renderDock(); toast(skipped ? 'There was no room for the speech there. Move the playhead, or free some space on the sound rows.' : 'Nothing was made.', 7000); return; }
+      E.sel = lastId; commit(q);
+      var bits = [made + ' speech clip' + (made === 1 ? '' : 's') + ' ' + (editId ? 'updated' : 'added')];
+      if (skipped) bits.push(skipped + ' had no room');
+      if (cut) bits.push(cut + ' cut short by the end of the video or the next clip');
+      if (over) bits.push(over + ' still longer than ' + (over === 1 ? 'its caption' : 'their captions') + ' even sped up');
+      toast(bits.join('. ') + '.', 8000);
+    }, ttsFail);
+  }
+  function ttsAdd(){
+    var o = ttsState();
+    if (!NTTS.hasSpeech(o.text)){ toast('Type some words first.'); return; }
+    var f = o.from && P.findClip(E.proj, o.from), at = f ? f.clip.start : Math.round(E.t);
+    ttsGenerate([{ text: o.text, at: at, fitMs: (f && o.fit) ? f.clip.dur : 0 }]);
+  }
+  function ttsReadCaptions(){
+    var o = ttsState(), list = P.captionList(E.hist.cur).filter(function (c){ return NTTS.hasSpeech(c.text); });
+    if (!list.length){ toast('There are no captions to read. Add captions first (Text, then Captions).'); return; }
+    o.edit = null; o.from = null;
+    ttsGenerate(list.map(function (c){ return { text: c.text, at: c.start, fitMs: o.fit ? c.end - c.start : 0 }; }));
+  }
+  PANELS.tts = { title: 'Text to speech', build: function (body){
+    var T = NTTS;
+    if (!T){ body.appendChild(mk('div', 'ed-hint', 'tts.js is not loaded. Add <script src="tts.js"></script> to index.html, before editor.js.')); return; }
+    var o = ttsState(), off = T.offlineEngine(), busy = !!(E.tts && E.tts.running);
+    if (!E.ttsAsked){
+      E.ttsAsked = true;
+      T.browserVoices().then(function (l){ E.ttsBrowser = l; if (E.panel === 'tts') renderDock(); });
+      if (T.getPrefs().engine === 'piper' && !off) T.loadEngine('piper').then(function (){ if (E.panel === 'tts') renderDock(); }, function (){});   // loaded before: load it again quietly
+    }
+    var ta = mk('textarea', 'ed-textin'); ta.rows = 3; ta.value = o.text || ''; ta.placeholder = 'Type what the voice should say'; ta.setAttribute('aria-label', 'Text to speak');
+    ta.oninput = function (){ o.text = ta.value; }; ta.onchange = function (){ o.text = ta.value; };
+    body.appendChild(ta);
+    var st = mk('div', 'ed-hint', busy ? E.tts.msg : off ? 'Offline voices are ready: speech can go on the timeline and in the exported video.' : 'Listen works now, with your browser\u2019s voices. To put speech on the timeline and in the exported video, load the offline voices.');
+    E.ttsStatus = st; body.appendChild(st);
+    if (!off) body.appendChild(actions([{ id: 'edTtsLoad', label: busy ? 'Working...' : 'Load offline voices', run: ttsLoadEngine }]));
+    var vs = ttsVoices(), langs = [{ key: 'all', label: 'All languages' }], seen = {};
+    vs.forEach(function (v){ if (!seen[v.lang] && langs.length < 30){ seen[v.lang] = 1; langs.push({ key: v.lang, label: v.lang }); } });
+    var lang = langs.some(function (l){ return l.key === o.lang; }) ? o.lang : 'all', shown = vs.filter(function (v){ return lang === 'all' || v.lang === lang; }).slice(0, 80);
+    if (vs.length && !vs.some(function (v){ return v.key === o.voice; })) o.voice = (shown[0] || vs[0]).key;
+    if (!vs.length) body.appendChild(mk('div', 'ed-hint', 'No voices were found. Load the offline voices, or use a browser that has speech voices.'));
+    else {
+      body.appendChild(chips(langs, lang, function (k){ o.lang = k; ttsSave(o); renderDock(); }));
+      body.appendChild(chips(shown.map(function (v){ return { key: v.key, label: v.label + (lang === 'all' ? ' \u00b7 ' + v.lang : '') }; }), o.voice, function (k){ o.voice = k; ttsSave(o); renderDock(); }));
+    }
+    body.appendChild(sliderRow('Speed', 50, 200, 5, Math.round(o.speed * 100), pct, function (v){ o.speed = v / 100; }, function (v){ o.speed = v / 100; ttsSave(o); }));
+    body.appendChild(sliderRow('Pitch', -6, 6, 1, o.pitch, function (v){ return v > 0 ? '+' + v : String(v); }, function (v){ o.pitch = v; }, function (v){ o.pitch = v; ttsSave(o); }));
+    body.appendChild(sliderRow('Volume', 0, 200, 5, o.vol, pct, function (v){ o.vol = v; }, function (v){ o.vol = v; ttsSave(o); }));
+    body.appendChild(actions([{ id: 'edTtsListen', label: 'Listen', run: ttsListen }, { id: 'edTtsStop', label: 'Stop', run: function (){ T.stopPreview(); } },
+      { id: 'edTtsAdd', label: o.edit ? 'Update speech' : (o.from ? 'Add at the text' : 'Add at playhead'), run: ttsAdd }]));
+    body.appendChild(actions([{ id: 'edTtsCaps', label: 'Read all captions', run: ttsReadCaptions }]));
+    body.appendChild(chips([{ key: 'fit', label: 'Fit to the text or caption' }, { key: 'free', label: 'Natural length' }], o.fit ? 'fit' : 'free', function (k){ o.fit = k === 'fit'; ttsSave(o); renderDock(); }));
+    body.appendChild(mk('div', 'ed-hint', 'Add puts the speech on a sound row at the playhead (or at the start of the title or caption you opened this from). It is an ordinary sound clip: move it, cut it, and change its volume and fades under Clip. Read all captions makes one clip per caption. Fit speeds a clip up, never more than 1.6 times, so it ends with its caption. To change the words or the voice, tap the speech clip and open Text to speech again.'));
+  } };
+  // ----- multi-camera -----
+  G.cam = svg('<rect x="3" y="7" width="13" height="10" rx="2"/><path d="M16 11l5-3v8l-5-3"/>');
+  function camShort(s){ s = String(s || ''); return s.length > 22 ? s.slice(0, 21) + '\u2026' : s; }
+  function camSyncText(sync){
+    if (sync === null) return 'not synced yet';
+    if (!sync) return 'synced (starts together)';
+    return 'synced: started ' + (Math.abs(sync) / 1000).toFixed(2) + ' s ' + (sync > 0 ? 'earlier' : 'later') + ' than the main video';
+  }
+  function runCamSync(asset){
+    if (E.cam && E.cam.running) return;
+    if (!NMC){ toast('multicam.js is not loaded. Add <script src="multicam.js"></script> to index.html, before editor.js.'); return; }
+    var h = E.hooks, fa = h.getAssetFile && h.getAssetFile('movie'), fb = h.getAssetFile && h.getAssetFile(asset);
+    if (!fa || !fb){ toast('The video file for a camera is not available here.'); return; }
+    pause(); E.cam = { running: true, msg: 'Starting...' }; renderDock();
+    var say = function (m){ if (E.cam) E.cam.msg = m; if (E.camStatus) E.camStatus.textContent = m; };
+    NMC.syncFiles(fa, fb, { onStatus: say }).then(function (r){
+      E.cam = null;
+      if (!r){ renderDock(); toast('No match was found. The two videos need to hear the same sounds in their first 90 seconds. Try nudging by hand.', 9000); return; }
+      var q = P.setAssetSync(E.hist.cur, asset, r.offsetMs);
+      if (q === E.hist.cur) renderDock(); else commit(q);
+      toast(r.confidence >= 0.5 ? 'Synced (' + (r.offsetMs / 1000).toFixed(2) + ' s).' : 'Synced (' + (r.offsetMs / 1000).toFixed(2) + ' s), but Naki is not sure: the sounds matched weakly. Switch cameras and check, or nudge by hand.', 9000);
+    }).catch(function (err){ E.cam = null; renderDock(); toast('Sync did not work' + (err && err.message ? ': ' + err.message : '') + '.', 9000); });
+  }
+  function showCamera(asset){
+    var c = targetVideo(); if (!c){ toast('Move the playhead onto the picture, or tap a picture clip first.'); return; }
+    var out = {}, q = P.switchAngle(E.hist.cur, c.id, asset, out);
+    if (out.error){ toast(out.error, 7000); return; }
+    if (q !== E.hist.cur) commit(q);
+  }
+  PANELS.cameras = { title: 'Cameras', build: function (body){
+    var c = needPicture(body); if (!c) return;
+    var list = P.angleList(E.proj), cams = list.filter(function (a){ return a.asset !== 'movie'; });
+    if (!cams.length){ body.appendChild(mk('div', 'ed-hint', 'Add a second video first (Edit, then Add video). Each added video is another camera.')); return; }
+    var key = chipKey('cam', cams.map(function (a){ return { key: a.asset, label: a.name }; }), cams[0].asset), cam = cams.filter(function (a){ return a.asset === key; })[0], busy = !!(E.cam && E.cam.running);
+    body.appendChild(chips(cams.map(function (a){ return { key: a.asset, label: camShort(a.name) }; }), key, pickChip('cam')));
+    var here = (c.asset || 'movie') === 'movie' ? 'the main video' : camShort((E.proj.assets[c.asset] || {}).name);
+    var st = mk('div', 'ed-hint', busy ? E.cam.msg : camShort(cam.name) + ': ' + camSyncText(cam.sync) + '. The clip under the playhead shows ' + here + '.');
+    E.camStatus = st; body.appendChild(st);
+    body.appendChild(actions([{ id: 'edCamSync', label: busy ? 'Working...' : 'Sync automatically', run: function (){ runCamSync(key); } },
+      { id: 'edCamClear', label: 'Clear sync', run: function (){ var q = P.setAssetSync(E.hist.cur, key, null); if (q === E.hist.cur) renderDock(); else commit(q); } }]));
+    var step = E.chip.camstep || 33;
+    body.appendChild(chips([{ key: 33, label: '1 frame' }, { key: 100, label: '0.1 s' }, { key: 500, label: '0.5 s' }, { key: 1000, label: '1 s' }], step, function (k){ E.chip.camstep = k; renderDock(); }));
+    body.appendChild(actions([{ id: 'edCamNudgeBack', label: '\u2212 Nudge', run: function (){ commit(P.setAssetSync(E.hist.cur, key, (cam.sync || 0) - step)); } },
+      { id: 'edCamNudgeFwd', label: '+ Nudge', run: function (){ commit(P.setAssetSync(E.hist.cur, key, (cam.sync || 0) + step)); } }]));
+    body.appendChild(actions([{ id: 'edCamShow', label: 'Show this camera here', run: function (){ showCamera(key); } }, { id: 'edCamMain', label: 'Back to the main video', run: function (){ showCamera('movie'); } }]));
+    body.appendChild(mk('div', 'ed-hint', 'Sync listens to the first 90 seconds of both videos and lines up the sounds, so both cameras need to have heard the same thing. To change camera in the middle, Split the clip where you want the change, then Show this camera here on the part you want. The sound you already have keeps playing; only the picture changes. If the two pictures are a frame or two apart, nudge until they match.'));
   } };
   // ----- crop (CapCut style): a dimmed picture with a frame you drag -----
   function cropAspectOf(k, vw, vh){
