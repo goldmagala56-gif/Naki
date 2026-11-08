@@ -1247,6 +1247,7 @@ crop: { title: 'Crop', build: function (body){
       var cur = E.proj.format || {}, ratio = cur.ratio || 'original', bg = NF.normalizeBg(cur.bg);
       var set = function (patch){ commit(P.setFormat(E.hist.cur, patch)); };
       body.appendChild(chips(NF.RATIOS, ratio, function (k){ set({ ratio: k }); }));
+      if (E.hooks.proxy) body.appendChild(actions([{ id: 'edProxy', label: 'Smooth editing', run: function (){ openPanel('proxy'); } }]));
       if (ratio === 'original'){ body.appendChild(mk('div', 'ed-hint', 'Original keeps the shape of your movie. Pick a shape for TikTok, Instagram or YouTube, then choose what fills the space around the picture.')); return; }
       body.appendChild(chips([{ key: 'navy', label: 'Dark' }, { key: 'color', label: 'Colour' }, { key: 'blur', label: 'Blur' }], bg.type, function (k){ set({ bg: { type: k } }); }));
       if (bg.type === 'color'){
@@ -1259,6 +1260,32 @@ crop: { title: 'Crop', build: function (body){
       body.appendChild(mk('div', 'ed-hint', bg.type === 'blur'
         ? 'A soft, blurred copy of the picture fills the space around it. The preview plays the movie twice, so it can be slower on a small phone. The export is not affected.'
         : 'The whole picture stays visible, with this filling the space around it. Zoom still works inside the picture.'));
+    } },
+    proxy: { title: 'Smooth editing', build: function (body){
+      var px = E.hooks.proxy; if (!px){ body.appendChild(mk('div', 'ed-hint', 'Not available here.')); return; }
+      var s = px.state();
+      if (!s.canMake){ body.appendChild(mk('div', 'ed-hint', 'Choose the movie for this session in Preview first.')); return; }
+      if (s.busy){
+        body.appendChild(mk('div', 'ed-hint', 'Making the light copy... ' + s.pct + '%. You can keep this screen open; it can take a few minutes for a long movie.'));
+        body.appendChild(actions([{ id: 'edProxyCancel', label: 'Cancel', run: function (){ px.cancel(); } }]));
+        return;
+      }
+      if (!s.have){
+        body.appendChild(actions([{ id: 'edProxyMake', label: 'Make light copy', run: function (){
+          var last = -5;
+          px.make(function (p){ if (p - last >= 2){ last = p; if (E.isOpen && E.panel === 'proxy') renderDock(); } }).then(function (ok){
+            if (ok){ px.set(true); resyncMedia(); toast('Light copy is on. Scrubbing and playing should be smoother. Your export still uses the original movie.', 7000); }
+            if (E.isOpen && E.panel === 'proxy') renderDock();
+          });
+          renderDock();
+        } }]));
+        body.appendChild(mk('div', 'ed-hint', 'Makes a small copy of the movie just for editing, so heavy movies scrub and play smoothly on this phone. It is made once and kept on the device. When you export, Naki uses the original movie, so the quality does not change. The preview will look softer while it is on.'));
+        return;
+      }
+      body.appendChild(actions([{ id: 'edProxyToggle', label: s.on ? 'Light copy: on' : 'Light copy: off', run: function (){
+        pause(); px.set(!s.on); resyncMedia(); toast(s.on ? 'Light copy is off. The preview shows the original movie.' : 'Light copy is on.'); renderDock();
+      } }]));
+      body.appendChild(mk('div', 'ed-hint', 'The light copy only changes what you see while editing. Turn it off to check the picture quality; the export always uses the original movie.'));
     } },
     transition: { title: 'Transition', build: function (body){
       var c = needPicture(body); if (!c) return;
@@ -2174,6 +2201,7 @@ crop: { title: 'Crop', build: function (body){
   }
   // The preview has one video element. A clip that comes from another file (one added with Add video) swaps the file it shows.
   // Returns false when the file for that clip is missing.
+  function resyncMedia(){ if (!E.isOpen) return; E.curAsset = ''; E.lastTransform = ''; E.boxKey = null; syncMedia(); }
   function swapSource(asset, m){
     var url = asset === 'movie' ? (E.hooks.movieUrl && E.hooks.movieUrl()) : (E.hooks.videoUrl && E.hooks.videoUrl(asset));
     if (!url) return false;
@@ -3858,6 +3886,9 @@ crop: { title: 'Crop', build: function (body){
     E.root.hidden = false; E.isOpen = true;
     document.addEventListener('keydown', onKey);
     layoutTextLayer(); fit(); readout(); syncMedia();
+    if (E.hooks.proxy && E.hooks.proxy.load) E.hooks.proxy.load().then(function (s){
+      if (E.isOpen && s && s.canMake && s.big && !s.have && !s.advised){ E.hooks.proxy.advised(); toast('This movie is heavy to edit on a phone. Format > Smooth editing makes a light copy so it scrubs and plays smoothly. Your export still uses the original.', 10000); }
+    }).catch(function () {});
   }
   function close(){
     if (!E.isOpen) return;

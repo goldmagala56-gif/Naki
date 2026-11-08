@@ -309,6 +309,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
               <button id="dSess" class="btn">Download session data</button>
               <button id="dPlan" class="btn">Download export plan (data file)</button>
             </div>
+            <div class="row"><button id="bBackup" class="btn">Back up this project (.naki file)</button></div>
             <div class="row"><button id="bReport" class="btn">Copy test report</button></div>
           </details>
         </div>
@@ -333,6 +334,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
       <label for="exportStatus" style="margin-bottom:6px"><span id="exportStatus">Working...</span> <span id="exportPct" class="num"></span></label>
       <div class="meter"><div id="exportBar" style="position:absolute;left:0;top:0;bottom:0;width:0;background:var(--mango);border-radius:8px"></div></div>
     </div>
+    <p id="exportAwake" class="dim small" style="margin:6px 0">Keep Naki open and the screen on until it finishes. Naki asks your phone not to sleep while it works.</p>
     <button id="bCancelExport" class="btn" hidden>Cancel export</button>
             <div id="exportDone" hidden>
       <video id="exportPreview" controls playsinline style="width:100%;border-radius:12px;background:#000;margin:10px 0"></video>
@@ -420,6 +422,7 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <script src="scopes.js"></script>
 <script src="tts.js"></script>
 <script src="multicam.js"></script>
+<script src="backup.js"></script>
 <script src="editor.js"></script>
 <script>
 'use strict';
@@ -690,14 +693,39 @@ function pickMime(){
   return '';
 }
 function keepAwake(){
-  try { if ('wakeLock' in navigator) navigator.wakeLock.request('screen').then(function(w){ S.wake = w; }, function(){}); } catch (e) {}
+  wakeOn('rec');
 }
-function releaseWake(){ try { if (S.wake) S.wake.release(); } catch (e) {} S.wake = null; }
+function releaseWake(){ wakeOff('rec'); }
+/* ---------- keeping the screen on: recording, exporting and converting each ask for it; the lock is held while any of them still does ---------- */
+/*wake:start*/
+function wakeAny(){ return Object.keys(S.wakeUsers || {}).length > 0; }
+function wakeOn(who){ S.wakeUsers = S.wakeUsers || {}; S.wakeUsers[who] = 1; wakeSync(); }
+function wakeOff(who){ if (S.wakeUsers) delete S.wakeUsers[who]; wakeSync(); }
+function wakeSync(){
+  if (!wakeAny()){
+    if (S.wake){ var old = S.wake; S.wake = null; try { old.release(); } catch (e) {} }
+    return;
+  }
+  if (S.wake || S.wakeAsking || !('wakeLock' in navigator)) return;
+  S.wakeAsking = true;
+  var p;
+  try { p = navigator.wakeLock.request('screen'); } catch (e) { S.wakeAsking = false; return; }
+  p.then(function(w){
+    S.wakeAsking = false;
+    if (!wakeAny()){ try { w.release(); } catch (e) {} return; }   // everyone let go while we were asking
+    S.wake = w;
+    try { w.addEventListener('release', function(){ if (S.wake === w) S.wake = null; }); } catch (e) {}
+  }, function(){ S.wakeAsking = false; });
+}
+/*wake:end*/
+document.addEventListener('visibilitychange', function(){ if (!document.hidden) wakeSync(); });   // the phone drops the lock when the page is hidden: ask again when it is back
+try { if (!('wakeLock' in navigator) && $('exportAwake')) $('exportAwake').textContent = 'Keep Naki open and turn off screen sleep until it finishes. This browser cannot keep the screen on for you.'; } catch (e) {}
 
 /* ---------- movie ---------- */
 function loadMovie(file){
   return new Promise(function(res, rej){
     if (S.movieUrl) URL.revokeObjectURL(S.movieUrl);
+    if (typeof PX !== 'undefined' && PX && PX.key && PX.key !== pxKey(file)) pxDrop();   // a different movie: its light copy is no use
     S.movieFile = file; S.movieUrl = URL.createObjectURL(file); S.audioWarned = false;
     var v = el.movie;
     function done(){ v.removeEventListener('loadedmetadata', ok); v.removeEventListener('error', bad); }
@@ -752,7 +780,7 @@ $('bPrepareCancel').onclick = function(){ $('prepareModal').hidden = true; S.pre
 $('bPrepareConvert').onclick = function(){
   var file = S.prepareFile; if (!file) return;
   $('prepareButtons').hidden = true; $('prepareProgressWrap').hidden = false;
-  $('prepareStatus').textContent = 'Starting...';
+  $('prepareStatus').textContent = 'Starting...'; wakeOn('convert');
   loadExportEngine().then(function(){
     return NakiExport.convertToMp4(file, {}, {
       onStatus: function(t){ $('prepareStatus').textContent = t; },
@@ -760,7 +788,7 @@ $('bPrepareConvert').onclick = function(){
     });
   }).then(function(blob){
     var newName = file.name.replace(/\.[^.]+$/, '') + '_prepared.mp4';
-    var newFile = new File([blob], newName, { type: 'video/mp4' });
+    wakeOff('convert'); var newFile = new File([blob], newName, { type: 'video/mp4' });
     return loadMovie(newFile).then(function(){
       $('prepareModal').hidden = true; S.prepareFile = null;
       if (S.pickPurpose === 'new') return enterStudio();
@@ -770,7 +798,7 @@ $('bPrepareConvert').onclick = function(){
       toast('Converted and ready.');
     });
   }).catch(function(err){
-    console.error('convert failed', err);
+    wakeOff('convert'); console.error('convert failed', err);
     $('prepareStatus').textContent = 'Conversion failed: ' + (err && err.message ? err.message : String(err));
     $('prepareButtons').hidden = false;
   });
@@ -1227,6 +1255,7 @@ function refreshHome(){
         h('div', { class: 'pm' },
           h('div', { class: 't' }, h('b', null, s.name), h('span', null, new Date(s.created).toLocaleDateString() + ' \u00b7 ' + fmt(s.durationMs || 0))),
           h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Edit', onclick: function(){ openAndEdit(s.id); } }, h('span', { 'data-ic': 'pencil', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Edit'))),
+          h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Back up', onclick: function(){ backupSaved(s); } }, h('span', { 'data-ic': 'download', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Back up'))),
           h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Delete', onclick: function(){ delSaved(s); } }, h('span', { 'data-ic': 'trash-2', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Delete'))))));
     });
   }).catch(function(){ list.appendChild(h('p', { class: 'dim' }, 'Could not read saved sessions.')); });
@@ -1249,15 +1278,28 @@ if (navigator.storage && navigator.storage.persist) { try { navigator.storage.pe
 function backupSaved(s){
   if (!window.NakiBackup){ toast('backup.js is not loaded.'); return; }
   toast('Making the backup...', 4000);
-  NakiBackup.exportSession(DB, s.id, { app: NAKI_VERSION }).then(function(blob){
+  backupPrepare(s).then(function(){ return NakiBackup.exportSession(DB, s.id, { app: NAKI_VERSION }); }).then(function(blob){
     var name = safeName(s.name) + '.naki', a = document.createElement('a');
     a.href = URL.createObjectURL(blob); a.download = name; document.body.appendChild(a); a.click();
     setTimeout(function(){ URL.revokeObjectURL(a.href); a.remove(); }, 60000);
-    toast('Backup saved as ' + name + ' (' + fmtBytes(blob.size) + '). Keep it somewhere safe.', 8000);
+    toast('Backup saved as ' + name + ' (' + fmtBytes(blob.size) + '). Keep it somewhere safe.' + backupWarn, 10000);
   }, function(err){ toast('The backup could not be made: ' + (err && err.message ? err.message : err), 9000); });
+}
+// Before a backup: save the latest edits, and find out whether the movie is in it (a movie too big to remember is not).
+var backupWarn = '';
+function backupPrepare(s){
+  backupWarn = '';
+  var jobs = [];
+  try { if (window.NakiEditor && NakiEditor.isOpen()) jobs.push(NakiEditor.flushSave()); } catch (e) {}
+  if (S.sess && S.sess.id === s.id && !S.rec.on) jobs.push(persistSession(S.sess, false));
+  jobs.push(DB.get('movies', s.id).then(function(rec){
+    if (!(rec && rec.blob)) backupWarn = ' This backup has no copy of the movie, so you will need to choose the movie again after restoring.';
+  }, function(){}));
+  return Promise.all(jobs);
 }
 var restoring = false;
 $('btnRestore').onclick = function(){ if (!restoring) $('restorePick').click(); };
+$('bBackup').onclick = function(){ if (!S.sess){ toast('Open a project first.'); return; } backupSaved(S.sess); };
 $('restorePick').addEventListener('change', function(){
   var f = this.files && this.files[0]; this.value = '';
   if (!f || restoring) return;
@@ -1629,6 +1671,7 @@ $('bExport').onclick = function(){
 
   if (S.logoFile) { ffmpegOpts.logoFile = S.logoFile; webcodecsOpts.logoFile = S.logoFile; }
     if (S.sess.musicFile) { ffmpegOpts.musicFile = S.sess.musicFile; webcodecsOpts.musicFile = S.sess.musicFile; }
+  wakeOn('export');
   runExport(plan, ffmpegOpts, webcodecsOpts, S.movieFile, S.sess.voiceBlob, {
     onStatus: function(t){ statusEl.textContent = t; },
     onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
@@ -1658,7 +1701,7 @@ $('bExport').onclick = function(){
     statusEl.textContent = 'Something went wrong: ' + (err && err.message ? err.message : String(err));
     toast('Export did not finish. You can also try the computer-based export below.', 8000);
   }).then(function(){
-    $('bExport').disabled = false; $('bCancelExport').hidden = true;
+    $('bExport').disabled = false; $('bCancelExport').hidden = true; wakeOff('export');
   });
 };
   (function(){
@@ -1725,7 +1768,7 @@ $('btnInstall').onclick = function(){
 };
 $('verLine').textContent = 'Naki ' + NAKI_VERSION + ' (build ' + BUILD + ')';
 (function(){
-  var want = { 'speedcurve.js': 'curve', 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'ease', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'textfx', 'scopes.js': 'scopes', 'layout.js': 'layout', 'reverse.js': 'reverse', 'markers.js': 'markers', 'tracker.js': 'track' };
+  var want = { 'speedcurve.js': 'curve', 'thumbs.js': 'timeline', 'peaks.js': 'timeline', 'editor.js': 'timeline', 'project.js': 'look2', 'plan.js': 'look2', 'anim.js': 'ease', 'fx.js': 'masks-fx2+shapes', 'sfx.js': 'sound', 'captions.js': 'sound', 'look2.js': 'look2', 'templates.js': 'look2', 'motion.js': 'motion', 'format.js': 'format-bg', 'stickers.js': 'effects', 'presets.js': 'effects', 'look.js': 'textfx', 'scopes.js': 'scopes', 'layout.js': 'layout', 'reverse.js': 'reverse', 'markers.js': 'markers', 'tracker.js': 'track', 'backup.js': 'backup1' };
   var have = window.NakiVersions || {}, bad = [];
   Object.keys(want).forEach(function(k){ if (have[k] !== want[k]) bad.push(k + (have[k] ? ' (found ' + have[k] + ')' : ' (old copy, or not loaded)')); });
   var line = $('verLine'); line.style.whiteSpace = 'pre-line';
@@ -1937,6 +1980,72 @@ function replaceMovie(){
   });
 }
 
+// ---------- smooth editing: a light copy of the movie for the editor's preview ----------
+// The copy is small (about 640 px on the long side), with a key frame every second so seeking is quick. Only the editor's preview shows it;
+// the export reads S.movieFile, the original. The copy is kept on the device (the movies store, under the name proxy:...) so it is made only once.
+var PX = { key: '', blob: null, url: null, on: false, busy: false, conv: null, pct: 0, onProgress: null, advisedFor: '' };
+function pxKey(f){ return f ? f.name + '|' + f.size + '|' + (f.lastModified || 0) : ''; }
+function pxUrl(){ return (PX.on && PX.url) ? PX.url : S.movieUrl; }
+function pxDrop(){
+  if (PX.conv){ try { PX.conv.cancel(); } catch (e) {} }
+  if (PX.url) URL.revokeObjectURL(PX.url);
+  PX.key = ''; PX.blob = null; PX.url = null; PX.on = false; PX.busy = false; PX.conv = null; PX.pct = 0;
+}
+function pxBig(){
+  var v = el.movie, f = S.movieFile;
+  return !!f && (Math.max(v.videoWidth || 0, v.videoHeight || 0) > 1280 || f.size > 250 * 1024 * 1024);
+}
+function pxState(){
+  return { canMake: !!S.movieFile, have: !!PX.url && PX.key === pxKey(S.movieFile), on: !!(PX.on && PX.url), busy: PX.busy, pct: PX.pct, big: pxBig(), advised: PX.advisedFor === pxKey(S.movieFile) };
+}
+function pxLoad(){
+  var f = S.movieFile; if (!f) return Promise.resolve(pxState());
+  var key = pxKey(f);
+  if (PX.url && PX.key === key) return Promise.resolve(pxState());
+  if (!DB.ok) return Promise.resolve(pxState());
+  return DB.get('movies', 'proxy:' + key).then(function(rec){
+    if (rec && rec.blob && pxKey(S.movieFile) === key && !PX.url){ PX.blob = rec.blob; PX.key = key; PX.url = URL.createObjectURL(rec.blob); }
+    return pxState();
+  }).catch(function(){ return pxState(); });
+}
+function pxBuild(){
+  var file = S.movieFile; if (!file || PX.busy) return Promise.resolve(false);
+  if (typeof VideoEncoder === 'undefined'){ toast('This browser cannot make a light copy.', 6000); return Promise.resolve(false); }
+  PX.busy = true; PX.pct = 0; var key = pxKey(file);
+  return import(new URL('vendor/mediabunny/mediabunny.min.mjs', location.href).href).then(function(M){
+    var input = new M.Input({ source: new M.BlobSource(file), formats: M.ALL_FORMATS });
+    return input.getPrimaryVideoTrack().then(function(vt){
+      if (!vt) throw new Error('this file has no picture');
+      var w = vt.displayWidth, h = vt.displayHeight, k = Math.min(1, 640 / Math.max(w, h));
+      var ow = Math.max(2, Math.round(w * k / 2) * 2), oh = Math.max(2, Math.round(h * k / 2) * 2);
+      var output = new M.Output({ format: new M.Mp4OutputFormat(), target: new M.BufferTarget() });
+      return M.Conversion.init({ input: input, output: output, video: { width: ow, height: oh, fit: 'fill', frameRate: 30, bitrate: 1200000, keyFrameInterval: 1, forceTranscode: true } }).then(function(conv){
+        if (!conv.isValid) throw new Error('this movie cannot be converted here');
+        PX.conv = conv;
+        conv.onProgress = function(p){ PX.pct = Math.round(p * 100); if (PX.onProgress) PX.onProgress(PX.pct); };
+        return conv.execute().then(function(){ return new Blob([output.target.buffer], { type: 'video/mp4' }); });
+      });
+    });
+  }).then(function(blob){
+    if (pxKey(S.movieFile) !== key) return false;   // another movie was chosen while it was being made
+    if (PX.url) URL.revokeObjectURL(PX.url);
+    PX.blob = blob; PX.key = key; PX.url = URL.createObjectURL(blob);
+    if (DB.ok) DB.put('movies', { sid: 'proxy:' + key, name: file.name, size: blob.size, blob: blob }).catch(function(){});
+    return true;
+  }).catch(function(err){
+    if (!(err && err.name === 'ConversionCanceledError')){ console.error('light copy failed', err); toast('Could not make the light copy: ' + (err && err.message ? err.message : String(err)), 8000); }
+    return false;
+  }).then(function(ok){ PX.busy = false; PX.conv = null; return ok; });
+}
+var PXHOOK = {
+  state: pxState, load: pxLoad,
+  make: function(onProgress){ PX.onProgress = onProgress || null; return pxBuild().then(function(ok){ PX.onProgress = null; return ok; }); },
+  cancel: function(){ if (PX.conv){ try { PX.conv.cancel(); } catch (e) {} } },
+  set: function(on){ PX.on = !!on && !!PX.url; return PX.on; },
+  advised: function(){ PX.advisedFor = pxKey(S.movieFile); }
+};
+// ---------- end smooth editing ----------
+
 NakiEditor.init({
   movie: el.movie, voice: el.voice, simple: SIMPLE,
   ensureAudio: ensureAudio, getCtx: function(){ return S.audio.ctx; },
@@ -1947,7 +2056,7 @@ NakiEditor.init({
   overlayUrl: overlayUrl, pickOverlay: pickOverlay, setOverlayFile: setOverlayFile,
   sfxUrl: sfxUrl, pickSfx: pickSfx, setSfxFile: setSfxFile, getVoiceBlob: getVoiceBlob,
   getAssetFile: function(id){ if (id === 'movie') return S.movieFile; if (id === 'music') return S.sess ? S.sess.musicFile : null; var o = S.sfx[id] || S.videos[id] || S.overlays[id]; return o ? o.file : null; },
-  videoUrl: videoUrl, pickVideo: pickVideo, setVideoFile: setVideoFile, movieUrl: function(){ return S.movieUrl; },
+  videoUrl: videoUrl, pickVideo: pickVideo, setVideoFile: setVideoFile, movieUrl: function(){ return pxUrl(); }, proxy: PXHOOK,
   saveProject: function(sid, rec){ return DB.saveProject(sid, rec); },
   setMusicFile: function(f){ setMusicFile(f); },
   pickMusic: function(){ return new Promise(function(resolve){
