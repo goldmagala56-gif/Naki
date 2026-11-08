@@ -177,9 +177,78 @@ var NakiAnim = (function () {
     var kf = (o && o.kf) || {};
     return { x: kf.x && kf.x.length ? kfValue(kf.x, relMs) : ((o && o.dx) || 0), y: kf.y && kf.y.length ? kfValue(kf.y, relMs) : ((o && o.dy) || 0) };
   }
-  var api = { OVERLAY: OVERLAY, PICTURE: PICTURE, RANGE: RANGE, kfValue: kfValue, valueOf: valueOf, overlayState: overlayState, pictureTransform: pictureTransform,
+  // ---------- motion tracking: follow a patch of the picture from one frame to the next (pure maths) ----------
+// A grey picture is { w, h, d } with d holding one number (0 to 255) per pixel. makeTracker(first, cx, cy, tw, th, radius) remembers the tw x th patch around
+// (cx, cy). .step(next) finds where that patch went in the next picture, looking within radius pixels of where it was: it tries every place and takes the one
+// that differs least (block matching), then refines it to a fraction of a pixel. The remembered patch is refreshed a little each step so it can follow an
+// object that slowly changes. lost = the best place was too different to trust, and the tracker then stays where it was.
+var LOST_ERR = 40;   // average difference per pixel (out of 255) above which the object is considered lost
+function sadAt(tpl, tw, th, img, x0, y0, limit) {
+  var W = img.w, d = img.d, s = 0;
+  for (var j = 0; j < th; j++) {
+    var row = (y0 + j) * W + x0, tr = j * tw;
+    for (var i = 0; i < tw; i++) { var v = d[row + i] - tpl[tr + i]; s += v < 0 ? -v : v; }
+    if (s >= limit) return s;
+  }
+  return s;
+}
+function findBlock(tpl, tw, th, img, cx, cy, radius) {
+  var W = img.w, H = img.h; if (tw > W || th > H) return null;
+  var r = Math.max(1, Math.round(radius)), cxi = Math.round(cx - tw / 2), cyi = Math.round(cy - th / 2);
+  var xa = Math.max(0, cxi - r), xb = Math.min(W - tw, cxi + r), ya = Math.max(0, cyi - r), yb = Math.min(H - th, cyi + r);
+  if (xa > xb || ya > yb) return null;
+  var best = Infinity, bx = xa, by = ya;
+  for (var y = ya; y <= yb; y++) for (var x = xa; x <= xb; x++) { var s = sadAt(tpl, tw, th, img, x, y, best); if (s < best) { best = s; bx = x; by = y; } }
+  function part(l, m, rr) { var den = l - 2 * m + rr; return den > 1e-6 ? Math.max(-0.5, Math.min(0.5, (l - rr) / (2 * den))) : 0; }
+  var dx = 0, dy = 0;
+  if (bx > 0 && bx < W - tw) dx = part(sadAt(tpl, tw, th, img, bx - 1, by, Infinity), best, sadAt(tpl, tw, th, img, bx + 1, by, Infinity));
+  if (by > 0 && by < H - th) dy = part(sadAt(tpl, tw, th, img, bx, by - 1, Infinity), best, sadAt(tpl, tw, th, img, bx, by + 1, Infinity));
+  return { x: bx + dx + tw / 2, y: by + dy + th / 2, bx: bx, by: by, err: best / (tw * th) };
+}
+function makeTracker(img, cx, cy, tw, th, radius) {
+  var x0 = Math.max(0, Math.min(img.w - tw, Math.round(cx - tw / 2))), y0 = Math.max(0, Math.min(img.h - th, Math.round(cy - th / 2)));
+  var tpl = new Float32Array(tw * th), i, j;
+  for (j = 0; j < th; j++) for (i = 0; i < tw; i++) tpl[j * tw + i] = img.d[(y0 + j) * img.w + x0 + i];
+  var st = { x: x0 + tw / 2, y: y0 + th / 2, lost: false, err: 0 }, start = { x: st.x, y: st.y };
+  return {
+    start: start,
+    step: function (next) {
+      if (st.lost) return { x: st.x, y: st.y, err: st.err, lost: true };
+      var f = findBlock(tpl, tw, th, next, st.x, st.y, radius);
+      if (!f || f.err > LOST_ERR) { st.lost = true; return { x: st.x, y: st.y, err: f ? f.err : 255, lost: true }; }
+      st.x = f.x; st.y = f.y; st.err = f.err;
+      for (j = 0; j < th; j++) for (i = 0; i < tw; i++) tpl[j * tw + i] += (next.d[(f.by + j) * next.w + f.bx + i] - tpl[j * tw + i]) * 0.1;
+      return { x: st.x, y: st.y, err: f.err, lost: false };
+    }
+  };
+}
+// A moving average (win values wide); the first and the last value stay as they are.
+function smoothSeries(v, win) {
+  var h = Math.max(0, Math.floor((win || 3) / 2)), out = [];
+  for (var i = 0; i < v.length; i++) {
+    if (i === 0 || i === v.length - 1) { out.push(v[i]); continue; }
+    var s = 0, n = 0; for (var k = Math.max(0, i - h); k <= Math.min(v.length - 1, i + h); k++) { s += v[k]; n++; }
+    out.push(s / n);
+  }
+  return out;
+}
+// Fewer keyframes: keeps only the points a straight line between its neighbours would miss by more than tol. pts = [[ms, value], ...].
+function simplifyKf(pts, tol) {
+  if (pts.length < 3) return pts.slice();
+  var keep = [], stack = [[0, pts.length - 1]]; keep[0] = keep[pts.length - 1] = true;
+  while (stack.length) {
+    var s = stack.pop(), a = pts[s[0]], b = pts[s[1]], worst = -1, wi = -1;
+    for (var i = s[0] + 1; i < s[1]; i++) {
+      var p = pts[i], f = (p[0] - a[0]) / ((b[0] - a[0]) || 1), e = Math.abs(p[1] - (a[1] + (b[1] - a[1]) * f));
+      if (e > worst) { worst = e; wi = i; }
+    }
+    if (worst > tol && wi > 0) { keep[wi] = true; stack.push([s[0], wi], [wi, s[1]]); }
+  }
+  return pts.filter(function (_, i) { return keep[i]; });
+}
+var api = { OVERLAY: OVERLAY, PICTURE: PICTURE, RANGE: RANGE, kfValue: kfValue, valueOf: valueOf, overlayState: overlayState, pictureTransform: pictureTransform,
     spanAt: spanAt, overlayRect: overlayRect, shiftKf: shiftKf, kfExpr: kfExpr,
-    EASES: EASES, cleanEase: cleanEase, bezierOf: bezierOf, easeName: easeName, easeProgress: easeProgress, subEase: subEase, sliceKf: sliceKf, insertKf: insertKf, bakeKf: bakeKf, shiftOf: shiftOf };
+    EASES: EASES, cleanEase: cleanEase, bezierOf: bezierOf, easeName: easeName, easeProgress: easeProgress, subEase: subEase, sliceKf: sliceKf, insertKf: insertKf, bakeKf: bakeKf, makeTracker: makeTracker, findBlock: findBlock, smoothSeries: smoothSeries, simplifyKf: simplifyKf, LOST_ERR: LOST_ERR, shiftOf: shiftOf };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') { window.NakiAnim = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['anim.js'] = 'ease'; }
   return api;

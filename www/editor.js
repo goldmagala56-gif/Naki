@@ -1375,7 +1375,10 @@ crop: { title: 'Crop', build: function (body){
       else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(val), function (v){ return v + '\u00b0'; }, function (v){ live(set(v)); }, function (v){ commit(set(v)); }));
       else body.appendChild(sliderRow(KF_LABEL[cur], 0, 100, 1, Math.round(val * 100), pct, function (v){ live(set(v / 100)); }, function (v){ commit(set(v / 100)); }));
       body.appendChild(keyframeActions(c, cur));
-      body.appendChild(mk('div', 'ed-hint', 'Drag the overlay on the picture to move it. For movement, put a keyframe here, move the playhead, change the value, and it glides between them. An overlay has no sound.'));
+      var tkOn = !!(E.tk && E.tk.running), tareas = TRACK_AREAS.map(function (a){ return { key: a.key, label: a.label }; }), tcur = chipKey('trackarea', tareas, 'medium');
+      body.appendChild(chips(tareas, tcur, pickChip('trackarea')));
+      body.appendChild(actions([{ id: 'edTrack', label: tkOn ? 'Stop tracking (' + E.tk.pct + '%)' : 'Track motion', run: function (){ if (tkOn) E.tk.cancel = true; else trackOverlay(c, tcur); } }]));
+      body.appendChild(mk('div', 'ed-hint', 'Track motion: put the middle of the overlay on the thing that moves, at the playhead, then tap Track motion. The overlay follows it to the end of the clip, or until Naki loses sight of it. Small suits a small object, Large a big one. Drag the overlay on the picture to move it. For movement by hand, put a keyframe here, move the playhead, change the value, and it glides between them. An overlay has no sound.'));
     } },
     sfxpick: { title: 'Sound effects', build: function (body){
       var g = mk('div', 'ed-chips wrap');
@@ -2214,6 +2217,76 @@ crop: { title: 'Crop', build: function (body){
     m.addEventListener('loadedmetadata', done); m.addEventListener('error', done);
     m.src = url; m.load();
     return true;
+  }
+  // ---------- motion tracking: an overlay follows something that moves in the picture ----------
+  var TRACK_AREAS = [{ key: 'small', label: 'Small', f: 0.06 }, { key: 'medium', label: 'Medium', f: 0.1 }, { key: 'large', label: 'Large', f: 0.16 }];
+  function trackWait(v, ev, ms){
+    return new Promise(function (res){
+      var done = false, t = null;
+      function fin(ok){ if (done) return; done = true; clearTimeout(t); v.removeEventListener(ev, h); v.removeEventListener('error', er); res(ok); }
+      function h(){ fin(true); } function er(){ fin(false); }
+      v.addEventListener(ev, h); v.addEventListener('error', er); t = setTimeout(function (){ fin(false); }, ms);
+    });
+  }
+  function trackOverlay(c, areaKey){
+    if (E.tk && E.tk.running) return;
+    if (!NANIM || !NANIM.makeTracker || !NF || !NF.containLayout){ toast('Tracking is not available here.'); return; }
+    pause();
+    var Ts = Math.round(Math.max(c.start, Math.min(c.start + c.dur - 200, E.t)));
+    var vt = E.proj.tracks.filter(function (t){ return t.role === 'movie'; })[0], vc = vt && vt.clips.filter(function (k){ return k.start <= Ts && Ts < k.start + k.dur; })[0];
+    if (!vc || vc.type !== 'video'){ toast('There is no moving picture under the overlay at the playhead.', 6000); return; }
+    var tf = vc.transform || {};
+    if (vc.reverse || vc.curve || vc.crop || (tf.zoom && tf.zoom !== 1) || tf.x || tf.y || tf.rot || tf.flipH || (vc.kf && (vc.kf.zoom || vc.kf.x || vc.kf.y))){
+      toast('Tracking needs the picture clip with no zoom, turn, flip, crop, reverse or speed curve. Reset those first.', 9000); return;
+    }
+    var url = clipUrl(vt, vc); if (!url){ toast('The movie is not loaded.'); return; }
+    var area = TRACK_AREAS.filter(function (a){ return a.key === areaKey; })[0] || TRACK_AREAS[1];
+    var Te = Math.min(c.start + c.dur, vc.start + vc.dur), tk = E.tk = { running: true, cancel: false, pct: 0, shown: 0 }, v = document.createElement('video');
+    var clamp01 = function (x){ return Math.max(0, Math.min(1, x)); };
+    (async function (){
+      try {
+        v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url; v.load();
+        if (!(await trackWait(v, 'loadedmetadata', 15000)) || !v.videoWidth) throw new Error('The movie could not be read for tracking.');
+        var W = E.ui.picframe.clientWidth || 1000, H = E.ui.picframe.clientHeight || (1000 / (frameAspect() || (v.videoWidth / v.videoHeight)));
+        var b = NF.containLayout(null, W, H, v.videoWidth, v.videoHeight).box;
+        var x0 = NANIM.valueOf(c, 'overlay', 'x', Ts - c.start), y0 = NANIM.valueOf(c, 'overlay', 'y', Ts - c.start);
+        var u0 = (x0 * W - b.x) / b.w, w0 = (y0 * H - b.y) / b.h;
+        if (u0 < 0.02 || u0 > 0.98 || w0 < 0.02 || w0 > 0.98) throw new Error('Put the middle of the overlay on the thing that moves first, then track.');
+        var gw = 192, gh = Math.max(8, Math.round(gw * v.videoHeight / v.videoWidth)), cv = document.createElement('canvas'); cv.width = gw; cv.height = gh;
+        var g = cv.getContext('2d', { willReadFrequently: true });
+        var grab = async function (T){
+          var mt = Math.max(0, Math.min((v.duration || 1e9) - 0.01, (vc.in + (T - vc.start) * (vc.speed || 1)) / 1000));
+          if (!(Math.abs(v.currentTime - mt) < 0.001 && v.readyState >= 2)){ var w = trackWait(v, 'seeked', 5000); v.currentTime = mt; await w; }
+          g.drawImage(v, 0, 0, gw, gh);
+          var d = g.getImageData(0, 0, gw, gh).data, gray = new Uint8Array(gw * gh);
+          for (var i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
+          return { w: gw, h: gh, d: gray };
+        };
+        var tw = Math.max(8, Math.round(gw * area.f)), tr = NANIM.makeTracker(await grab(Ts), u0 * gw, w0 * gh, tw, tw, Math.max(8, Math.round(gw * 0.12)));
+        var s0 = tr.start, fx0 = (b.x + (s0.x / gw) * b.w) / W, fy0 = (b.y + (s0.y / gh) * b.h) / H;
+        var step = Math.max(80, Math.ceil((Te - Ts) / 400)), xs = [[Ts - c.start, x0]], ys = [[Ts - c.start, y0]], lostAt = null, T;
+        for (T = Ts + step; T <= Te && !tk.cancel; T += step){
+          var r = tr.step(await grab(T));
+          if (r.lost){ lostAt = T; break; }
+          xs.push([T - c.start, clamp01(x0 + (b.x + (r.x / gw) * b.w) / W - fx0)]); ys.push([T - c.start, clamp01(y0 + (b.y + (r.y / gh) * b.h) / H - fy0)]);
+          tk.pct = Math.round((T - Ts) / Math.max(1, Te - Ts) * 100);
+          if (tk.pct - tk.shown >= 5){ tk.shown = tk.pct; if (E.isOpen && E.panel === 'overlayedit') renderDock(); }
+        }
+        if (xs.length < 3) throw new Error(lostAt !== null ? 'Naki lost sight of it straight away. Put the overlay on a clear, detailed spot, or try a bigger area.' : 'Nothing to follow: the clip is too short from the playhead.');
+        if (Ts > c.start){ xs.unshift([0, x0]); ys.unshift([0, y0]); }
+        var smooth = function (a){ var s = NANIM.smoothSeries(a.map(function (p){ return p[1]; }), 3); return a.map(function (p, i){ return [p[0], s[i]]; }); };
+        var q = P.setKeyframeSeries(E.hist.cur, c.id, { x: NANIM.simplifyKf(smooth(xs), 0.004), y: NANIM.simplifyKf(smooth(ys), 0.004) });
+        if (q === E.hist.cur) toast('It did not move, so nothing was changed.', 6000);
+        else {
+          commit(q);
+          toast(tk.cancel ? 'Stopped. The overlay follows it up to where you stopped.' : lostAt !== null ? 'Naki lost sight of it at ' + (Math.round(lostAt / 100) / 10) + ' s. The overlay follows it up to there; you can track again from the playhead.' : 'Done. The overlay now follows it. The movement is in the x and y keyframes, so you can still change it.', 8000);
+        }
+      } catch (err){ toast(String(err && err.message ? err.message : err), 8000); }
+      finally {
+        tk.running = false; try { v.removeAttribute('src'); v.load(); } catch (e){}
+        if (E.isOpen && E.panel === 'overlayedit') renderDock();
+      }
+    })();
   }
   function addOverlayFromFile(){
     if (!E.hooks.pickOverlay || !E.hooks.setOverlayFile){ toast('Overlays are not available here.'); return; }

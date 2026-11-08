@@ -704,6 +704,22 @@ function switchAngle(p, id, to, out){
   return finish(q);
 }
 
+// ---------- keyframes written in one go (motion tracking) ----------
+// series = { x: [[ms since the clip started, value], ...], y: [...] } for an overlay clip. Each list replaces that property's keyframes; an empty list takes them away.
+function setKeyframeSeries(p, id, series){
+  var f = findClip(p, id); if (!f || kfKind(f.track) !== 'overlay' || f.track.locked || !_AN) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip, R = _AN.RANGE.overlay; c.kf = c.kf || {};
+  Object.keys(series || {}).forEach(function (k){
+    var r = R[k]; if (!r) return;
+    var pts = (series[k] || []).map(function (x){ return [Math.max(0, Math.min(Math.round(c.dur), Math.round(x[0]))), r3(Math.max(r[0], Math.min(r[1], +x[1])))]; })
+      .filter(function (x){ return !isNaN(x[1]); }).sort(function (a, b){ return a[0] - b[0]; });
+    var out = []; pts.forEach(function (x){ if (out.length && out[out.length - 1][0] === x[0]) out[out.length - 1] = x; else out.push(x); });
+    if (out.length) c.kf[k] = out; else delete c.kf[k];
+  });
+  if (!Object.keys(c.kf).length) delete c.kf;
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
 // ---------- reverse ----------
 // Plays a movie clip backwards: the same stretch of the movie, last picture first. Its linked movie sound is
 // reversed with it. A paused picture has nothing to play backwards. on = true / false, or leave out to switch.
@@ -2036,7 +2052,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   gainAt: gainAt, gainSlice: gainSlice, clipGainAt: clipGainAt, findClip: findClip, EditHistory: EditHistory,
   addTextClip: addTextClip, setTextProps: setTextProps, textsAt: textsAt, setClipSpeed: setClipSpeed, setVFade: setVFade, setFilter: setFilter,
   insertFreeze: insertFreeze, ensureMusic: ensureMusic, removeMusic: removeMusic,
-  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setDenoise: setDenoise, setMotionBlur: setMotionBlur, addPiece: addPiece, addCountdown: addCountdown, PIECES: PIECE_LIST.map(function (d){ return { key: d.key, label: d.label, numbered: !!d.numbered }; }), groupIds: groupIds, groupClips: groupClips, ungroupClips: ungroupClips, copyGroup: copyGroup, pasteGroup: pasteGroup, setSmooth: setSmooth, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setAssetSync: setAssetSync, angleList: angleList, switchAngle: switchAngle, setAssetTts: setAssetTts, ttsOf: ttsOf, replaceSpeech: replaceSpeech, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
+  setOpacity: setOpacity, setTransform: setTransform, duplicateClip: duplicateClip, shiftVoice: shiftVoice, movieNeeded: movieNeeded, setMovieAsset: setMovieAsset, setReverse: setReverse, linkedClips: linkedClips, setKeyframeSeries: setKeyframeSeries, setDenoise: setDenoise, setMotionBlur: setMotionBlur, addPiece: addPiece, addCountdown: addCountdown, PIECES: PIECE_LIST.map(function (d){ return { key: d.key, label: d.label, numbered: !!d.numbered }; }), groupIds: groupIds, groupClips: groupClips, ungroupClips: ungroupClips, copyGroup: copyGroup, pasteGroup: pasteGroup, setSmooth: setSmooth, setCrop: setCrop, cropRect: cropRect, cleanCrop: cleanCrop, setAssetSync: setAssetSync, angleList: angleList, switchAngle: switchAngle, setAssetTts: setAssetTts, ttsOf: ttsOf, replaceSpeech: replaceSpeech, setStabilize: setStabilize, setGrade: setGrade, setAudioFx: setAudioFx, cleanAfx: cleanAfx, setOverlayPlace: setOverlayPlace, pipPlacement: pipPlacement, PIP_PRESETS: PIP_PRESETS, PIP_SIZES: PIP_SIZES, autoCutClip: autoCutClip, reframeClip: reframeClip,
   addCaptions: addCaptions, addCaptionLine: addCaptionLine, captionList: captionList, setCaptionStyle: setCaptionStyle, removeCaptions: removeCaptions,
   parseSrt: parseSrt, toSrt: toSrt, detachAudio: detachAudio, captionTrackOf: captionTrackOf,
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,
