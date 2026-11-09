@@ -157,7 +157,8 @@ function buildCodes(p){
       if (!c || !P.keyframeProps(E.proj, c.id).length){ toast('Tap a picture or overlay clip first.'); return; }
       commit(P.toggleKeyframes(E.hist.cur, c.id, relNow(c)));
     };
-    add(bar, u.play, u.time, u.scrub, u.kfBtn, u.undo, u.redo);
+    u.meterBtn = iconBtn('edBarMeter', G_METER, 'Precision meter'); u.meterBtn.onclick = function (){ if (E.meter) closeMeter(); else openMeter(); };
+    add(bar, u.play, u.meterBtn, u.time, u.scrub, u.kfBtn, u.undo, u.redo);
 
     u.note = mk('div', 'ed-note');
     var tl = mk('div', 'ed-tl'); u.labels = mk('div', 'ed-labels'); u.scroll = mk('div', 'ed-scroll'); u.inner = mk('div', 'ed-inner');
@@ -182,12 +183,12 @@ function buildCodes(p){
     u.zin.onclick = function (){ setZoom(E.ppm * 1.4); }; u.zout.onclick = function (){ setZoom(E.ppm / 1.4); };
     u.scrub.addEventListener('input', function (){ seek(+u.scrub.value / 1000 * E.proj.durationMs); });
     u.scroll.addEventListener('pointerdown', onDown);
-    u.scroll.addEventListener('scroll', scheduleRepaint);
+    u.scroll.addEventListener('scroll', function (){ scheduleRepaint(); if (E.meter) drawGrid(); });
     u.scroll.addEventListener('wheel', function (ev){
       if (ev.ctrlKey || ev.metaKey){ ev.preventDefault(); setZoom(E.ppm * (ev.deltaY < 0 ? 1.15 : 1 / 1.15), ev.clientX); }
       else if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)){ u.scroll.scrollLeft += ev.deltaY; ev.preventDefault(); }
     }, { passive: false });
-    u.scroll.addEventListener('touchmove', function (ev){ if (E.drag && E.drag.mode === 'move') ev.preventDefault(); }, { passive: false });
+    u.scroll.addEventListener('touchmove', function (ev){ if (E.drag && (E.drag.mode === 'move' || E.drag.mode === 'trimL' || E.drag.mode === 'trimR')) ev.preventDefault(); }, { passive: false });
     u.scroll.addEventListener('contextmenu', function (ev){ ev.preventDefault(); });
     if (typeof window !== 'undefined') window.addEventListener('resize', function (){ if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); } });
     // The preview area changes height whenever the dock turns from toolbar to tool row to panel, so the picture is re-fitted each time
@@ -310,7 +311,7 @@ function buildCodes(p){
     var e = mk('div', 'ed-clip ' + clipKind(tr, c) + (c.id === E.sel ? ' sel' : '') + (E.multi && E.multi[c.id] ? ' multi' : '') + (c.group ? ' grp' : ''));
     e.dataset.id = c.id; e.style.left = tx(c.start) + 'px'; e.style.width = Math.max(tr.kind === 'video' ? 3 : 16, c.dur * E.ppm) + 'px';
     var wpx = c.dur * E.ppm, code = (E.codes && E.codes[c.id]) || '';
-if (wpx > 70) e.appendChild(mk('span', 'ed-cl', code + ' · ' + clipTitle(tr, c)));
+if (wpx > 150 || (wpx > 70 && c.id === E.sel)) e.appendChild(mk('span', 'ed-cl', clipTitle(tr, c)));
 else if (wpx >= 16) e.appendChild(mk('span', 'ed-cl ed-code', code));
 if (wpx < 44) e.classList.add('tiny');
     if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); } else { try { decorateClip(e, tr, c); } catch (err){ console.warn('clip picture/waveform failed', err); } }
@@ -322,7 +323,7 @@ if (wpx < 44) e.classList.add('tiny');
   var f = E.sel && P.findClip(E.proj, E.sel); if (!f || E.panel) return null;
   var c = f.clip, bar = mk('div', 'ed-selbar'), nm = mk('span', 'ed-seln', ((E.codes && E.codes[c.id]) || '') + ' · ' + clipTitle(f.track, c) + ' · ' + fmtP(c.dur));
   function b(label, icon, fn, cls){ var x = iconBtn(null, icon, label, 'ed-ibtn' + (cls || '')); x.onclick = fn; return x; }
-  return add(bar, nm, b('Zoom to this clip', G.zoom, zoomToSel), b('Split', G.split, split), b('Duplicate', G.dup, duplicateSel),
+  return add(bar, nm, b('Nudge earlier', G.back, function (){ moveSel(-gridUnit()); }), b('Nudge later', G.fwd, function (){ moveSel(gridUnit()); }), b('Zoom out', ZO, function (){ setZoom(E.ppm / 1.6); }), b('Zoom to this clip', G.zoom, zoomToSel), b('Split', G.split, split), b('Duplicate', G.dup, duplicateSel),
     b('Delete', G.trash, deleteSel, ' ed-selbar-del'), b('Done', G.check, function (){ E.multi = {}; select(null); }));
 }
 function zoomToSel(){
@@ -363,7 +364,7 @@ function zoomToSel(){
     var u = E.ui; u.labels.textContent = ''; u.labels.appendChild(mk('div', 'ed-spacer'));
     E.proj.tracks.forEach(function (tr){
       var nm = ROLE_NAME[tr.role] || tr.role, l = mk('div', 'ed-label' + (tr.muted ? ' muted' : '') + (tr.hidden ? ' off' : '') + (tr.locked ? ' locked' : '')), box = mk('div', 'ed-lbtns');
-      l.style.height = rowH(tr) + 'px'; l.appendChild(mk('span', null, nm));
+      l.style.height = rowH(tr) + 'px'; var ic = mk('span', 'ed-lbicon'); ic.innerHTML = roleIcon(tr.role); ic.title = nm; ic.setAttribute('role', 'img'); ic.setAttribute('aria-label', nm); l.appendChild(ic);
       var tog = function (icon, on, label, key){
         var b = iconBtn(null, icon, label, 'ed-lb' + (on ? ' on' : '')); b.setAttribute('aria-pressed', String(!!on));
         b.addEventListener('pointerdown', function (ev){ ev.stopPropagation(); });
@@ -377,9 +378,10 @@ function zoomToSel(){
     });
   }
   
-  function placeHead(){ if (E.ui.head) E.ui.head.style.left = tx(E.t) + 'px'; }
+  function placeHead(){ if (E.ui.head) E.ui.head.style.left = tx(E.t) + 'px'; if (E.meter) drawGrid(); }
   function readout(){
     E.ui.time.textContent = fmtP(E.t) + ' / ' + fmtP(E.proj.durationMs); updateKfBar();
+    if (E.meter && E.ui.meterRead) E.ui.meterRead.textContent = precTime(E.t);
     if (E.proj.durationMs) E.ui.scrub.value = String(Math.round(E.t / E.proj.durationMs * 1000));
   }
   function hasCrossing(t){
@@ -516,12 +518,13 @@ function zoomToSel(){
     var a = P.snapTime(E.proj, start, th, snapPts(), skip), b = P.snapTime(E.proj, start + dur, th, snapPts(), skip) - dur, best = start;
     if (a !== start && b !== start) best = Math.abs(a - start) <= Math.abs(b - start) ? a : b;
     else if (a !== start) best = a; else if (b !== start) best = b;
+    if (best === start) best = gridSnap(start);
     return Math.max(0, Math.round(best));
   }
   function moveTo(d){
     var dt = ((d.lastX - d.x0) + (E.ui.scroll.scrollLeft - d.sl0)) / E.ppm;
     var raw = Math.max(0, d.s0 + dt); d.newStart = snapMove(raw, d.e0 - d.s0, d.id); showSnapGuide(d, raw);
-    d.el.classList.add('dragging'); d.el.style.left = tx(d.newStart) + 'px'; pickRow(d); showDrop(d);
+    d.el.classList.add('dragging'); d.el.style.left = tx(d.newStart) + 'px'; pickRow(d); showDrop(d); drawGrid(); showTip(d.newStart, d.e0 - d.s0);
   }
   // A dashed outline shows where the clip will really land when you let go (solid when it pushes other clips later).
   function showDrop(d){
@@ -699,6 +702,7 @@ function zoomToSel(){
     var old = d.querySelector('.ed-tscroll'); if (old) E.rowScroll = { tool: E.rowTool, left: old.scrollLeft };
     u.bSplit = u.bCut = u.bDel = null;
     d.textContent = '';
+    if (E.meter){ d.appendChild(meterPanel()); if (E.isOpen) layoutTextLayer(); return; }
     var kb = kfBar(); if (kb) d.appendChild(kb);
     var sb = selBar(); if (sb) d.appendChild(sb);
     if (E.panel && PANELS[E.panel]) d.appendChild(panelShell(PANELS[E.panel]));
@@ -3048,7 +3052,8 @@ crop: { title: 'Crop', build: function (body){
       { id: 'edSelUngroup', label: 'Ungroup', icon: G.gap, run: ungroupSel, disabled: !selInGroup() },
       { id: 'edSelMove', label: 'Move', icon: G.join, run: function (){ openPanel('shiftclips'); }, disabled: !any },
       { id: 'edSelDelete', label: 'Delete', icon: G.trash, run: deleteMulti, disabled: !any },
-      { id: 'edSnap', label: 'Snapping', icon: G.magnet, run: toggleSnap, on: E.snap !== false }
+      { id: 'edSnap', label: 'Snapping', icon: G.magnet, run: toggleSnap, on: E.snap !== false },
+      { id: 'edGrid', label: 'Grid snap', icon: G.gap, run: toggleGrid, on: !!E.grid }
     ];
   };
   // Copy / Paste / Copy look / Paste look are also at the end of the other tool rows, so they are in reach when a clip is tapped.
@@ -3969,9 +3974,9 @@ crop: { title: 'Crop', build: function (body){
       if (tr.locked){ renderSelectionOnly(); toast('This row is locked. Tap its lock to edit it.'); return; }
       E.drag = { mode: handle ? (handle.classList.contains('ed-hl') ? 'trimL' : 'trimR') : 'pending', id: id, x0: ev.clientX, y0: ev.clientY, el: clipE, tr: tr,
         s0: c.start, e0: c.start + c.dur, touch: ev.pointerType === 'touch', moved: false, press: 0, timer: 0, wasSel: wasSel, sl0: E.ui.scroll.scrollLeft, lastX: ev.clientX };
-        if (E.drag.mode === 'pending' && E.drag.touch && wasSel && tr.kind !== 'video') E.drag.mode = 'move';
+        
       if (E.drag.mode === 'pending' && E.drag.touch) E.drag.press = setTimeout(function (){
-        if (E.drag && E.drag.mode === 'pending'){ E.drag.mode = 'move'; try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }
+        armTrim(E.drag);
       }, 300);
       
       renderSelectionOnly();
@@ -3981,12 +3986,150 @@ else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
     }
     window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp); window.addEventListener('pointercancel', onCancel);
   }
+  // ----- staged long press (touch): 1st tick = trim the nearest edge, 2nd (double) tick = move -----
+  function tickSound(f, ms){
+    try {
+      var h = E.hooks, ctx = h.getCtx && h.getCtx();
+      if (!ctx && h.ensureAudio){ h.ensureAudio(); ctx = h.getCtx && h.getCtx(); }
+      if (!ctx) return;
+      if (ctx.state === 'suspended' && ctx.resume) ctx.resume();
+      var o = ctx.createOscillator(), g = ctx.createGain(), t = ctx.currentTime;
+      o.type = 'square'; o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.12, t + 0.004); g.gain.exponentialRampToValueAtTime(0.0001, t + ms / 1000);
+      o.connect(g); g.connect(ctx.destination); o.start(t); o.stop(t + ms / 1000 + 0.02);
+    } catch (e) {}
+  }
+  function armTrim(d){
+    if (!d || d.mode !== 'pending') return;
+    var r = d.el.getBoundingClientRect();
+    d.mode = d.x0 < r.left + r.width / 2 ? 'trimL' : 'trimR';
+    d.el.classList.add('arm-trim'); tickSound(1000, 40);
+    try { if (navigator.vibrate) navigator.vibrate(10); } catch (e) {}
+    d.press = setTimeout(function (){
+      if (E.drag !== d || d.moved) return;
+      d.mode = 'move'; d.el.classList.remove('arm-trim'); d.el.classList.add('arm-move');
+      tickSound(700, 40); setTimeout(function (){ tickSound(1000, 40); }, 80);
+      try { if (navigator.vibrate) navigator.vibrate([14, 50, 14]); } catch (e) {}
+    }, 350);
+  }
+  // ----- measuring lines while dragging -----
+  function meterUnitMs(){ var k = E.mu == null ? 'frame' : E.mu; return k === 'frame' ? 1000 / ((E.proj && E.proj.fps) || 30) : k; }
+  function gridUnit(){
+    if (E.meter){   // the meter's own unit, or a multiple of it when the lines would be too close together to see
+      var m = meterUnitMs(), mult = [1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000];
+      for (var j = 0; j < mult.length; j++) if (m * mult[j] * E.ppm >= 6) return m * mult[j];
+      return m * 5000;
+    }
+    var us = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000];
+    for (var i = 0; i < us.length; i++) if (us[i] * E.ppm >= 7) return us[i];
+    return 10000;
+  }
+  function gridLabel(){ var u = gridUnit(); return u >= 1000 ? (Math.round(u) / 1000) + ' s' : (Math.round(u * 10) / 10) + ' ms'; }
+  function gridSnap(t){ if (!E.grid && !E.meter) return t; var u = gridUnit(); return Math.round(Math.round(t / u) * u); }
+  function toggleGrid(){
+    E.grid = !E.grid;
+    toast(E.grid ? 'Grid snap on: clips land on the grid lines (now ' + gridLabel() + '; zoom in for finer).' : 'Grid snap off.');
+    renderDock();
+  }
+  function precTime(ms){
+    ms = Math.max(0, Math.round(ms)); var s = Math.floor(ms / 1000), m = Math.floor(s / 60);
+    return m + ':' + ('0' + (s % 60)).slice(-2) + '.' + ('00' + (ms % 1000)).slice(-3);
+  }
+  function drawGrid(){
+    var u = E.ui, sc = u.scroll, cv = u.gridcv;
+    if (!cv || !cv.parentNode){ cv = u.gridcv = mk('canvas', 'ed-gridcv'); u.inner.appendChild(cv); }
+    var W = sc.clientWidth, H = Math.max(u.inner.clientHeight, 60);
+    cv.width = W; cv.height = H; cv.style.left = sc.scrollLeft + 'px'; cv.style.width = W + 'px'; cv.style.height = H + 'px'; cv.style.display = 'block';
+    if (E.meter && u.meterHint) u.meterHint.textContent = 'Lines every ' + gridLabel() + '. Zoom in for finer lines.';
+    var g = cv.getContext('2d'), un = gridUnit(), t0 = Math.max(0, Math.floor((sc.scrollLeft - PAD) / E.ppm / un) * un), t1 = (sc.scrollLeft + W - PAD) / E.ppm;
+    for (var t = t0; t <= t1; t += un){
+      var x = Math.round(tx(t) - sc.scrollLeft) + 0.5, n = Math.round(t / un), major = n % 10 === 0, mid = n % 5 === 0;
+      g.strokeStyle = major ? 'rgba(255,255,255,.45)' : mid ? 'rgba(255,255,255,.28)' : 'rgba(255,255,255,.14)';
+      g.beginPath(); g.moveTo(x, major ? 0 : 26); g.lineTo(x, H); g.stroke();
+    }
+  }
+  function showTip(t, len){
+    var u = E.ui, el = u.dragtip;
+    if (!el || !el.parentNode){ el = u.dragtip = mk('div', 'ed-dragtip'); u.inner.appendChild(el); }
+    el.textContent = precTime(t) + (len ? ' \u00b7 ' + precTime(len) + ' long' : '') + ' \u00b7 grid ' + gridLabel();
+    el.style.display = 'block'; el.style.left = Math.max(u.scroll.scrollLeft + 4, tx(t) - 20) + 'px';
+  }
+  function hideGrid(){
+    var u = E.ui; if (u.dragtip) u.dragtip.style.display = 'none';
+    if (E.meter){ drawGrid(); return; }   // the meter keeps its lines on screen
+    if (u.gridcv) u.gridcv.style.display = 'none';
+  }
+  // ----- the precision meter: a fine ruler down the timeline to set the playhead exactly, like the fine-aim dial in billiards -----
+  var MUNITS = [{ key: 'frame', label: '1 frame' }, { key: 10, label: '10 ms' }, { key: 50, label: '50 ms' }, { key: 100, label: '0.1 s' }, { key: 500, label: '0.5 s' }, { key: 1000, label: '1 s' }];
+  var ZI = svg('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5M8 11h6M11 8v6"/>'), ZO = svg('<circle cx="11" cy="11" r="6"/><path d="M20 20l-4.5-4.5M8 11h6"/>');
+  var G_METER = svg('<path d="M3 12h18M7 8l-4 4 4 4M17 8l4 4-4 4"/>');
+  function keepHeadInView(){
+    var sc = E.ui.scroll, x = tx(E.t), w = sc.clientWidth;
+    if (x < sc.scrollLeft + 30 || x > sc.scrollLeft + w - 30) sc.scrollLeft = Math.max(0, x - w / 2);
+  }
+  function meterStep(n){
+    var u = meterUnitMs(), i = Math.round(E.t / u) + n;
+    seek(clamp(Math.round(i * u), 0, E.proj.durationMs)); keepHeadInView();
+  }
+  function openMeter(){
+    if (E.playing) pause();
+    E.meter = true; if (E.root) E.root.classList.add('meter-on');
+    renderDock(); drawGrid(); keepHeadInView();
+  }
+  function closeMeter(){
+    E.meter = false; if (E.root) E.root.classList.remove('meter-on');
+    hideGrid(); renderDock();
+  }
+  function meterPanel(){
+    var p = mk('div', 'ed-panel ed-meter'), h = mk('div', 'ed-phead'), done = iconBtn('edMeterDone', G.check, 'Done', 'ed-ibtn ed-pdone'), body = mk('div', 'ed-pbody');
+    done.onclick = closeMeter;
+    var rd = mk('span', 'ed-ptitle ed-meterread num', precTime(E.t)); E.ui.meterRead = rd;
+    add(h, rd, done);
+    var hint = mk('div', 'ed-hint'); E.ui.meterHint = hint; hint.textContent = 'Lines every ' + gridLabel() + '. Zoom in for finer lines.';
+    var pad = mk('div', 'ed-meterpad'); pad.appendChild(mk('span', null, '◀  slide here to fine-tune  ▶'));
+    var pd = null;
+    pad.addEventListener('pointerdown', function (ev){ ev.preventDefault(); try { pad.setPointerCapture(ev.pointerId); } catch (e) {} pd = { x: ev.clientX, i: Math.round(E.t / meterUnitMs()) }; });
+    pad.addEventListener('pointermove', function (ev){
+      if (!pd) return;
+      var n = Math.round((ev.clientX - pd.x) / 7), u = meterUnitMs();
+      seek(clamp(Math.round((pd.i + n) * u), 0, E.proj.durationMs)); keepHeadInView();
+      pad.style.backgroundPositionX = (ev.clientX - pd.x) + 'px';
+    });
+    var end = function (){ pd = null; }; pad.addEventListener('pointerup', end); pad.addEventListener('pointercancel', end);
+    body.appendChild(chips(MUNITS, E.mu == null ? 'frame' : E.mu, function (k){ E.mu = k; renderDock(); drawGrid(); }));
+    body.appendChild(pad);
+    body.appendChild(actions([
+      { id: 'edMt10', label: '−10', run: function (){ meterStep(-10); } }, { id: 'edMt1', label: '−1', run: function (){ meterStep(-1); } },
+      { id: 'edMp1', label: '+1', run: function (){ meterStep(1); } }, { id: 'edMp10', label: '+10', run: function (){ meterStep(10); } }]));
+    body.appendChild(actions([
+      { id: 'edMsplit', label: 'Split here', run: split },
+      { id: 'edMzo', label: 'Zoom out', run: function (){ setZoom(E.ppm / 1.6); drawGrid(); } },
+      { id: 'edMzi', label: 'Zoom in', run: function (){ setZoom(E.ppm * 1.6); drawGrid(); } },
+      { id: 'edMfit', label: 'Fit', run: function (){ fit(); drawGrid(); } }]));
+    body.appendChild(hint);
+    add(p, h, body); return p;
+  }
+  // ----- one small icon for each row, instead of its name -----
+  var ROLE_SVG = {
+    movie: '<rect x="3" y="5" width="18" height="14" rx="2"/><path d="M7 5v14M17 5v14M3 9.5h4M3 14.5h4M17 9.5h4M17 14.5h4"/>',
+    movieSound: '<path d="M5 9v6h3l5 4V5L8 9z"/><path d="M16.5 9a4 4 0 010 6"/>',
+    voice: '<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v4"/>',
+    music: '<path d="M9 18V5l11-2v13"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/>',
+    text: '<path d="M5 6.5V5h14v1.5M12 5v14M9.5 19h5"/>',
+    captions: '<rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="M7 11h4M13 11h4M7 15h2.5M12 15h5"/>',
+    stickers: '<path d="M20 12a8 8 0 11-8-8h5a3 3 0 013 3z"/><path d="M9 10h.01M15 10h.01M8.5 14.5a4.5 4.5 0 007 0"/>',
+    overlay: '<rect x="3" y="5" width="14" height="11" rx="1.5"/><rect x="9" y="9" width="12" height="10" rx="1.5"/>',
+    sfx: '<path d="M3 12h2M7 8v8M11 4v16M15 7v10M19 10v4"/>',
+    fx: '<path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM18 15l.8 2.2L21 18l-2.2.8L18 21l-.8-2.2L15 18l2.2-.8z"/>',
+    layout: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M3 12h18"/>'
+  };
+  function roleIcon(role){ return svg(ROLE_SVG[role] || ROLE_SVG.overlay); }
   function renderSelectionOnly(){
     var els = E.ui.inner.querySelectorAll('.ed-clip');
     for (var i = 0; i < els.length; i++){ els[i].classList.toggle('sel', els[i].dataset.id === E.sel); els[i].classList.toggle('multi', !!(E.multi && E.multi[els[i].dataset.id])); }
     renderSelected(); updateButtons(); syncDock(); try { syncOverlays(); } catch (e) {}
   }
-  function snapped(t){ return P.snapTime(E.proj, t, snapTh(), snapPts()); }
+  function snapped(t){ var s = P.snapTime(E.proj, t, snapTh(), snapPts()); return s === t ? gridSnap(t) : s; }
   function onMove(ev){
     if (ev.pointerType === 'touch' && E.pointers[ev.pointerId]) E.pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
     if (E.pinch){ movePinch(); return; }
@@ -4002,6 +4145,7 @@ else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
   if (Math.abs(dx) < 6 && Math.abs(ev.clientY - d.y0) < 6) return; d.armed = true;
 }
     d.moved = true; var dt = dx / E.ppm;
+    if (d.mode === 'trimL' || d.mode === 'trimR') setTimeout(function (){ if (E.drag === d){ drawGrid(); showTip(d.mode === 'trimL' ? d.newStart : d.newEnd, 0); } }, 0);
     if (d.mode === 'trimL'){ d.newStart = clamp(snapped(d.s0 + dt), 0, d.e0 - 100); d.el.style.left = tx(d.newStart) + 'px'; d.el.style.width = Math.max(3, (d.e0 - d.newStart) * E.ppm) + 'px'; }
     else if (d.mode === 'trimR'){ d.newEnd = Math.max(d.s0 + 100, snapped(d.e0 + dt)); d.el.style.width = Math.max(3, (d.newEnd - d.s0) * E.ppm) + 'px'; }
     else if (d.mode === 'move'){ d.lastX = ev.clientX; d.lastY = ev.clientY; if (!d.timer) d.timer = setInterval(autoScrollTick, 30); moveTo(d); }
@@ -4011,10 +4155,12 @@ else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
   function endDrag(cancel){
     var d = E.drag; E.drag = null;
     if (E.ui.snapline) E.ui.snapline.style.display = 'none';
+    hideGrid();
     clearTargets();
     window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp); window.removeEventListener('pointercancel', onCancel);
     E.pointers = {}; E.pinch = null;
     if (!d) return; clearTimeout(d.press); clearInterval(d.timer);
+    if (d.el && d.el.classList) d.el.classList.remove('arm-trim', 'arm-move');
     if (cancel){ renderTimeline(); return; }
     if (d.mode === 'tap'){
   if (Math.abs((d.lx || d.x0) - d.x0) < 10 && Math.abs((d.ly || d.y0) - d.y0) < 10){
@@ -4118,6 +4264,7 @@ else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
     showSaved(c.restored || c.hist.past.length ? 'Saved' : '');
     E.markSel = null; E.lastFilter = ''; E.lastOpacity = ''; E.lastRate = 1; E.lastTransform = ''; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; E.boxKey = null; E.boxMode = '';
     E.curAsset = 'movie'; E.swapping = false; E.skipMsg = false; E.layoutOn = false;
+    E.meter = false; if (E.root) E.root.classList.remove('meter-on');
     E.multi = {}; E.tool = null; E.panel = null; E.autoDock = false; E.rowScroll = null; E.chip = {}; E.pickOn = false; E.pickPos = null; E.rbg = {}; E.trkSet = {}; E.trkRun = null; renderDock();
     E.root.hidden = false; E.isOpen = true;
     document.addEventListener('keydown', onKey);
