@@ -267,3 +267,28 @@
 .ed-eyebtn{width:34px;height:34px}
 .ed-stage .ed-eyelayer{position:absolute;inset:0;z-index:40;display:none;cursor:crosshair;touch-action:none}
 .ed-stage .ed-eyering{position:absolute;width:44px;height:44px;margin:-22px 0 0 -22px;border-radius:50%;border:3px solid #fff;box-shadow:0 0 0 2px #111b24,0 2px 10px rgba(0,0,0,.6);display:none;pointer-events:none}
+/* touch comfort */
+.ed-h{pointer-events:none}
+.ed-clip.sel{overflow:visible;z-index:3}
+.ed-clip.sel canvas{border-radius:6px}
+.ed-clip.sel .ed-h{pointer-events:auto;width:32px;max-width:none}
+.ed-clip.sel .ed-hl{left:-16px}
+.ed-clip.sel .ed-hr{right:-16px}
+.ed-clip.sel .ed-h::after{left:13px;right:auto;width:6px;top:18%;bottom:18%;box-shadow:0 0 0 1px #111b24}
+/* selected clips on non-picture rows drag at once; the picture row keeps long-press so it can still scroll */
+.ed-row:not(.k-movie) .ed-clip.sel{touch-action:none}
+.ed-clip{-webkit-touch-callout:none}
+/* tiny clips: bigger invisible hit area and a code badge */
+.ed-clip.tiny{overflow:visible}
+.ed-clip.tiny::before{content:"";position:absolute;inset:-8px -10px}
+.ed-clip .ed-cl.ed-code{left:50%;right:auto;transform:translateX(-50%);padding:0 4px;max-width:none;overflow:visible;
+  font-weight:800;font-size:11px;background:rgba(0,0,0,.5);border-radius:4px}
+/* selected-clip bar */
+.ed-selbar{display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid var(--line)}
+.ed-seln{flex:1;min-width:0;font-size:12.5px;color:var(--dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ed-selbar .ed-ibtn{width:40px;height:40px}
+.ed-selbar-del{color:var(--hibiscus)}
+@media (pointer:coarse){
+  .ed-label .ed-lb{width:30px;min-width:30px;height:30px}
+  .ed-labels{flex:0 0 108px;width:108px}
+}

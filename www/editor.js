@@ -59,7 +59,26 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     return NO_LOOK;
   }
   function clipCount(p){ var n = 0; p.tracks.forEach(function (t){ n += t.clips.length; }); return n; }
-  function rowH(tr){ return tr.kind === 'video' ? 56 : (tr.kind === 'text' || tr.kind === 'sticker' || tr.kind === 'fx' || tr.kind === 'layout') ? 30 : 44; }
+  var COARSE = typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches;
+function rowH(tr){
+  var s = tr.kind === 'video' ? 56 : (tr.kind === 'text' || tr.kind === 'sticker' || tr.kind === 'fx' || tr.kind === 'layout') ? 30 : 44;
+  return COARSE ? s + (s < 40 ? 10 : 4) : s;
+}
+function codePrefix(tr, c){
+  if (tr.kind === 'video') return c.type === 'freeze' && isPhotoClip(c) ? 'P' : (c.asset && c.asset !== 'movie') ? 'V' : 'C';
+  if (tr.kind === 'audio') return tr.role === 'sfx' ? 'A' : tr.role === 'voice' ? 'VO' : tr.role === 'music' ? 'MU' : 'MS';
+  if (tr.kind === 'overlay') return 'O';
+  if (tr.kind === 'sticker') return 'ST';
+  if (tr.kind === 'text') return tr.role === 'captions' ? 'CP' : 'T';
+  if (tr.kind === 'fx') return 'FX';
+  return 'LY';
+}
+function buildCodes(p){
+  var g = {}, out = {};
+  p.tracks.forEach(function (tr){ tr.clips.forEach(function (c){ var k = codePrefix(tr, c); (g[k] = g[k] || []).push(c); }); });
+  Object.keys(g).forEach(function (k){ g[k].sort(function (a, b){ return a.start - b.start; }).forEach(function (c, i){ out[c.id] = k + (i + 1); }); });
+  return out;
+}
   function svg(path, fill){ return '<svg viewBox="0 0 24 24" ' + (fill ? 'fill="currentColor"' : 'fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"') + '>' + path + '</svg>'; }
   var ICON = {
     play: svg('<path d="M8 5.5v13l11-6.5z"/>', true), pause: svg('<path d="M6.5 5h4v14h-4zM13.5 5h4v14h-4z"/>', true),
@@ -169,6 +188,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
       else if (Math.abs(ev.deltaY) > Math.abs(ev.deltaX)){ u.scroll.scrollLeft += ev.deltaY; ev.preventDefault(); }
     }, { passive: false });
     u.scroll.addEventListener('touchmove', function (ev){ if (E.drag && E.drag.mode === 'move') ev.preventDefault(); }, { passive: false });
+    u.scroll.addEventListener('contextmenu', function (ev){ ev.preventDefault(); });
     if (typeof window !== 'undefined') window.addEventListener('resize', function (){ if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); } });
     // The preview area changes height whenever the dock turns from toolbar to tool row to panel, so the picture is re-fitted each time
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(function (){ if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); } }).observe(u.stage);
@@ -178,6 +198,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   function renderAll(){ renderTimeline(); readout(); }
   function renderTimeline(){
     var p = E.proj, u = E.ui;
+    E.codes = buildCodes(p);
     u.inner.textContent = '';
     u.inner.style.width = (PAD + p.durationMs * E.ppm + 240) + 'px';
     var ruler = mk('div', 'ed-ruler'); u.ruler = ruler;
@@ -287,13 +308,29 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   }
   function clipEl(tr, c){
     var e = mk('div', 'ed-clip ' + clipKind(tr, c) + (c.id === E.sel ? ' sel' : '') + (E.multi && E.multi[c.id] ? ' multi' : '') + (c.group ? ' grp' : ''));
-    e.dataset.id = c.id; e.style.left = tx(c.start) + 'px'; e.style.width = Math.max(3, c.dur * E.ppm) + 'px';
-    if (c.dur * E.ppm > 46) e.appendChild(mk('span', 'ed-cl', clipTitle(tr, c)));
+    e.dataset.id = c.id; e.style.left = tx(c.start) + 'px'; e.style.width = Math.max(tr.kind === 'video' ? 3 : 16, c.dur * E.ppm) + 'px';
+    var wpx = c.dur * E.ppm, code = (E.codes && E.codes[c.id]) || '';
+if (wpx > 70) e.appendChild(mk('span', 'ed-cl', code + ' · ' + clipTitle(tr, c)));
+else if (wpx >= 16) e.appendChild(mk('span', 'ed-cl ed-code', code));
+if (wpx < 44) e.classList.add('tiny');
     if (tr.role === 'voice'){ var cv = mk('canvas'); e.appendChild(cv); drawWave(cv, c); } else { try { decorateClip(e, tr, c); } catch (err){ console.warn('clip picture/waveform failed', err); } }
     if (c.kf){ var kts = {}; Object.keys(c.kf).forEach(function (k){ c.kf[k].forEach(function (pt){ kts[pt[0]] = 1; }); }); Object.keys(kts).forEach(function (t0){ var kd = mk('i', 'ed-kf'); kd.style.left = (t0 * E.ppm) + 'px'; kd.dataset.t = t0; e.appendChild(kd); }); }
     add(e, mk('i', 'ed-h ed-hl'), mk('i', 'ed-h ed-hr'));
     return e;
   }
+  function selBar(){
+  var f = E.sel && P.findClip(E.proj, E.sel); if (!f || E.panel) return null;
+  var c = f.clip, bar = mk('div', 'ed-selbar'), nm = mk('span', 'ed-seln', ((E.codes && E.codes[c.id]) || '') + ' · ' + clipTitle(f.track, c) + ' · ' + fmtP(c.dur));
+  function b(label, icon, fn, cls){ var x = iconBtn(null, icon, label, 'ed-ibtn' + (cls || '')); x.onclick = fn; return x; }
+  return add(bar, nm, b('Zoom to this clip', G.zoom, zoomToSel), b('Split', G.split, split), b('Duplicate', G.dup, duplicateSel),
+    b('Delete', G.trash, deleteSel, ' ed-selbar-del'), b('Done', G.check, function (){ E.multi = {}; select(null); }));
+}
+function zoomToSel(){
+  var f = E.sel && P.findClip(E.proj, E.sel); if (!f) return;
+  var sc = E.ui.scroll, c = f.clip;
+  E.ppm = clamp(sc.clientWidth * 0.6 / Math.max(300, c.dur), MIN_PPM, MAX_PPM);
+  renderTimeline(); sc.scrollLeft = Math.max(0, tx(c.start + c.dur / 2) - sc.clientWidth / 2);
+}
   function clipTitle(tr, c){
     if (c.gen && NFX && NFX.gen) return NFX.gen.label(c.gen);
     if (c.layout && NLY) return 'Layout \u00b7 ' + NLY.label(c.layout.preset);
@@ -663,6 +700,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     u.bSplit = u.bCut = u.bDel = null;
     d.textContent = '';
     var kb = kfBar(); if (kb) d.appendChild(kb);
+    var sb = selBar(); if (sb) d.appendChild(sb);
     if (E.panel && PANELS[E.panel]) d.appendChild(panelShell(PANELS[E.panel]));
     else if (E.tool && ROWS[E.tool]){
       d.appendChild(toolRow(ROWS[E.tool]())); E.rowTool = E.tool;
@@ -3931,13 +3969,15 @@ crop: { title: 'Crop', build: function (body){
       if (tr.locked){ renderSelectionOnly(); toast('This row is locked. Tap its lock to edit it.'); return; }
       E.drag = { mode: handle ? (handle.classList.contains('ed-hl') ? 'trimL' : 'trimR') : 'pending', id: id, x0: ev.clientX, y0: ev.clientY, el: clipE, tr: tr,
         s0: c.start, e0: c.start + c.dur, touch: ev.pointerType === 'touch', moved: false, press: 0, timer: 0, wasSel: wasSel, sl0: E.ui.scroll.scrollLeft, lastX: ev.clientX };
+        if (E.drag.mode === 'pending' && E.drag.touch && wasSel && tr.kind !== 'video') E.drag.mode = 'move';
       if (E.drag.mode === 'pending' && E.drag.touch) E.drag.press = setTimeout(function (){
         if (E.drag && E.drag.mode === 'pending'){ E.drag.mode = 'move'; try { navigator.vibrate && navigator.vibrate(12); } catch (e) {} }
-      }, 380);
+      }, 300);
       
       renderSelectionOnly();
     } else {
-      E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX));
+      if (ev.pointerType === 'touch' && !(tg.closest && tg.closest('.ed-ruler'))) E.drag = { mode: 'tap', x0: ev.clientX, y0: ev.clientY, t: xToT(ev.clientX) };
+else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
     }
     window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp); window.addEventListener('pointercancel', onCancel);
   }
@@ -3951,12 +3991,16 @@ crop: { title: 'Crop', build: function (body){
     if (ev.pointerType === 'touch' && E.pointers[ev.pointerId]) E.pointers[ev.pointerId] = { x: ev.clientX, y: ev.clientY };
     if (E.pinch){ movePinch(); return; }
     var d = E.drag; if (!d) return;
+    if (d.mode === 'tap'){ d.lx = ev.clientX; d.ly = ev.clientY; return; }
     var dx = ev.clientX - d.x0;
     if (d.mode === 'scrub'){ seek(xToT(ev.clientX)); return; }
     if (d.mode === 'pending'){
       if (d.touch){ if (Math.abs(dx) > 10 || Math.abs(ev.clientY - d.y0) > 10){ clearTimeout(d.press); E.drag = null; } return; }
       if ((Math.abs(dx) > 4 || Math.abs(ev.clientY - d.y0) > 4) && !d.noMove) d.mode = 'move'; else return;
     }
+    if (d.touch && (d.mode === 'move' || d.mode === 'trimL' || d.mode === 'trimR') && !d.armed){
+  if (Math.abs(dx) < 6 && Math.abs(ev.clientY - d.y0) < 6) return; d.armed = true;
+}
     d.moved = true; var dt = dx / E.ppm;
     if (d.mode === 'trimL'){ d.newStart = clamp(snapped(d.s0 + dt), 0, d.e0 - 100); d.el.style.left = tx(d.newStart) + 'px'; d.el.style.width = Math.max(3, (d.e0 - d.newStart) * E.ppm) + 'px'; }
     else if (d.mode === 'trimR'){ d.newEnd = Math.max(d.s0 + 100, snapped(d.e0 + dt)); d.el.style.width = Math.max(3, (d.newEnd - d.s0) * E.ppm) + 'px'; }
@@ -3972,6 +4016,12 @@ crop: { title: 'Crop', build: function (body){
     E.pointers = {}; E.pinch = null;
     if (!d) return; clearTimeout(d.press); clearInterval(d.timer);
     if (cancel){ renderTimeline(); return; }
+    if (d.mode === 'tap'){
+  if (Math.abs((d.lx || d.x0) - d.x0) < 10 && Math.abs((d.ly || d.y0) - d.y0) < 10){
+    seek(d.t); if (E.sel || Object.keys(E.multi || {}).length){ E.multi = {}; select(null); }
+  }
+  return;
+}
     if (d.mode === 'trimL' || d.mode === 'trimR') finishTrim(d);
     else if (d.mode === 'move' && d.moved){
       var cur0 = E.hist.cur, gm0 = (P.groupIds && !d.target) ? P.groupIds(cur0, d.id) : [];
@@ -3985,7 +4035,7 @@ crop: { title: 'Crop', build: function (body){
       var q = P.placeClip(cur0, d.id, d.newStart), pic0 = d.tr.role === 'movie' || d.tr.role === 'movieSound';
       if (q === cur0){ renderTimeline(); var pl0 = P.planPlace(cur0, d.id, d.newStart); if (pl0 && (pl0.start !== d.s0 || pl0.pushed)) toast('There is no room for it there.'); } else commit(pic0 ? tidy(q) : q);
     }
-    else if (!d.moved && d.wasSel && (d.mode === 'pending' || d.mode === 'move')){ E.sel = null; renderSelectionOnly(); }   // a tap on the clip that is already selected lets go of it
+    else if (!d.moved && d.wasSel && !d.touch && (d.mode === 'pending' || d.mode === 'move')){ E.sel = null; renderSelectionOnly(); }   // a tap on the clip that is already selected lets go of it
   }
   function pinchDist(){ var k = Object.keys(E.pointers); if (k.length < 2) return 0; var a = E.pointers[k[0]], b = E.pointers[k[1]]; return Math.hypot(a.x - b.x, a.y - b.y); }
   function startPinch(){ E.pinch = { d0: pinchDist() || 1, ppm0: E.ppm }; }
