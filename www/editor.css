@@ -349,3 +349,21 @@
 .ed-tpl:active{transform:scale(.97)}
 .ed-tplsample{font-size:15px;line-height:1.25;text-align:center;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .ed-tplx{position:absolute;top:0;right:2px;padding:0 5px;font-size:18px;line-height:20px;color:#fff;opacity:.7}
+
+/* more room: a dock that scrolls inside itself, the leftover height shared by preview and timeline, a pinned ruler, the meter icon in the corner */
+.ed-dock{max-height:42vh;display:flex;flex-direction:column;min-height:0}
+.ed-dock>*{flex:0 0 auto}
+.ed-dock>.ed-panel{flex:1 1 auto;min-height:0;display:flex;flex-direction:column}
+.ed-dock .ed-pbody{max-height:none!important;flex:1 1 auto;min-height:0;overflow-y:auto}
+.ed.big .ed-dock{max-height:34vh}
+.ed{grid-template-rows:auto minmax(110px,1.5fr) auto auto minmax(110px,1fr) auto}
+@media (min-width:900px){
+  .ed{grid-template-rows:auto minmax(140px,2fr) auto auto minmax(110px,1fr) auto}
+  .ed-dock{max-height:36vh}
+}
+.ed-ruler{background:var(--panel);z-index:6}
+.ed-head{z-index:7}
+.ed-labels .ed-spacer{position:relative;z-index:6;background:var(--panel);height:26px}
+.ed-spacerbtn{appearance:none;border:0;background:transparent;color:var(--dim);width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;touch-action:manipulation}
+.ed-spacerbtn svg{width:19px;height:19px}
+.ed-spacerbtn.on{background:var(--mango);color:#1d1300}

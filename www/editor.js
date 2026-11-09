@@ -61,8 +61,8 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   function clipCount(p){ var n = 0; p.tracks.forEach(function (t){ n += t.clips.length; }); return n; }
   var COARSE = typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches;
 function rowH(tr){
-  var s = tr.kind === 'video' ? 56 : (tr.kind === 'text' || tr.kind === 'sticker' || tr.kind === 'fx' || tr.kind === 'layout') ? 30 : 44;
-  return COARSE ? s + (s < 40 ? 10 : 4) : s;
+  var s = tr.kind === 'video' ? 45 : (tr.kind === 'text' || tr.kind === 'sticker' || tr.kind === 'fx' || tr.kind === 'layout') ? 26 : 32;
+  return COARSE ? s + (s < 30 ? 6 : 3) : s;
 }
 function codePrefix(tr, c){
   if (tr.kind === 'video') return c.type === 'freeze' && isPhotoClip(c) ? 'P' : (c.asset && c.asset !== 'movie') ? 'V' : 'C';
@@ -160,11 +160,11 @@ function buildCodes(p){
       if (!c || !P.keyframeProps(E.proj, c.id).length){ toast('Tap a picture or overlay clip first.'); return; }
       commit(P.toggleKeyframes(E.hist.cur, c.id, relNow(c)));
     };
-    u.meterBtn = iconBtn('edBarMeter', G_METER, 'Precision meter'); u.meterBtn.onclick = function (){ if (E.meter) closeMeter(); else openMeter(); };
-    add(bar, u.play, u.meterBtn, u.time, u.scrub, u.kfBtn, u.undo, u.redo);
+    
+    add(bar, u.play, u.time, u.scrub, u.kfBtn, u.undo, u.redo);
 
     u.note = mk('div', 'ed-note');
-    var tl = mk('div', 'ed-tl'); u.labels = mk('div', 'ed-labels'); u.scroll = mk('div', 'ed-scroll'); u.inner = mk('div', 'ed-inner');
+    var tl = mk('div', 'ed-tl'); u.tl = tl; u.labels = mk('div', 'ed-labels'); u.scroll = mk('div', 'ed-scroll'); u.inner = mk('div', 'ed-inner');
     add(u.scroll, u.inner); add(tl, u.labels, u.scroll);
 
     // the dock along the bottom, the way CapCut does it: the main toolbar; tap Edit / Audio / Text or a clip and it turns into
@@ -193,6 +193,7 @@ function buildCodes(p){
     }, { passive: false });
     u.scroll.addEventListener('touchmove', function (ev){ if (E.drag && (E.drag.mode === 'move' || E.drag.mode === 'trimL' || E.drag.mode === 'trimR')) ev.preventDefault(); }, { passive: false });
     u.scroll.addEventListener('contextmenu', function (ev){ ev.preventDefault(); });
+    u.tl.addEventListener('scroll', stickRuler);
     if (typeof window !== 'undefined') window.addEventListener('resize', function (){ if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); } });
     // The preview area changes height whenever the dock turns from toolbar to tool row to panel, so the picture is re-fitted each time
     if (typeof document !== 'undefined') document.addEventListener('fullscreenchange', function (){ if (!document.fullscreenElement) unlockLandscape(); updateBigBtns(); });
@@ -226,7 +227,7 @@ function buildCodes(p){
       u.inner.appendChild(row);
     });
     u.head = mk('div', 'ed-head'); u.inner.appendChild(u.head);
-    placeHead(); renderLabels(); renderMix(); renderSelected(); updateButtons();
+    placeHead(); renderLabels(); renderMix(); renderSelected(); updateButtons(); stickRuler();
   }
   function clipKind(tr, c){ return tr.kind === 'text' ? 'k-text' : tr.kind === 'video' ? (c.type === 'freeze' ? 'k-freeze' : 'k-video') : 'k-' + tr.role; }
     // ----- thumbnails and waveforms on the clips, hide / lock / mute on the rows -----
@@ -365,7 +366,13 @@ function zoomToSel(){
   };
   // The name of each row, with its buttons: Hide (picture, titles, stickers, overlays, effects) or Mute (sound), and Lock for every row.
   function renderLabels(){
-    var u = E.ui; u.labels.textContent = ''; u.labels.appendChild(mk('div', 'ed-spacer'));
+    var u = E.ui; u.labels.textContent = '';
+    var sp = mk('div', 'ed-spacer'), mb = iconBtn('edBarMeter', G_RULER, E.meter ? 'Close precision meter' : 'Precision meter', 'ed-spacerbtn' + (E.meter ? ' on' : ''));
+    mb.title = 'Precision meter';
+    mb.addEventListener('pointerdown', function (ev){ ev.stopPropagation(); });
+    mb.onclick = function (ev){ ev.stopPropagation(); if (E.meter) closeMeter(); else openMeter(); };
+    sp.appendChild(mb); if (u.tl && u.tl.scrollTop) sp.style.transform = 'translateY(' + u.tl.scrollTop + 'px)';
+    u.labels.appendChild(sp);
     E.proj.tracks.forEach(function (tr){
       var nm = ROLE_NAME[tr.role] || tr.role, snd = tr.kind === 'audio', stuck = !!(tr.locked || tr.hidden);
       var l = mk('div', 'ed-label' + (tr.muted ? ' muted' : '') + (tr.hidden ? ' off' : '') + (tr.locked ? ' locked' : '') + (snd || stuck ? ' tap' : ''));
@@ -383,6 +390,13 @@ function zoomToSel(){
       }
       u.labels.appendChild(l);
     });
+  }
+  // ----- the ruler (and the meter icon above the row icons) stay in view while the rows scroll up and down -----
+  var G_RULER = svg('<path d="M3 17L17 3l4 4L7 21z"/><path d="M7.5 12.5l2 2M10.5 9.5l2 2M13.5 6.5l2 2"/>');
+  function stickRuler(){
+    var u = E.ui, y = u.tl ? u.tl.scrollTop : 0, t = y ? 'translateY(' + y + 'px)' : '';
+    if (u.ruler) u.ruler.style.transform = t;
+    var sp = u.labels && u.labels.firstChild; if (sp && sp.style) sp.style.transform = t;
   }
   function placeHead(){ if (E.ui.head) E.ui.head.style.left = tx(E.t) + 'px'; if (E.meter) drawGrid(); }
   function readout(){
@@ -4146,11 +4160,11 @@ else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
   function openMeter(){
     if (E.playing) pause();
     E.meter = true; if (E.root) E.root.classList.add('meter-on');
-    renderDock(); drawGrid(); keepHeadInView();
+    renderDock(); renderLabels(); drawGrid(); keepHeadInView();
   }
   function closeMeter(){
     E.meter = false; if (E.root) E.root.classList.remove('meter-on');
-    hideGrid(); renderDock();
+    hideGrid(); renderDock(); renderLabels();
   }
   function meterPanel(){
     var p = mk('div', 'ed-panel ed-meter'), h = mk('div', 'ed-phead'), done = iconBtn('edMeterDone', G.check, 'Done', 'ed-ibtn ed-pdone'), body = mk('div', 'ed-pbody');
