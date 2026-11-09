@@ -341,3 +341,11 @@
 .ed-label.muted .ed-lbicon{color:var(--dim)}
 .ed-label.muted::after{content:"";position:absolute;left:11px;right:11px;top:50%;height:2px;margin-top:-1px;border-radius:1px;background:var(--hibiscus);transform:rotate(-40deg);pointer-events:none}
 .ed-label.locked .ed-lbicon,.ed-label.off .ed-lbicon{color:var(--mango)}
+
+/* text templates gallery */
+.ed-tplgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(112px,1fr));gap:6px}
+.ed-tpl{position:relative;min-height:56px;padding:6px;border:1px solid var(--line);border-radius:10px;cursor:pointer;display:flex;align-items:center;justify-content:center;touch-action:manipulation;
+  background:linear-gradient(135deg,#2a3542,#10161d);color:var(--chalk);font:inherit;overflow:hidden}
+.ed-tpl:active{transform:scale(.97)}
+.ed-tplsample{font-size:15px;line-height:1.25;text-align:center;max-width:100%;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.ed-tplx{position:absolute;top:0;right:2px;padding:0 5px;font-size:18px;line-height:20px;color:#fff;opacity:.7}

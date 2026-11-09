@@ -1778,6 +1778,71 @@ crop: { title: 'Crop', build: function (body){
       { id: 'edMarkerClear', label: 'Clear all', icon: G.reset, run: clearMarkers, disabled: !has }
     ];
   };
+  // ----- the Templates panel (text looks): a gallery by group, plus "Save this text as a template" -----
+  var MYTPL_KEY = 'naki.myTemplates';
+  function myTpls(){ try { var a = JSON.parse(localStorage.getItem(MYTPL_KEY) || '[]'); return Array.isArray(a) ? a : []; } catch (e) { return []; } }
+  function saveMyTpls(a){ try { localStorage.setItem(MYTPL_KEY, JSON.stringify(a)); return true; } catch (e) { return false; } }
+  function syncMyTpls(){
+    if (!NTPL) return;
+    for (var i = NTPL.LIST.length - 1; i >= 0; i--) if (NTPL.LIST[i].cat === 'Mine') NTPL.LIST.splice(i, 1);
+    myTpls().forEach(function (t){ if (t && t.key && t.style) NTPL.LIST.push(Object.assign({}, t, { cat: 'Mine' })); });
+  }
+  // Applies a template to the selected title (or adds a new one at the playhead). Every effect the template does not have is cleared, so looks do not pile up.
+  function applyTpl(key){
+    var tp = NTPL && NTPL.find(key); if (!tp) return;
+    var style = Object.assign({ grad: null, arc: null, glow: null, bubble: null, extrude: null }, tp.style), anim = Object.assign({ in: 'none', out: 'none', loop: 'none' }, tp.anim || {});
+    var c = selText(), q, id;
+    if (c){ q = P.setTextProps(E.hist.cur, c.id, style); id = c.id; }
+    else {
+      var out = {}; q = P.addTextClip(E.hist.cur, Math.round(E.t), 3000, out);
+      if (q === E.hist.cur){ toast('There is no room for text at the playhead. Move it or shorten the other text.'); return; }
+      id = out.id; q = P.setTextProps(q, id, Object.assign({ text: tp.text }, style));
+    }
+    q = P.setTextAnim(q, id, anim); E.sel = id; commit(q);
+  }
+  function tplSample(tp){
+    var s = tp.style || {}, L = typeof window !== 'undefined' ? window.NakiLook : null, el = mk('span', 'ed-tplsample', tp.label || tp.key), st = el.style, sh = [];
+    st.fontFamily = L && L.fontCss ? L.fontCss(s.font) : 'system-ui, sans-serif'; st.fontWeight = String(s.weight || 700); st.color = s.color || '#ffffff';
+    if (s.outline) sh.push('1px 0 #000', '-1px 0 #000', '0 1px #000', '0 -1px #000');
+    if (s.glow){ sh.push('0 0 5px ' + s.glow.color, '0 0 11px ' + s.glow.color); }
+    if (s.extrude){ sh.push('1px 1px 0 ' + s.extrude.color, '2px 2px 0 ' + s.extrude.color, '3px 3px 0 ' + s.extrude.color); }
+    if (s.bubble){ sh.push('1px 0 ' + s.bubble.color, '-1px 0 ' + s.bubble.color, '0 1px ' + s.bubble.color, '0 -1px ' + s.bubble.color, '0 0 6px ' + s.bubble.color); }
+    if (s.shadow && !s.glow && !s.extrude) sh.push('0 2px 4px rgba(0,0,0,.7)');
+    if (s.grad){ st.backgroundImage = 'linear-gradient(' + ((+s.grad.angle || 0) + 90) + 'deg,' + s.grad.c1 + ',' + s.grad.c2 + ')'; st.webkitBackgroundClip = 'text'; st.backgroundClip = 'text'; st.color = 'transparent'; st.webkitTextFillColor = 'transparent'; }
+    else if (sh.length) st.textShadow = sh.join(',');
+    if (s.bg){ st.background = 'rgba(0,0,0,.6)'; st.padding = '2px 8px'; st.borderRadius = '4px'; }
+    return el;
+  }
+  function tplTile(tp){
+    var b = mk('button', 'ed-tpl'); b.type = 'button'; b.setAttribute('aria-label', tp.label); b.appendChild(tplSample(tp));
+    b.onclick = function (){ applyTpl(tp.key); };
+    if (tp.cat === 'Mine'){
+      var x = mk('span', 'ed-tplx', '\u00d7'); x.setAttribute('role', 'button'); x.setAttribute('aria-label', 'Remove ' + tp.label);
+      x.onclick = function (ev){ ev.stopPropagation(); if (!confirm('Remove "' + tp.label + '" from your templates?')) return; saveMyTpls(myTpls().filter(function (t){ return t.key !== tp.key; })); syncMyTpls(); renderDock(); };
+      b.appendChild(x);
+    }
+    return b;
+  }
+  function saveMyTpl(){
+    var c = selText(); if (!c){ toast('Tap a title on the timeline first.'); return; }
+    var nm = prompt('Name this template:', 'My look'); if (nm === null) return; nm = String(nm).trim().slice(0, 24) || 'My look';
+    var st = { font: 'sans', outline: 0, shadow: 1, bg: false };
+    ['size', 'color', 'pos', 'weight', 'bg', 'font', 'outline', 'shadow'].forEach(function (k){ if (c[k] !== undefined) st[k] = c[k]; });
+    ['grad', 'arc', 'glow', 'bubble', 'extrude'].forEach(function (k){ if (c[k] != null) st[k] = JSON.parse(JSON.stringify(c[k])); });
+    var all = myTpls(); all.push({ key: 'my' + Date.now(), label: nm, text: c.text || 'Your text', style: st, anim: c.anim ? JSON.parse(JSON.stringify(c.anim)) : {} });
+    if (!saveMyTpls(all)){ toast('This browser would not keep the template.'); return; }
+    syncMyTpls(); E.chip.tplcat = 'Mine'; renderDock(); toast('Saved. It is in the Mine group.');
+  }
+  PANELS.templates = { title: 'Text templates', build: function (body){
+    if (!NTPL){ body.appendChild(mk('div', 'ed-hint', 'templates.js is not loaded. Add <script src="templates.js"></script> to index.html, before editor.js.')); return; }
+    syncMyTpls();
+    var cats = [], list = NTPL.LIST; list.forEach(function (t){ var g = t.cat || 'Basics'; if (cats.indexOf(g) < 0) cats.push(g); });
+    var opts = cats.map(function (g){ return { key: g, label: g }; }), ck = chipKey('tplcat', opts, cats[0]);
+    body.appendChild(chips(opts, ck, pickChip('tplcat')));
+    var grid = mk('div', 'ed-tplgrid'); list.filter(function (t){ return (t.cat || 'Basics') === ck; }).forEach(function (t){ grid.appendChild(tplTile(t)); }); body.appendChild(grid);
+    body.appendChild(actions([{ id: 'edTplMine', label: selText() ? 'Save this text as a template' : 'Select a title to save its look', run: saveMyTpl }]));
+    body.appendChild(mk('div', 'ed-hint', 'Tap a template to add it at the playhead, or to restyle the title you have selected. Your own look: style a title, then Save it here.'));
+  } };
   PANELS.markeredit = { title: 'Markers', build: function (body){
     if (!markerNeed()) return;
     var l = NMK.list(E.hist.cur);
