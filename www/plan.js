@@ -22,7 +22,8 @@ var NakiPlan = (function () {
       if (sp.type === 'play' && c.reverse) sp.reverse = true;   // movieStart is then the START of the stretch; the part plays from its end back to it
       if (sp.type === 'play' && c.speed && c.speed !== 1) sp.speed = c.speed;
       if (sp.type === 'play' && c.smooth && c.speed && c.speed < 1 && !c.reverse) sp.smooth = true;   // smooth slow-motion
-      if (c.asset && c.asset !== 'movie') sp.asset = c.asset;   // a picture from a video added with Add video
+      if (c.asset && c.asset !== 'movie') sp.asset = c.asset;
+      if (sp.type === 'freeze' && p.assets && p.assets[c.asset] && p.assets[c.asset].type === 'image') sp.image = true;   // a photo: the engines draw the picture file itself   // a picture from a video added with Add video
       if (c.filter){
         sp.filter = { brightness: c.filter.brightness, contrast: c.filter.contrast, saturate: c.filter.saturate };
         ['warmth', 'sharpen', 'vignette', 'matte', 'highlights', 'shadows', 'tint', 'hue', 'grain'].forEach(function (k) { if (c.filter[k]) sp.filter[k] = c.filter[k]; });

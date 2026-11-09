@@ -227,7 +227,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     var c = cv._c, tr = cv._tr, css = Math.max(1, c.dur * E.ppm), W = Math.min(8000, Math.round(css)), H = rowH(tr) - 4, k = W / css;
     if (cv.width !== W) cv.width = W; if (cv.height !== H) cv.height = H;
     var sc = E.ui.scroll, left = tx(c.start), asp = (E.frameDims && E.frameDims.h) ? E.frameDims.w / E.frameDims.h : 16 / 9;
-    var miss = NTH.paint(cv.getContext('2d'), W, H, c, E.ppm, { url: clipUrl(tr, c), image: tr.kind === 'overlay' && c.type === 'freeze', store: TS,
+    var miss = NTH.paint(cv.getContext('2d'), W, H, c, E.ppm, { url: clipUrl(tr, c), image: (tr.kind === 'overlay' && c.type === 'freeze') || (tr.kind === 'video' && c.type === 'freeze' && isPhotoClip(c)), store: TS,
       tileW: Math.max(24, Math.round(H * asp)), k: k, visible: [sc.scrollLeft - sc.clientWidth - left, sc.scrollLeft + 2 * sc.clientWidth - left], bg: tr.kind === 'overlay' ? '#0f5c66' : '#1f4e7d' });
     cv._pending = miss > 0;
   }
@@ -300,7 +300,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     if (tr.kind === 'text') return c.text || 'Text';
     if (tr.kind === 'video'){
       var extra = (c.speed && c.speed !== 1 ? ' ' + c.speed + '×' : '') + (c.filter ? ' · filter' : '') + (c.vFadeIn || c.vFadeOut ? ' · fade' : '') + (c.opacity != null ? ' · ' + Math.round(c.opacity * 100) + '%' : '') + (c.reverse ? ' · reversed' : '') + (c.transform ? ' · ' + (c.transform.zoom > 1 ? 'zoom ' : '') + (c.transform.rot ? c.transform.rot + '° ' : '') + (c.transform.flipH ? 'flip' : '') : '');
-      return (c.type === 'freeze' ? 'Paused picture' : (c.asset && c.asset !== 'movie' ? ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || 'Video') : 'Movie playing')) + extra;
+      return (c.type === 'freeze' ? (isPhotoClip(c) ? 'Photo · ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : 'Paused picture') : (c.asset && c.asset !== 'movie' ? ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || 'Video') : 'Movie playing')) + extra;
     }
     return tr.kind === 'fx' ? 'FX · ' + (NFX && NFX.vfx && NFX.vfx.has(c.fx) ? NFX.vfx.label(c.fx) : (NL2 ? NL2.fxLabel(c.fx) : c.fx)) : tr.kind === 'sticker' ? (c.glyph || '') + ' Sticker' : tr.kind === 'overlay' ? 'Overlay \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : tr.role === 'sfx' ? 'Effect \u00b7 ' + ((E.proj.assets[c.asset] && E.proj.assets[c.asset].name) || '') : (ROLE_NAME[tr.role] || 'Audio');
   }
@@ -750,6 +750,9 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
         { id: 'edMotionBlur', label: 'Motion blur', icon: G.mblur, run: P2('motionblur') },
         { id: 'edFade', label: 'Fade', icon: G.fade, run: P2('fade') },
         { id: 'edAddVideo', label: 'Add video', icon: G.addVideo, run: addVideoFromFile },
+        { id: 'edAddPhoto', label: 'Add photo', icon: G.photo, run: addPhotoFromFile },
+        { id: 'edSlideshow', label: 'Slideshow', icon: G.slides, run: function (){ openPanel('slideshow'); } },
+        { id: 'edPhoto', label: 'Photo', icon: G.photo, run: function (){ openPanel('photo'); }, disabled: !(c && c.type === 'freeze' && isPhotoClip(c)) },
         { id: 'edCameras', label: 'Cameras', icon: G.cam, run: P2('cameras') },
         { id: 'edReplace', label: 'Replace', icon: G.replace, run: replaceMovie },
         { id: 'edBeats', label: 'Beat sync', icon: G.music, run: P2('beats') },
@@ -1060,6 +1063,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
 crop: { title: 'Crop', build: function (body){
       var c = needPicture(body); if (!c) return;
       if (c.type !== 'video' && c.type !== 'freeze'){ body.appendChild(mk('div', 'ed-hint', 'Pick a picture clip to crop.')); return; }
+      if (isPhotoClip(c)){ body.appendChild(mk('div', 'ed-hint', 'Crop is for video clips for now. For a photo, use Zoom (and Left / right, Up / down) to frame it.')); return; }
       var m = E.hooks.movie, vw = m.videoWidth || 16, vh = m.videoHeight || 9;
       E.cropDraft = c.crop ? { x: c.crop.x, y: c.crop.y, w: c.crop.w, h: c.crop.h } : { x: 0, y: 0, w: 1, h: 1 };
       var RAT = [{ key: 'free', label: 'Free' }, { key: 'orig', label: 'Original' }, { key: '16:9', label: '16:9' }, { key: '9:16', label: '9:16' }, { key: '4:3', label: '4:3' },
@@ -1375,10 +1379,7 @@ crop: { title: 'Crop', build: function (body){
       else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(val), function (v){ return v + '\u00b0'; }, function (v){ live(set(v)); }, function (v){ commit(set(v)); }));
       else body.appendChild(sliderRow(KF_LABEL[cur], 0, 100, 1, Math.round(val * 100), pct, function (v){ live(set(v / 100)); }, function (v){ commit(set(v / 100)); }));
       body.appendChild(keyframeActions(c, cur));
-      var tkOn = !!(E.tk && E.tk.running), tareas = TRACK_AREAS.map(function (a){ return { key: a.key, label: a.label }; }), tcur = chipKey('trackarea', tareas, 'medium');
-      body.appendChild(chips(tareas, tcur, pickChip('trackarea')));
-      body.appendChild(actions([{ id: 'edTrack', label: tkOn ? 'Stop tracking (' + E.tk.pct + '%)' : 'Track motion', run: function (){ if (tkOn) E.tk.cancel = true; else trackOverlay(c, tcur); } }]));
-      body.appendChild(mk('div', 'ed-hint', 'Track motion: put the middle of the overlay on the thing that moves, at the playhead, then tap Track motion. The overlay follows it to the end of the clip, or until Naki loses sight of it. Small suits a small object, Large a big one. Drag the overlay on the picture to move it. For movement by hand, put a keyframe here, move the playhead, change the value, and it glides between them. An overlay has no sound.'));
+      body.appendChild(mk('div', 'ed-hint', 'Drag the overlay on the picture to move it. For movement, put a keyframe here, move the playhead, change the value, and it glides between them. An overlay has no sound.'));
     } },
     sfxpick: { title: 'Sound effects', build: function (body){
       var g = mk('div', 'ed-chips wrap');
@@ -1394,9 +1395,11 @@ crop: { title: 'Crop', build: function (body){
     autocaptions: { title: 'Auto captions', build: function (body){
       var keys = NCAP.LANGS.map(function (l){ return { key: l.key, label: l.label }; }), cur = chipKey('autocaptions', keys, 'english'), run = !!(E.ac && E.ac.running);
       body.appendChild(chips(keys, cur, pickChip('autocaptions')));
+      var srcKeys = [{ key: 'voice', label: 'My voice' }, { key: 'movie', label: 'Movie sound' }], src = chipKey('acsource', srcKeys, noNarration() ? 'movie' : 'voice');
+      body.appendChild(chips(srcKeys, src, pickChip('acsource')));
       var st = mk('div', 'ed-hint', run ? E.ac.msg : 'Listens to your recording on this device and writes the captions at the right times. English works best. Luganda is not supported, so for Luganda use Mark speech and type the words.');
       E.acStatus = st; body.appendChild(st);
-      body.appendChild(actions([{ id: 'edAutoCapStart', label: run ? 'Working...' : 'Start', run: function (){ runAutoCaptions(cur); } }]));
+      body.appendChild(actions([{ id: 'edAutoCapStart', label: run ? 'Working...' : 'Start', run: function (){ runAutoCaptions(cur, src); } }]));
     } },
         shapepick: { title: 'Shapes', build: function (body){
       if (!NFX || !NFX.gen){ body.appendChild(mk('div', 'ed-hint', 'Shapes are not available here.')); return; }
@@ -2059,6 +2062,119 @@ crop: { title: 'Crop', build: function (body){
     body.appendChild(mk('div', 'ed-hint', 'It follows the part of the picture inside the square, from the start of this clip to its end (backwards and forwards from the playhead). Pick a part with an edge or a pattern, not a plain wall. Keep my offset keeps it where it is now, next to the thing; Centre on it puts it right on the thing (a text always keeps its place and moves by the same amount). It works through zoom, crop, turn and flip, and on a video you added: it follows the video that is under the playhead and holds still where another video shows. A tracked sticker or text moves only; its size and turn stay as they are. The result is ordinary keyframes, so you can fine-tune it, and Undo takes it back.'));
   } };
 
+  /* ---------- photos on the picture line: Add photo, Ken Burns, slideshow ---------- */
+  G.photo = svg('<rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/>');
+  G.slides = svg('<rect x="3" y="6" width="13" height="11" rx="1.5"/><path d="M19 8v9M22 10v5"/>');
+  (function (){
+    if (typeof document === 'undefined' || !document.head) return;
+    var s = document.createElement('style'); s.textContent = '.ed-photo{position:absolute;left:0;top:0;width:100%;height:100%;object-fit:contain;pointer-events:none}'; document.head.appendChild(s);
+  })();
+  function isPhotoClip(c){ var a = c && c.asset && E.proj && E.proj.assets[c.asset]; return !!(a && a.type === 'image'); }
+  // The picture of a photo clip is an <img> inside the same box as the video. This returns something that looks enough like the video element
+  // (videoWidth, videoHeight, style) for the picture layout code to place it.
+  function photoEl(){
+    var im = E.ui.photo;
+    if (!im){
+      im = E.ui.photo = mk('img', 'ed-photo'); im.draggable = false; im.alt = ''; im.style.display = 'none';
+      im.onload = function (){ E.boxKey = null; E.lastTransform = ''; if (E.isOpen) syncMedia(); };
+      E.ui.picbox.appendChild(im);
+    }
+    return { img: im, videoWidth: im.naturalWidth || 0, videoHeight: im.naturalHeight || 0, style: im.style };
+  }
+  // Shows the photo (and hides the video) while a photo clip is under the playhead, and puts the video back afterwards.
+  function photoSync(photo, vc){
+    var m = E.hooks && E.hooks.movie, im = E.ui.photo;
+    if (!photo){
+      if (E.photoOn){
+        E.photoOn = false; if (im) im.style.display = 'none'; if (m) m.style.visibility = '';
+        E.lastTransform = E.lastFilter = E.lastOpacity = ''; E.boxKey = null; E.boxMode = '';
+      }
+      return;
+    }
+    photoEl(); im = E.ui.photo;
+    var url = E.hooks.videoUrl ? E.hooks.videoUrl(vc.asset) : '';
+    if (url && im._src !== url){ im._src = url; im.src = url; E.boxKey = null; }
+    if (!E.photoOn){
+      E.photoOn = true; im.style.display = 'block'; if (m) m.style.visibility = 'hidden';
+      E.lastTransform = E.lastFilter = E.lastOpacity = ''; E.boxKey = null; E.boxMode = '';
+    }
+  }
+  function readPhoto(f){
+    return new Promise(function (res){
+      var u = URL.createObjectURL(f), im = new Image();
+      im.onload = function (){ URL.revokeObjectURL(u); res({ file: f, name: f.name, kind: 'image', w: im.naturalWidth, h: im.naturalHeight }); };
+      im.onerror = function (){ URL.revokeObjectURL(u); toast('The picture "' + f.name + '" could not be read. Use a JPG, PNG or WebP photo.', 7000); res(null); };
+      im.src = u;
+    });
+  }
+  // Opens the file chooser for photos; resolves a list of { file, name, w, h } (empty when nothing was chosen).
+  function pickPhotos(multi){
+    return new Promise(function (res){
+      var inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = !!multi;
+      inp.onchange = function (){
+        var l = [].slice.call(inp.files || []); if (!l.length) return res([]);
+        Promise.all(l.map(readPhoto)).then(function (a){ res(a.filter(Boolean)); });
+      };
+      inp.addEventListener('cancel', function (){ res([]); });
+      inp.click();
+    });
+  }
+  function addPhotoFromFile(){
+    if (!E.hooks.setVideoFile){ toast('Adding photos is not available here.'); return; }
+    pause();
+    pickPhotos(false).then(function (list){
+      var info = list[0]; if (!info) return;
+      var out = {}, q = P.addPhotoClip(E.hist.cur, info, out);
+      if (q === E.hist.cur){ toast('That photo could not be added.'); return; }
+      E.hooks.setVideoFile(out.asset, info.file);
+      var nf = P.findClip(q, out.id); if (nf) E.t = nf.clip.start;
+      E.sel = out.id; commit(q); openPanel('photo', 'edit');
+      toast('Photo added at the end of the picture row, 3 seconds long. Set its length and a Ken Burns movement here.', 6000);
+    });
+  }
+  // o = { dur (ms per photo), kb (Ken Burns on), trans (transition key or 'none') }. The photos you choose go after the last picture clip, one after another.
+  function buildSlideshow(o){
+    if (!E.hooks.setVideoFile){ toast('Adding photos is not available here.'); return; }
+    pause();
+    pickPhotos(true).then(function (list){
+      if (!list.length) return;
+      var q = E.hist.cur, KB = ['zoomin', 'panright', 'zoomout', 'panleft'], firstId = null, n = 0;
+      list.forEach(function (info){
+        var out = {}, q2 = P.addPhotoClip(q, info, out, o.dur);
+        if (q2 === q) return;
+        E.hooks.setVideoFile(out.asset, info.file); q = q2; n++;
+        if (!firstId) firstId = out.id;
+        if (o.kb) q = P.setMotionPreset(q, out.id, KB[(n - 1) % KB.length]);
+        if (o.trans !== 'none' && n > 1) q = P.setTransition(q, out.id, { type: o.trans, durMs: 600 });
+      });
+      if (!n){ toast('None of those photos could be added.'); return; }
+      var f0 = P.findClip(q, firstId); if (f0) E.t = f0.clip.start;
+      E.sel = firstId; commit(q); closePanel();
+      toast(n + ' photo' + (n === 1 ? '' : 's') + ' added after the last clip, ' + (o.dur / 1000) + ' s each.' + (n < list.length ? ' ' + (list.length - n) + ' could not be added.' : '') + ' Undo takes them all back.', 8000);
+    });
+  }
+  PANELS.photo = { title: 'Photo', build: function (body){
+    var c = targetVideo();
+    if (!c || c.type !== 'freeze' || !isPhotoClip(c)){ body.appendChild(mk('div', 'ed-hint', 'Tap a photo on the picture row first (Add photo puts one there).')); return; }
+    body.appendChild(chips([2000, 3000, 5000, 8000].map(function (v){ return { key: v, label: secs(v) }; }), c.dur, function (k){ var q = P.setPhotoDuration(E.hist.cur, c.id, k); if (q === E.hist.cur) renderDock(); else commit(q); }));
+    body.appendChild(sliderRow('Length', 500, 15000, 100, Math.min(15000, c.dur), secs, null, function (v){ commit(P.setPhotoDuration(E.hist.cur, c.id, v)); }));
+    if (NMO){
+      var cur = (E.chip.motion && E.chip.motion.id === c.id) ? E.chip.motion.key : 'none';
+      body.appendChild(mk('div', 'ed-hint', 'Ken Burns movement:'));
+      body.appendChild(chips(NMO.PICTURE_PRESETS, cur, function (k){ E.chip.motion = { id: c.id, key: k }; commit(P.setMotionPreset(E.hist.cur, c.id, k)); seek(c.start); }));
+    }
+    body.appendChild(actions([{ id: 'edPhotoTrans', label: 'Transition', run: function (){ openPanel('transition'); } }, { id: 'edPhotoZoom', label: 'Zoom / pan', run: function (){ openPanel('frame'); } }]));
+    body.appendChild(mk('div', 'ed-hint', 'A photo is an ordinary picture clip with no sound: drag its ends to change how long it shows, Split it, add a Transition from the clip before it, and use Adjust, Filters, Zoom and Fade on it. Ken Burns is a slow zoom or pan made of zoom keyframes; Length stretches it. Press play to see it.'));
+  } };
+  PANELS.slideshow = { title: 'Slideshow', build: function (body){
+    var o = E.chip.show || (E.chip.show = { dur: 3000, kb: true, trans: 'fade' });
+    body.appendChild(chips([2000, 3000, 4000, 6000].map(function (v){ return { key: v, label: secs(v) + ' each' }; }), o.dur, function (k){ o.dur = k; renderDock(); }));
+    body.appendChild(chips([{ key: 'kb', label: 'Ken Burns zoom' }, { key: 'still', label: 'Still photos' }], o.kb ? 'kb' : 'still', function (k){ o.kb = k === 'kb'; renderDock(); }));
+    body.appendChild(chips([{ key: 'none', label: 'No transition' }, { key: 'fade', label: 'Fade' }, { key: 'fadeblack', label: 'Dip to black' }, { key: 'slideleft', label: 'Slide' }, { key: 'zoomin', label: 'Zoom' }], o.trans, function (k){ o.trans = k; renderDock(); }));
+    body.appendChild(actions([{ id: 'edShowGo', label: 'Choose photos', run: function (){ buildSlideshow(o); } }]));
+    body.appendChild(mk('div', 'ed-hint', 'Choose several photos at once. They are added one after another at the end of the picture row, each with the length, Ken Burns movement and transition you picked here. Afterwards every photo is an ordinary clip you can shorten, move or change. Add music under Audio, and Beat sync can fit the photos to it. Naki starts from a movie, so the photos go after it; delete the movie part first if you want only photos.'));
+  } };
+
   /* ---------- titles drawn over the preview ---------- */
   // ----- format and background (the shape of the video, and what fills the space around the picture) -----
   function frameAspect(){
@@ -2111,7 +2227,7 @@ crop: { title: 'Crop', build: function (body){
     if (!E.bgOn){ try { u.bgvid.pause(); } catch (e) {} }
     E.boxKey = null;
     var s = P.sourceAt(E.proj, E.t), vc = s.video && s.video.clip, css = framePicture(vc && !E.cropOn ? vc.transform : null, m, vc && !E.cropOn ? vc.crop : null);
-    E.lastTransform = vc ? css : ''; m.style.transform = vc ? css : '';
+    if (E.photoOn){ E.lastTransform = ''; E.boxKey = null; E.boxMode = ''; } else { E.lastTransform = vc ? css : ''; m.style.transform = vc ? css : ''; }
     syncBackdrop(m);
   }
   // The blurred background is a second, muted copy of the movie kept in step with the first.
@@ -2167,6 +2283,8 @@ crop: { title: 'Crop', build: function (body){
     var x = E.ui.xvid; if (!x) return;
     var tr = (E.proj && E.proj.tracks && movieReady()) ? P.transitionAt(E.proj, E.t) : null;
     if (!tr){ if (E.xOn){ x.style.display = 'none'; try { x.pause(); } catch (e) {} E.xOn = false; } return; }
+    var oth = tr.before ? tr.b : tr.a;
+    if (E.photoOn || (oth.asset || 'movie') !== ((vc && vc.asset) || 'movie')){ if (E.xOn){ x.style.display = 'none'; try { x.pause(); } catch (e) {} E.xOn = false; } return; }   // the preview can only blend two pictures from the same file; the export has the real transition
     var other = tr.before ? tr.b : tr.a, want = (tr.before ? tr.bMs : tr.aMs) / 1000, p = tr.p;
     if (!E.xOn){ x.style.display = 'block'; E.xOn = true; }
     var src = m.currentSrc || m.src;
@@ -2217,76 +2335,6 @@ crop: { title: 'Crop', build: function (body){
     m.addEventListener('loadedmetadata', done); m.addEventListener('error', done);
     m.src = url; m.load();
     return true;
-  }
-  // ---------- motion tracking: an overlay follows something that moves in the picture ----------
-  var TRACK_AREAS = [{ key: 'small', label: 'Small', f: 0.06 }, { key: 'medium', label: 'Medium', f: 0.1 }, { key: 'large', label: 'Large', f: 0.16 }];
-  function trackWait(v, ev, ms){
-    return new Promise(function (res){
-      var done = false, t = null;
-      function fin(ok){ if (done) return; done = true; clearTimeout(t); v.removeEventListener(ev, h); v.removeEventListener('error', er); res(ok); }
-      function h(){ fin(true); } function er(){ fin(false); }
-      v.addEventListener(ev, h); v.addEventListener('error', er); t = setTimeout(function (){ fin(false); }, ms);
-    });
-  }
-  function trackOverlay(c, areaKey){
-    if (E.tk && E.tk.running) return;
-    if (!NANIM || !NANIM.makeTracker || !NF || !NF.containLayout){ toast('Tracking is not available here.'); return; }
-    pause();
-    var Ts = Math.round(Math.max(c.start, Math.min(c.start + c.dur - 200, E.t)));
-    var vt = E.proj.tracks.filter(function (t){ return t.role === 'movie'; })[0], vc = vt && vt.clips.filter(function (k){ return k.start <= Ts && Ts < k.start + k.dur; })[0];
-    if (!vc || vc.type !== 'video'){ toast('There is no moving picture under the overlay at the playhead.', 6000); return; }
-    var tf = vc.transform || {};
-    if (vc.reverse || vc.curve || vc.crop || (tf.zoom && tf.zoom !== 1) || tf.x || tf.y || tf.rot || tf.flipH || (vc.kf && (vc.kf.zoom || vc.kf.x || vc.kf.y))){
-      toast('Tracking needs the picture clip with no zoom, turn, flip, crop, reverse or speed curve. Reset those first.', 9000); return;
-    }
-    var url = clipUrl(vt, vc); if (!url){ toast('The movie is not loaded.'); return; }
-    var area = TRACK_AREAS.filter(function (a){ return a.key === areaKey; })[0] || TRACK_AREAS[1];
-    var Te = Math.min(c.start + c.dur, vc.start + vc.dur), tk = E.tk = { running: true, cancel: false, pct: 0, shown: 0 }, v = document.createElement('video');
-    var clamp01 = function (x){ return Math.max(0, Math.min(1, x)); };
-    (async function (){
-      try {
-        v.muted = true; v.playsInline = true; v.preload = 'auto'; v.src = url; v.load();
-        if (!(await trackWait(v, 'loadedmetadata', 15000)) || !v.videoWidth) throw new Error('The movie could not be read for tracking.');
-        var W = E.ui.picframe.clientWidth || 1000, H = E.ui.picframe.clientHeight || (1000 / (frameAspect() || (v.videoWidth / v.videoHeight)));
-        var b = NF.containLayout(null, W, H, v.videoWidth, v.videoHeight).box;
-        var x0 = NANIM.valueOf(c, 'overlay', 'x', Ts - c.start), y0 = NANIM.valueOf(c, 'overlay', 'y', Ts - c.start);
-        var u0 = (x0 * W - b.x) / b.w, w0 = (y0 * H - b.y) / b.h;
-        if (u0 < 0.02 || u0 > 0.98 || w0 < 0.02 || w0 > 0.98) throw new Error('Put the middle of the overlay on the thing that moves first, then track.');
-        var gw = 192, gh = Math.max(8, Math.round(gw * v.videoHeight / v.videoWidth)), cv = document.createElement('canvas'); cv.width = gw; cv.height = gh;
-        var g = cv.getContext('2d', { willReadFrequently: true });
-        var grab = async function (T){
-          var mt = Math.max(0, Math.min((v.duration || 1e9) - 0.01, (vc.in + (T - vc.start) * (vc.speed || 1)) / 1000));
-          if (!(Math.abs(v.currentTime - mt) < 0.001 && v.readyState >= 2)){ var w = trackWait(v, 'seeked', 5000); v.currentTime = mt; await w; }
-          g.drawImage(v, 0, 0, gw, gh);
-          var d = g.getImageData(0, 0, gw, gh).data, gray = new Uint8Array(gw * gh);
-          for (var i = 0, j = 0; i < gray.length; i++, j += 4) gray[i] = (d[j] * 77 + d[j + 1] * 150 + d[j + 2] * 29) >> 8;
-          return { w: gw, h: gh, d: gray };
-        };
-        var tw = Math.max(8, Math.round(gw * area.f)), tr = NANIM.makeTracker(await grab(Ts), u0 * gw, w0 * gh, tw, tw, Math.max(8, Math.round(gw * 0.12)));
-        var s0 = tr.start, fx0 = (b.x + (s0.x / gw) * b.w) / W, fy0 = (b.y + (s0.y / gh) * b.h) / H;
-        var step = Math.max(80, Math.ceil((Te - Ts) / 400)), xs = [[Ts - c.start, x0]], ys = [[Ts - c.start, y0]], lostAt = null, T;
-        for (T = Ts + step; T <= Te && !tk.cancel; T += step){
-          var r = tr.step(await grab(T));
-          if (r.lost){ lostAt = T; break; }
-          xs.push([T - c.start, clamp01(x0 + (b.x + (r.x / gw) * b.w) / W - fx0)]); ys.push([T - c.start, clamp01(y0 + (b.y + (r.y / gh) * b.h) / H - fy0)]);
-          tk.pct = Math.round((T - Ts) / Math.max(1, Te - Ts) * 100);
-          if (tk.pct - tk.shown >= 5){ tk.shown = tk.pct; if (E.isOpen && E.panel === 'overlayedit') renderDock(); }
-        }
-        if (xs.length < 3) throw new Error(lostAt !== null ? 'Naki lost sight of it straight away. Put the overlay on a clear, detailed spot, or try a bigger area.' : 'Nothing to follow: the clip is too short from the playhead.');
-        if (Ts > c.start){ xs.unshift([0, x0]); ys.unshift([0, y0]); }
-        var smooth = function (a){ var s = NANIM.smoothSeries(a.map(function (p){ return p[1]; }), 3); return a.map(function (p, i){ return [p[0], s[i]]; }); };
-        var q = P.setKeyframeSeries(E.hist.cur, c.id, { x: NANIM.simplifyKf(smooth(xs), 0.004), y: NANIM.simplifyKf(smooth(ys), 0.004) });
-        if (q === E.hist.cur) toast('It did not move, so nothing was changed.', 6000);
-        else {
-          commit(q);
-          toast(tk.cancel ? 'Stopped. The overlay follows it up to where you stopped.' : lostAt !== null ? 'Naki lost sight of it at ' + (Math.round(lostAt / 100) / 10) + ' s. The overlay follows it up to there; you can track again from the playhead.' : 'Done. The overlay now follows it. The movement is in the x and y keyframes, so you can still change it.', 8000);
-        }
-      } catch (err){ toast(String(err && err.message ? err.message : err), 8000); }
-      finally {
-        tk.running = false; try { v.removeAttribute('src'); v.load(); } catch (e){}
-        if (E.isOpen && E.panel === 'overlayedit') renderDock();
-      }
-    })();
   }
   function addOverlayFromFile(){
     if (!E.hooks.pickOverlay || !E.hooks.setOverlayFile){ toast('Overlays are not available here.'); return; }
@@ -2996,6 +3044,7 @@ crop: { title: 'Crop', build: function (body){
     pause();
     var s = P.sourceAt(E.proj, E.t), vc = s.video && s.video.clip;
     if (!vc) return none('There is no picture at the playhead. Move it onto the video first.');
+    if (isPhotoClip(vc)) return none('Save still is for video clips. A photo already is a picture.');
     var m = E.hooks.movie; syncMedia();
     return stillWait(m).then(function (ready){
       if (!ready || !m.videoWidth) return none('The picture is not ready yet. Try again in a moment.');
@@ -3535,7 +3584,43 @@ crop: { title: 'Crop', build: function (body){
     if (!ranges.length){ toast('No speech was found in your recording.'); return; }
     applyCaptionItems(ranges.map(function (r){ return { startMs: r.start, endMs: r.end, text: '\u2026' }; }));
   }
-  function runAutoCaptions(langKey){
+  // ----- auto captions from the movie's own sound -----
+  function noNarration(){ return !!(E.sess && (E.sess.warnings || []).some(function (w){ return w.type === 'no_narration'; })); }
+  var movieAudioLib = null;
+  // The movie's sound as a small mono 16000 Hz WAV file (what the speech model reads), so a big video is never decoded whole in memory.
+  function extractMovieAudio(file, say){
+    if (!movieAudioLib) movieAudioLib = import(new URL('vendor/mediabunny/mediabunny.min.mjs', location.href).href);
+    return movieAudioLib.then(function (M){
+      var input = new M.Input({ source: new M.BlobSource(file), formats: M.ALL_FORMATS }), output = new M.Output({ format: new M.WavOutputFormat(), target: new M.BufferTarget() });
+      return M.Conversion.init({ input: input, output: output, video: { discard: true }, audio: { codec: 'pcm-s16', sampleRate: 16000, numberOfChannels: 1 } }).then(function (conv){
+        if (!conv.isValid) throw new Error('this movie has no sound that can be read');
+        conv.onProgress = function (p){ say('Reading the movie\u2019s sound... ' + Math.round(p * 100) + '%'); };
+        return conv.execute().then(function (){ return new Blob([output.target.buffer], { type: 'audio/wav' }); });
+      });
+    });
+  }
+  function runAutoCaptions(langKey, source){
+    if ((source || (noNarration() ? 'movie' : 'voice')) !== 'movie') return runAutoCaptionsVoice(langKey);
+    if (E.ac && E.ac.running) return;
+    var file = E.hooks.getAssetFile && E.hooks.getAssetFile('movie'), lane = E.proj.tracks.filter(function (t){ return t.role === 'movie'; })[0];
+    var clips = lane ? lane.clips.filter(function (c){ return c.type === 'video' && (!c.asset || c.asset === 'movie') && !c.reverse; }) : [];
+    if (!file){ toast('The movie file is not available here. Choose the movie for this session first.'); return; }
+    if (!clips.length){ toast('There is no part of the original movie on the timeline to listen to.'); return; }
+    pause(); E.ac = { running: true, msg: 'Starting...' }; renderDock();
+    var status = function (m){ if (E.ac) E.ac.msg = m; if (E.acStatus) E.acStatus.textContent = m; };
+    extractMovieAudio(file, status).catch(function (err){ console.warn('could not read the movie sound out, trying the whole file', err); status('Trying the whole file...'); return file; }).then(function (src){
+      return NCAP.recognize(src, { language: langKey, onStatus: status });
+    }).then(function (segs){
+      var items = NCAP.splitLines(NCAP.toTimeline(segs, clips), 42);
+      E.ac = null;
+      if (!items.length){ toast('No speech was found in the movie, in the parts you kept. Check the language, or the movie may have no speech.', 8000); renderDock(); return; }
+      applyCaptionItems(items);
+    }).catch(function (err){
+      E.ac = null; console.error('auto captions from the movie failed', err); renderDock();
+      toast('Auto captions did not work' + (err && err.message ? ': ' + err.message : '') + '. The first time it needs internet. A very long movie may be too much for this device.', 10000);
+    });
+  }
+  function runAutoCaptionsVoice(langKey){
     if (E.ac && E.ac.running) return;
     var blob = E.hooks.getVoiceBlob && E.hooks.getVoiceBlob();
     if (!blob || !blob.size){ toast('There is no voice recording to listen to.'); return; }
@@ -3726,15 +3811,17 @@ crop: { title: 'Crop', build: function (body){
     if (veilBg !== E.lastVeil){ E.ui.veil.style.background = veilBg; E.ui.veil.style.display = veilBg ? 'block' : 'none'; E.lastVeil = veilBg; }
     if (ex.sharpen !== E.lastSharp){ if (ex.sharpen) E.ui.sharpK.setAttribute('kernelMatrix', LK.sharpenKernel(ex.sharpen)); E.lastSharp = ex.sharpen; }
     // A clip from another file (Add video) swaps the file the preview's video element shows.
-    var wantAsset = (vc && vc.asset) || 'movie', skipMedia = false;
-    if (vc && wantAsset !== E.curAsset) skipMedia = !swapSource(wantAsset, m);
+    var photo = !!(vc && vc.type === 'freeze' && isPhotoClip(vc)), em = photo ? photoEl() : m, wantAsset = (vc && vc.asset) || 'movie', skipMedia = false;
+    photoSync(photo, vc);
+    if (vc && !photo && wantAsset !== E.curAsset) skipMedia = !swapSource(wantAsset, m);
+    if (photo && !(E.hooks.videoUrl && E.hooks.videoUrl(vc.asset))) skipMedia = true;
     if (skipMedia !== !!E.skipMsg){ E.skipMsg = skipMedia; E.ui.stageMsg.textContent = skipMedia ? 'The file for this part is missing. Use Add video to add it again.' : (movieReady() ? '' : 'Choose the movie for this session in Preview first, then come back to edit.'); }
     var op = vc ? String(vc.opacity != null ? vc.opacity : 1) : '0';
-    var tcss = vc ? (E.cropOn ? framePicture(null, m, null) : framePicture((vc.kf && NANIM) ? NANIM.pictureTransform(vc.transform, vc.kf, E.t - vc.start) : vc.transform, m, vc.crop)) : '';
-    if (tcss !== E.lastTransform){ m.style.transform = tcss; E.lastTransform = tcss; }
-    if (css !== E.lastFilter){ m.style.filter = css; E.lastFilter = css; }
-    if (op !== E.lastOpacity){ m.style.opacity = op; E.lastOpacity = op; }
-    if (movieReady() && !E.swapping && !skipMedia){
+    var tcss = vc ? (E.cropOn ? framePicture(null, em, null) : framePicture((vc.kf && NANIM) ? NANIM.pictureTransform(vc.transform, vc.kf, E.t - vc.start) : vc.transform, em, vc.crop)) : '';
+    if (tcss !== E.lastTransform){ em.style.transform = tcss; E.lastTransform = tcss; }
+    if (css !== E.lastFilter){ em.style.filter = css; E.lastFilter = css; }
+    if (op !== E.lastOpacity){ em.style.opacity = op; E.lastOpacity = op; }
+    if (photo){ if (!m.paused) m.pause(); } else if (movieReady() && !E.swapping && !skipMedia){
       if (s.video){
         var target = s.video.movieMs / 1000, rate = s.video.clip.speed || 1;
         var rev = !!s.video.clip.reverse;   // a video element cannot play backwards: for a reversed clip it is stepped from picture to picture
@@ -3751,7 +3838,7 @@ crop: { title: 'Crop', build: function (body){
     }
     renderTexts(P.textsAt(E.proj, E.t));
     syncBackdrop(m);
-    syncStickers(); syncOverlays(); syncSfx(s); syncFx(); syncTransition(m, s, vc); syncScopes(); syncLayout(m, vc, css); syncGrade(m, vc, css);
+    syncStickers(); syncOverlays(); syncSfx(s); syncFx(); syncTransition(m, s, vc); syncScopes(); syncLayout(m, photo ? null : vc, css); syncGrade(m, photo ? null : vc, css);
     var ms = null, vo = null, mu = null;
     s.audio.forEach(function (a){ if (a.role === 'movieSound') ms = a; else if (a.role === 'voice') vo = a; else if (a.role === 'music') mu = a; });
     h.setMovieGain(ms && !ms.clip.reverse ? ms.gain : 0);
@@ -3971,7 +4058,7 @@ crop: { title: 'Crop', build: function (body){
     document.removeEventListener('keydown', onKey);
     var h = E.hooks; try { h.voice.volume = 1; if (E.voiceGain) E.voiceGain.gain.value = 1; if (E.musicGain) E.musicGain.gain.value = 1; h.setMovieGain(1); } catch (e) {}
     try { h.movie.style.filter = ''; h.movie.style.opacity = ''; h.movie.style.transform = ''; h.movie.playbackRate = 1; E.ui.tint.style.display = E.ui.veil.style.display = 'none'; E.lastTint = E.lastVeil = ''; E.lastSharp = -1; } catch (e) {}
-    renderTexts([]);
+    renderTexts([]); try { photoSync(false, null); } catch (e) {}
     E.layoutOn = false; try { E.ui.layoutcv.style.display = 'none'; } catch (e) {}
     E.gradeOn = false; try { if (E.ui.gradecv) E.ui.gradecv.style.display = 'none'; } catch (e) {}
     try { stopEyedrop(); } catch (e) {}

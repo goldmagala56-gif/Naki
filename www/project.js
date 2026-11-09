@@ -2027,6 +2027,43 @@ function clearTrackedPath(p, id, relMs){
   return had ? finish(q) : p;
 }
 
+// ---------- photos on the picture line ----------
+// A photo is a picture clip of type 'freeze' whose asset is an image (project.assets[asset].type === 'image'), so it trims, splits, moves, zooms, has a
+// transition and a Ken Burns movement (the usual zoom / pan keyframes) like any other picture clip. The file is kept by the page, like an added video.
+function isPhotoAsset(p, asset){ var a = asset && p.assets && p.assets[asset]; return !!(a && a.type === 'image'); }
+// info = { name, w, h }. Goes after the last picture clip. durMs defaults to 3 s.
+function addPhotoClip(p, info, out, durMs){
+  info = info || {};
+  var q = cloneProject(p), lane = pictureLane(q); if (!lane) return p;
+  var d = Math.round(Math.max(500, Math.min(60000, +durMs || 3000))), start = 0;
+  lane.clips.forEach(function (c){ start = Math.max(start, clipEnd(c)); });
+  var n = 1; while (q.assets['v' + n]) n++;
+  var asset = 'v' + n; q.assets[asset] = { type: 'image', name: info.name || 'photo', durMs: null, w: info.w || 0, h: info.h || 0 };
+  var id = newId('c');
+  lane.clips.push({ id: id, type: 'freeze', asset: asset, start: start, dur: d, in: 0, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0 });
+  if (out){ out.id = id; out.asset = asset; }
+  return finish(q);
+}
+// How long a photo shows (0.5 to 60 s). The picture clips after it move up or back; its keyframes (Ken Burns) stretch with it.
+function setPhotoDuration(p, id, ms){
+  var f = findClip(p, id); if (!f || f.track.role !== 'movie' || f.clip.type !== 'freeze' || !isPhotoAsset(p, f.clip.asset)) return p;
+  var d = Math.round(+ms); if (isNaN(d)) return p;
+  d = Math.max(500, Math.min(60000, d)); if (d === f.clip.dur) return p;
+  var q = cloneProject(p), c = findClip(q, id).clip, old = c.dur, ratio = d / old, delta = d - old, anchor = c.start + old;
+  if (c.kf){
+    var kk = {}; Object.keys(c.kf).forEach(function (k){ kk[k] = c.kf[k].map(function (pt){ return pt.length > 2 ? [Math.round(pt[0] * ratio), pt[1], pt[2]] : [Math.round(pt[0] * ratio), pt[1]]; }); });
+    c.kf = kk;
+  }
+  c.dur = d;
+  if (c.vFadeIn) c.vFadeIn = Math.min(c.vFadeIn, Math.floor(d / 2));
+  if (c.vFadeOut) c.vFadeOut = Math.min(c.vFadeOut, Math.floor(d / 2));
+  q.tracks.forEach(function (tr){
+    if (tr.role !== 'movie' && tr.role !== 'movieSound') return;
+    tr.clips.forEach(function (x){ if (x.id !== id && x.start >= anchor) x.start += delta; });
+  });
+  return validate(q).length ? p : finish(q);
+}
+
 // ---------- undo / redo ----------
 // Edit functions return new projects, so history only has to remember the earlier ones.
 function EditHistory(limit){ this.limit = limit || 100; this.reset(null); }
@@ -2064,7 +2101,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset, wordTimes: wordTimes, wordIndexAt: wordIndexAt, setCaptionHighlight: setCaptionHighlight,
   addFx: addFx, setFxProps: setFxProps, fxAt: fxAt, addGen: addGen, setGenProps: setGenProps, setVoiceEnhance: setVoiceEnhance, voiceFloorDb: voiceFloorDb,
   duckPoints: duckPoints, autoDuckMusic: autoDuckMusic, silenceRanges: silenceRanges, removeSilences: removeSilences, addLayout: addLayout, setLayoutProps: setLayoutProps, layoutsAt: layoutsAt,
-  copyClip: copyClip, pasteClip: pasteClip, captureLook: captureLook, pasteLook: pasteLook, moveClips: moveClips, selectRight: selectRight, deleteClips: deleteClips, setTrackedPath: setTrackedPath, clearTrackedPath: clearTrackedPath };
+  copyClip: copyClip, pasteClip: pasteClip, captureLook: captureLook, pasteLook: pasteLook, moveClips: moveClips, selectRight: selectRight, deleteClips: deleteClips, addPhotoClip: addPhotoClip, setPhotoDuration: setPhotoDuration, isPhotoAsset: isPhotoAsset, setTrackedPath: setTrackedPath, clearTrackedPath: clearTrackedPath };
 if (typeof module !== 'undefined' && module.exports) module.exports = _api;
 if (typeof window !== 'undefined') window.NakiProject = _api;
 

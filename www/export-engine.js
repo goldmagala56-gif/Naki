@@ -361,6 +361,7 @@ function planToJobs(plan, movieInfo, opts) {
     function side(sp, idx) {   // the picture of span sp as it looks from timeline time ws for the length of the transition
       var piece = Object.assign({}, sp, { sessionStart: ws, sessionEnd: we }); delete piece.vFadeIn; delete piece.vFadeOut; delete piece.transitionIn;
       if (piece.kf && _NA) piece.kf = _NA.shiftKf(piece.kf, ws - sp.sessionStart);
+      if (sp.type === 'freeze' && sp.image) return { piece: piece, src: ['-loop', '1', '-framerate', String(FPS), '-t', (dSec + 1).toFixed(3), '-i', fileOf(sp)], fit: pictureFit(piece), speed: 1, tpad: 0, pad: 0 };
       if (sp.type === 'freeze') return { piece: piece, src: ['-loop', '1', '-framerate', String(FPS), '-i', 'f' + String(idx).padStart(4, '0') + '.png'], fit: 'null', speed: 1, tpad: 0, pad: 0 };
       var speed = sp.speed && sp.speed !== 1 ? sp.speed : 1, ms = sp.movieStart + (ws - sp.sessionStart) * speed;
       return { piece: piece, src: ['-ss', clampFor(sp, Math.max(0, ms)).toFixed(3), '-i', fileOf(sp)], fit: pictureFit(piece), speed: speed, tpad: Math.ceil(dSec + 1), pad: ms < 0 ? -ms / speed / 1000 : 0 };
@@ -429,6 +430,9 @@ function planToJobs(plan, movieInfo, opts) {
           args: pictureArgs(rv.sourceArgs, 'null', nFrames, vfile, sp, spanSec, 1, 1, 0, sp.movieStart >= 100) });
       } else jobs.push({ label: 'picture ' + (i + 1), produces: vfile,
         args: pictureArgs(['-ss', clampFor(sp, sp.movieStart).toFixed(3), '-i', fileOf(sp)], pictureFit(sp), nFrames, vfile, sp, spanSec, speed, Math.ceil(spanSec + 1)) });
+    } else if (sp.type === 'freeze' && sp.image) {   // a photo: the picture file is looped, so zoom / pan keyframes (Ken Burns) move frame by frame
+      jobs.push({ label: 'photo ' + (i + 1), produces: vfile,
+        args: pictureArgs(['-loop', '1', '-framerate', String(FPS), '-t', (spanSec + 1).toFixed(3), '-i', fileOf(sp)], pictureFit(sp), nFrames, vfile, sp, spanSec, 1, 0) });
     } else if (sp.type === 'freeze') {
       var png = 'f' + id + '.png';
       jobs.push({ label: 'frozen frame ' + (i + 1), produces: png, args: ['-ss', clampFor(sp, sp.movieAt).toFixed(3), '-i', fileOf(sp), '-an', '-frames:v', '1',

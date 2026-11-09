@@ -76,7 +76,7 @@ ok('the ffmpeg job applies one .cube file per different grade, and a plain clip 
   assert(!plain.jobs.filter(j => /^picture/.test(j.label))[0].args.join(' ').includes('lut3d'));
 });
 ok('the editor, page and service worker know the new file', () => {
-  const ed = read('editor.js'); ['PANELS.grade =', 'function syncGrade', 'function importCubeFile', "id: 'edGrade'", 'syncGrade(m, vc, css);'].forEach(s => assert(ed.includes(s), s));
+  const ed = read('editor.js'); ['PANELS.grade =', 'function syncGrade', 'function importCubeFile', "id: 'edGrade'", 'syncGrade(m, photo ? null : vc, css);'].forEach(s => assert(ed.includes(s), s));
   const ix = read('index.html'); assert(ix.indexOf('src="colour.js"') > 0 && ix.indexOf('src="colour.js"') < ix.indexOf('src="project.js"'));
   new vm.Script(read('sw.js')); assert(read('sw.js').includes("'./colour.js'"));
 });

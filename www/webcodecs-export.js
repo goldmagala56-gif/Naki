@@ -384,10 +384,16 @@ var WebCodecsExport = (function () {
     var sink = new M.VideoSampleSink(videoTrack);
     var vids = {}, vfiles = opts.videoFiles || {};   // the videos added to the picture line (Add video): asset -> { sink, audioTrack, input }
     for (var vk = 0, vkeys = Object.keys(vfiles); vk < vkeys.length; vk++) {
-      var vin = new M.Input({ source: new M.BlobSource(vfiles[vkeys[vk]]), formats: M.ALL_FORMATS }), vtrack = await vin.getPrimaryVideoTrack();
+      var vin = new M.Input({ source: new M.BlobSource(vfiles[vkeys[vk]]), formats: M.ALL_FORMATS }), vtrack = null;
+      try { vtrack = await vin.getPrimaryVideoTrack(); } catch (e) { vtrack = null; }   // a photo is not a video: it is read below
       if (vtrack) vids[vkeys[vk]] = { input: vin, sink: new M.VideoSampleSink(vtrack), audioTrack: await vin.getPrimaryAudioTrack() };
     }
     var assetAudio = {}; Object.keys(vids).forEach(function (k) { assetAudio[k] = vids[k].audioTrack; });
+    var imgs = {};   // the photos on the picture line: asset -> picture
+    for (var pi = 0; pi < plan.video.length; pi++) {
+      var psp = plan.video[pi];
+      if (psp.image && psp.asset && !imgs[psp.asset] && vfiles[psp.asset]) { try { imgs[psp.asset] = await createImageBitmap(vfiles[psp.asset]); } catch (e) {} }
+    }
     function sinkFor(sp) { return (sp.asset && vids[sp.asset]) ? vids[sp.asset].sink : sink; }
 
     var ratio = opts.ratio || (opts.vertical ? '9:16' : 'original');
@@ -572,14 +578,15 @@ var WebCodecsExport = (function () {
         }
       } else {
         if (sp.type === 'freeze') {
-          var held = await sinkFor(sp).getSample(sp.movieAt / 1000);
-          if (held) { paintSample(held, NA ? NA.spanAt(sp, 0) : sp); if (!sp.kf) { held.close(); held = null; } } else paintLayer(null, 0, 0, sp);
+          var photoBm = (sp.image && sp.asset && imgs[sp.asset]) || null, held = photoBm ? null : await sinkFor(sp).getSample(sp.movieAt / 1000);
+          if (photoBm) paintLayer(photoBm, photoBm.width, photoBm.height, NA ? NA.spanAt(sp, 0) : sp);
+          else if (held) { paintSample(held, NA ? NA.spanAt(sp, 0) : sp); if (!sp.kf) { held.close(); held = null; } } else paintLayer(null, 0, 0, sp);
         } else {   // 'black': the navy background (and the logo, if any)
           paintLayer(null, 0, 0, sp);
         }
         for (var j = 0; j < nFrames; j++) {
           var tf = sp.sessionStart + j * 1000 / FPS;
-          await advanceOverlays(tf); if (held && sp.kf) paintSample(held, NA.spanAt(sp, j * 1000 / FPS)); compose(sp, tf);   // redrawn every frame, because fades and titles can change from frame to frame
+          await advanceOverlays(tf); if (held && sp.kf) paintSample(held, NA.spanAt(sp, j * 1000 / FPS)); else if (photoBm && sp.kf) paintLayer(photoBm, photoBm.width, photoBm.height, NA.spanAt(sp, j * 1000 / FPS)); compose(sp, tf);   // redrawn every frame, because fades and titles can change from frame to frame
           check(); await videoSource.add(tf / 1000, 1 / FPS);
           framesDone++;
         }

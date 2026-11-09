@@ -80,7 +80,37 @@ var NakiCaptions = (function () {
     var res = await loaded[M.id](audio.samples, o);
     return segmentsFromChunks(res && res.chunks || [], audio.durMs);
   }
-  var api = { LIB_URL: LIB_URL, MODELS: MODELS, LANGS: LANGS, chunkRanges: chunkRanges, segmentsFromChunks: segmentsFromChunks, splitLines: splitLines, recognize: recognize,
+  // Captions made from the MOVIE's sound are in the time of the movie file. This moves them onto the edited timeline.
+  // segs = [{ startMs, endMs, text }] in movie time; clips = the picture clips that play that movie: [{ start, dur, in, speed }] (timeline ms, movie ms).
+  // A line is followed through cuts, speed changes and gaps. A line that falls in a cut-out part is dropped; one that is cut in two keeps its bigger half
+  // (when that half is at least half of the line), so no caption shows half a sentence. Lines are never made to overlap.
+  function toTimeline(segs, clips) {
+    var list = (clips || []).filter(function (c) { return c && c.dur > 0; }).map(function (c) {
+      var sp = c.speed > 0 ? c.speed : 1, from = c.in || 0;
+      return { start: c.start, from: from, to: from + c.dur * sp, sp: sp };
+    }), out = [];
+    (segs || []).forEach(function (sg) {
+      var len = Math.max(1, sg.endMs - sg.startMs), parts = [];
+      list.forEach(function (c) {
+        var a = Math.max(sg.startMs, c.from), b = Math.min(sg.endMs, c.to);
+        if (b - a <= 0) return;
+        parts.push({ s: Math.round(c.start + (a - c.from) / c.sp), e: Math.round(c.start + (b - c.from) / c.sp), cover: b - a });
+      });
+      parts.sort(function (x, y) { return x.s - y.s; });
+      var merged = [];
+      parts.forEach(function (p) {
+        var l = merged[merged.length - 1];
+        if (l && p.s - l.e <= 40) { l.e = Math.max(l.e, p.e); l.cover += p.cover; } else merged.push({ s: p.s, e: p.e, cover: p.cover });
+      });
+      var best = null; merged.forEach(function (m) { if (!best || m.cover > best.cover) best = m; });
+      if (!best || best.cover < len * 0.5) return;
+      out.push({ startMs: best.s, endMs: Math.max(best.e, best.s + 400), text: sg.text });
+    });
+    out.sort(function (x, y) { return x.startMs - y.startMs; });
+    for (var i = 0; i < out.length - 1; i++) if (out[i].endMs > out[i + 1].startMs) out[i].endMs = out[i + 1].startMs;
+    return out.filter(function (x) { return x.endMs - x.startMs >= 150; });
+  }
+  var api = { LIB_URL: LIB_URL, MODELS: MODELS, LANGS: LANGS, chunkRanges: chunkRanges, segmentsFromChunks: segmentsFromChunks, splitLines: splitLines, toTimeline: toTimeline, recognize: recognize,
     _reset: function () { loaded = {}; } };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') { window.NakiCaptions = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['captions.js'] = 'sound'; }

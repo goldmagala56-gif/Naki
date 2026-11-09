@@ -8,7 +8,7 @@ ok('the editor has the crop frame, the Crop button and the Crop panel', () => {
   ['function buildCropUI', 'function cropDown', 'function syncCrop', "id: 'edCrop'", "crop: { title: 'Crop'"].forEach(s => assert(ed.includes(s), s));
 });
 ok('the preview fits a cropped picture and shows the whole picture while the panel is open', () => {
-  assert(ed.includes('function framePicture(t, m, crop)')); assert(ed.includes('E.cropOn ? framePicture(null, m, null)'));
+  assert(ed.includes('function framePicture(t, m, crop)')); assert(ed.includes('E.cropOn ? framePicture(null, em, null)'));
 });
 ok('a plan with a crop is exported by the ffmpeg engine, and one without still can use the fast engine', () => {
   const base = { durationMs: 1000, video: [{ type: 'play', sessionStart: 0, sessionEnd: 1000, movieStart: 0 }], audio: [] };
