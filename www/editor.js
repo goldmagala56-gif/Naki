@@ -140,6 +140,9 @@ function buildCodes(p){
     fl.appendChild(u.sharpK); sv.appendChild(fl); u.stage.appendChild(sv);
     u.textlayer = mk('div', 'ed-textlayer'); u.stage.appendChild(u.textlayer);
     u.croplayer = mk('div', 'ed-croplayer'); u.croplayer.style.cssText = 'position:absolute;display:none;overflow:hidden;pointer-events:none;z-index:6'; u.stage.appendChild(u.croplayer);
+    u.bigBtn = iconBtn('edBig', G_EXPAND, 'Big preview', 'ed-ibtn ed-stagebtn b2'); u.fullBtn = iconBtn('edFull', G_LAND, 'Full screen', 'ed-ibtn ed-stagebtn');
+    [u.bigBtn, u.fullBtn].forEach(function (b){ b.addEventListener('pointerdown', function (ev){ ev.stopPropagation(); }); u.stage.appendChild(b); });
+    u.bigBtn.onclick = function (){ setBig(!E.big); }; u.fullBtn.onclick = toggleFull;
 
     // desktop side panel: sound levels and the selected clip
     u.insp = mk('aside', 'ed-insp'); u.mix = mk('div', 'ed-mix'); u.selinfo = mk('div', 'ed-selinfo');
@@ -192,6 +195,7 @@ function buildCodes(p){
     u.scroll.addEventListener('contextmenu', function (ev){ ev.preventDefault(); });
     if (typeof window !== 'undefined') window.addEventListener('resize', function (){ if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); } });
     // The preview area changes height whenever the dock turns from toolbar to tool row to panel, so the picture is re-fitted each time
+    if (typeof document !== 'undefined') document.addEventListener('fullscreenchange', function (){ if (!document.fullscreenElement) unlockLandscape(); updateBigBtns(); });
     if (typeof ResizeObserver !== 'undefined') new ResizeObserver(function (){ if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); } }).observe(u.stage);
   }
 
@@ -2120,6 +2124,7 @@ crop: { title: 'Crop', build: function (body){
     body.appendChild(sliderRow('Square size', 5, 30, 1, Math.round(T.size * 100), pct, function (v){ T.size = v / 100; syncTrackBox(); }, function (v){ T.size = v / 100; syncTrackBox(); }));
     var st = mk('div', 'ed-hint', run ? R.msg : 'Put the playhead where every player or object is visible. Drag this square onto one, tap Mark, then pick the next label and do the same. Then Track all squares.');
     E.trkStatus = st; body.appendChild(st);
+    body.appendChild(actions([{ id: 'edTrackBig', label: E.big ? 'Small preview' : 'Big preview (place the square more precisely)', run: function (){ setBig(!E.big); } }]));
     body.appendChild(actions(run
       ? [{ id: 'edTrackStop', label: 'Stop', run: function (){ R.cancelled = true; } }]
       : [{ id: 'edTrackMark', label: T.marked ? 'Unmark this square' : 'Mark this square', on: !!T.marked, run: function (){ T.marked = !T.marked; renderDock(); } },
@@ -4124,6 +4129,35 @@ else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
     layout: '<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M12 4v16M3 12h18"/>'
   };
   function roleIcon(role){ return svg(ROLE_SVG[role] || ROLE_SVG.overlay); }
+  // ----- big preview and full screen -----
+  var G_EXPAND = svg('<path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/>'), G_SHRINK = svg('<path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/>'), G_LAND = svg('<rect x="2.5" y="7" width="19" height="10" rx="2"/><path d="M18.5 12h.01"/>');
+  function updateBigBtns(){
+    var u = E.ui, fs = typeof document !== 'undefined' && !!document.fullscreenElement;
+    if (u.bigBtn){ u.bigBtn.innerHTML = E.big ? G_SHRINK : G_EXPAND; u.bigBtn.setAttribute('aria-label', E.big ? 'Small preview' : 'Big preview'); u.bigBtn.title = E.big ? 'Small preview' : 'Big preview'; }
+    if (u.fullBtn){ u.fullBtn.classList.toggle('on', fs); u.fullBtn.setAttribute('aria-label', fs ? 'Leave full screen' : 'Full screen'); u.fullBtn.title = fs ? 'Leave full screen' : 'Full screen'; }
+  }
+  function setBig(on){
+    E.big = !!on; if (E.root) E.root.classList.toggle('big', E.big); updateBigBtns();
+    if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); }
+    if (E.panel === 'track') renderDock();   // the Track motion button shows the right words
+  }
+  function unlockLandscape(){ try { if (screen.orientation && screen.orientation.unlock) screen.orientation.unlock(); } catch (e) {} }
+  function exitBig(){
+    try { if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen(); } catch (e) {}
+    unlockLandscape(); E.big = false; if (E.root) E.root.classList.remove('big'); updateBigBtns();
+  }
+  function toggleFull(){
+    var r = E.root;
+    if (typeof document !== 'undefined' && document.fullscreenElement){ try { document.exitFullscreen(); } catch (e) {} return; }
+    var go = r && (r.requestFullscreen || r.webkitRequestFullscreen);
+    if (!go){ setBig(true); toast('Full screen is not available on this browser. The big preview is on instead.'); return; }
+    setBig(true);
+    var pr; try { pr = go.call(r); } catch (e) { pr = null; }
+    Promise.resolve(pr).then(function (){
+      try { if (screen.orientation && screen.orientation.lock) screen.orientation.lock('landscape').catch(function (){}); } catch (e) {}
+      updateBigBtns();
+    }, function (){ toast('Full screen was refused here. The big preview is on instead.'); });
+  }
   function renderSelectionOnly(){
     var els = E.ui.inner.querySelectorAll('.ed-clip');
     for (var i = 0; i < els.length; i++){ els[i].classList.toggle('sel', els[i].dataset.id === E.sel); els[i].classList.toggle('multi', !!(E.multi && E.multi[els[i].dataset.id])); }
@@ -4288,6 +4322,7 @@ else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
     E.xOn = false; try { E.ui.xvid.pause(); E.ui.xvid.style.display = 'none'; } catch (e) {}
     removeOverlays(); removeSfx();
     if (TS) TS.release(); if (PS) PS.release();
+    exitBig();
     Object.keys(E.stickerEls || {}).forEach(function (id){ E.stickerEls[id].remove(); }); E.stickerEls = {};
     if (E.curAsset && E.curAsset !== 'movie'){ var mu = h.movieUrl && h.movieUrl(); if (mu){ h.movie.style.objectFit = ''; h.movie.src = mu; h.movie.load(); } }   // the preview screen needs the original movie again
     E.curAsset = 'movie'; E.swapping = false;

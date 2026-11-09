@@ -319,3 +319,13 @@
 .ed-seln{flex:1 0 56px}
 .ed-clip .ed-kf{display:none}
 .ed-clip.sel .ed-kf{display:block}
+
+/* big preview and full screen */
+.ed-stagebtn{position:absolute;top:8px;right:8px;z-index:50;width:36px;height:36px;background:rgba(0,0,0,.55);color:#fff;opacity:.85}
+.ed-stagebtn.b2{right:52px}
+.ed-stagebtn.on{background:var(--mango);color:#1d1300}
+.ed.big{grid-template-columns:minmax(0,1fr);grid-template-rows:auto minmax(0,1fr) auto auto 0 auto;grid-template-areas:"top" "stage" "bar" "note" "tl" "tools"}
+.ed.big .ed-tl,.ed.big .ed-insp{display:none}
+.ed.big .ed-pbody{max-height:30vh}
+.ed.big:fullscreen .ed-top{display:none}
+@media (orientation:landscape) and (max-height:520px){ .ed.big .ed-pbody{max-height:36vh} }
