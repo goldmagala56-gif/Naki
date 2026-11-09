@@ -11,9 +11,13 @@
    viewer sees) are what overlays use. makeGeo() converts between them for one picture clip: crop, flip, turn, zoom, pan, the bars around
    the picture, and the shape of the video frame, with the same numbers the preview and both exports use. */
 var NakiTracker = (function () {
-  var STEP_MS = 100, FRAME_W = 320, MAX_FRAMES = 600;
+  var STEP_MS = 33, FRAME_W = 320, MAX_FRAMES = 900;
   function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
-  function r4(x) { return Math.round(x * 1000) / 1000; }
+  function r4(x) { return Math.round(x * 10000) / 10000; }
+  var PRESET_LIST = [{ key: 'slow', label: 'Slow (people, objects)' }, { key: 'normal', label: 'Normal' }, { key: 'fast', label: 'Fast (cars, sprints)' }];
+  var PRESET = { slow: { radius: 0.05, lostAt: 38, adapt: 0.08, passes: 12 }, normal: { radius: 0.09, lostAt: 42, adapt: 0.1, passes: 8 }, fast: { radius: 0.2, lostAt: 52, adapt: 0.15, passes: 4 } };
+  function preset(k) { return PRESET[k] || PRESET.normal; }
+  function fw(vw, vh) { return Math.max(16, Math.min(vw, FRAME_W, Math.floor(Math.sqrt(70000 * vw / vh)))); }
 
   function toGray(rgba, n) {
     var g = new Uint8Array(n), i, j = 0;
@@ -32,7 +36,8 @@ function createTracker(g0, W, H, box, opts) {
   var mean = sum / n, vr = 0;
   for (k = 0; k < n; k++) vr += (tpl[k] - mean) * (tpl[k] - mean);
   var texture = Math.sqrt(vr / n);
-  var baseR = opts.radius || Math.max(8, Math.round(0.06 * W)), lostAt = opts.lostAt || 38, miss = 0, lx = x0, ly = y0, vx = 0, vy = 0;
+  var baseR = opts.radius || Math.max(8, Math.round((opts.radiusFrac || 0.06) * W)), lostAt = opts.lostAt || 38, adapt = opts.adapt || 0.08;
+  var miss = 0, lx = x0, ly = y0, vx = 0, vy = 0;
 
   function sad(g, px, py, stride, cap) {
     var s = 0, a, b;
@@ -46,14 +51,14 @@ function createTracker(g0, W, H, box, opts) {
   function part(a, b, c) { var d = a - 2 * b + c; return d > 1e-6 ? clamp((a - c) / (2 * d), -0.5, 0.5) : 0; }
   function search(g, r, cx, cy) {
     cx = clamp(cx, 0, W - tw); cy = clamp(cy, 0, H - th);
-    var best = Infinity, bx = cx, by = cy, x, y, s;
+    var cs = r > 28 ? 4 : 2, best = Infinity, bx = cx, by = cy, x, y, s;
     var xa = Math.max(0, cx - r), xb = Math.min(W - tw, cx + r), ya = Math.max(0, cy - r), yb = Math.min(H - th, cy + r);
-    for (y = ya; y <= yb; y += 2) for (x = xa; x <= xb; x += 2) { s = sad(g, x, y, 2, best); if (s < best) { best = s; bx = x; by = y; } }
+    for (y = ya; y <= yb; y += cs) for (x = xa; x <= xb; x += cs) { s = sad(g, x, y, 2, best); if (s < best) { best = s; bx = x; by = y; } }
     best = Infinity;
-    for (y = Math.max(0, by - 2); y <= Math.min(H - th, by + 2); y++) for (x = Math.max(0, bx - 2); x <= Math.min(W - tw, bx + 2); x++) {
+    for (y = Math.max(0, by - cs); y <= Math.min(H - th, by + cs); y++) for (x = Math.max(0, bx - cs); x <= Math.min(W - tw, bx + cs); x++) {
       s = sad(g, x, y, 1, best); if (s < best) { best = s; bx = x; by = y; }
     }
-    var fx = 0, fy = 0;   // sub-pixel: a parabola through the match and its two neighbours
+    var fx = 0, fy = 0;
     if (bx > 0 && bx < W - tw) fx = part(sad(g, bx - 1, by, 1, Infinity), best, sad(g, bx + 1, by, 1, Infinity));
     if (by > 0 && by < H - th) fy = part(sad(g, bx, by - 1, 1, Infinity), best, sad(g, bx, by + 1, 1, Infinity));
     return { x: bx + fx, y: by + fy, bx: bx, by: by, mean: best / n };
@@ -65,7 +70,7 @@ function createTracker(g0, W, H, box, opts) {
     else {
       vx = 0.5 * vx + 0.5 * (res.x - lx) / kk; vy = 0.5 * vy + 0.5 * (res.y - ly) / kk;
       miss = 0; lx = res.x; ly = res.y;
-      if (res.mean < 20) for (var b = 0; b < th; b++) for (var a = 0; a < tw; a++) { var q = b * tw + a; tpl[q] += (g[(res.by + b) * W + res.bx + a] - tpl[q]) * 0.08; }
+      if (res.mean < lostAt * 0.5) for (var b = 0; b < th; b++) for (var a = 0; a < tw; a++) { var q = b * tw + a; tpl[q] += (g[(res.by + b) * W + res.bx + a] - tpl[q]) * adapt; }
     }
     return { cx: (lx + tw / 2) / W, cy: (ly + th / 2) / H, score: res.mean, lost: lost };
   }
@@ -174,7 +179,7 @@ function createTracker(g0, W, H, box, opts) {
   // Returns { x: [[rel, v]...], y: [...] } for P.setTrackedPath.
   function toKeyframes(track, rels, infos, o) {
     o = o || {};
-    var lo = o.lo != null ? o.lo : 0, hi = o.hi != null ? o.hi : 1, sm = smooth(track, o.keepMs), pos = [], last = null, i, k = 0;
+    var lo = o.lo != null ? o.lo : 0, hi = o.hi != null ? o.hi : 1, sm = smooth(track, o.keepMs, o.passes), pos = [], last = null, i, k = 0;
     for (i = 0; i < rels.length; i++) {
       var m = infos[i];
       if (m != null) {
@@ -188,8 +193,8 @@ function createTracker(g0, W, H, box, opts) {
     for (i = 0; i < k; i++) pos[i] = pos[k];
     var ox = o.offX || 0, oy = o.offY || 0;
     return {
-      x: simplify(rels.map(function (r, j) { return [r, clamp(pos[j].x + ox, lo, hi)]; }), 0.003),
-      y: simplify(rels.map(function (r, j) { return [r, clamp(pos[j].y + oy, lo, hi)]; }), 0.003)
+      x: simplify(rels.map(function (r, j) { return [r, clamp(pos[j].x + ox, lo, hi)]; }), 0.0004),
+      y: simplify(rels.map(function (r, j) { return [r, clamp(pos[j].y + oy, lo, hi)]; }), 0.0004)
     };
   }
 
@@ -218,7 +223,7 @@ async function framesFromFile(file, times, check, prog) {
   var M = await loadMB(), input = new M.Input({ source: new M.BlobSource(file), formats: M.ALL_FORMATS });
   try {
     var vt = await input.getPrimaryVideoTrack(); if (!vt) throw new Error('the video has no picture');
-    var vw = vt.displayWidth, vh = vt.displayHeight, W = Math.min(FRAME_W, vw), H = Math.max(2, Math.round(W * vh / vw));
+    var vw = vt.displayWidth, vh = vt.displayHeight, W = fw(vw, vh), H = Math.max(2, Math.round(W * vh / vw));
     var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     var g = cv.getContext('2d', { willReadFrequently: true }), frames = [], last = null;
     for await (var s of new M.VideoSampleSink(vt).samplesAtTimestamps(times.map(function (ms) { return ms / 1000; }))) {
@@ -232,7 +237,7 @@ async function framesFromFile(file, times, check, prog) {
 async function framesFromUrl(url, times, check, prog) {   // old way: seek a hidden video (slow, not frame-exact)
   var v = await openVideo(url), vw = v.videoWidth, vh = v.videoHeight;
   if (!vw || !vh) throw new Error('the video has no picture');
-  var W = Math.min(FRAME_W, vw), H = Math.max(2, Math.round(W * vh / vw)), cv = document.createElement('canvas'), frames = [];
+  var W = fw(vw, vh), H = Math.max(2, Math.round(W * vh / vw)), cv = document.createElement('canvas'), frames = [];
   cv.width = W; cv.height = H; var g = cv.getContext('2d', { willReadFrequently: true });
   try {
     for (var i = 0; i < times.length; i++) { check(); await seekTo(v, times[i]); g.drawImage(v, 0, 0, W, H); frames.push(toGray(g.getImageData(0, 0, W, H).data, W * H)); prog((i + 1) / times.length); }
@@ -246,22 +251,26 @@ async function analyze(src, o) {
   var before = []; for (t = ref - step; t >= lo; t -= step) before.push(t); before.reverse();
   var times = before.concat([ref]), ri = before.length; for (t = ref + step; t <= hi; t += step) times.push(t);
   function check() { if (o.isCancelled && o.isCancelled()) { var e = new Error('Tracking stopped'); e.cancelled = true; throw e; } }
-  var prog = function (f) { if (o.onProgress) o.onProgress(f * 0.9); };
+  var prog = function (f) { if (o.onProgress) o.onProgress(f * 0.8); };
   var fr = (typeof Blob !== 'undefined' && src instanceof Blob) ? await framesFromFile(src, times, check, prog) : await framesFromUrl(src, times, check, prog);
-  var out = new Array(times.length), tex = 0, lostN = 0, dir, i;
-  out[ri] = { ms: ref, x: o.box.cx, y: o.box.cy, lost: false };
-  for (dir = 1; dir >= -1; dir -= 2) {
-    var tr = createTracker(fr.frames[ri], fr.W, fr.H, o.box); tex = tr.texture;
-    for (i = ri + dir; i >= 0 && i < times.length; i += dir) {
-      check(); var r = tr.step(fr.frames[i]); if (r.lost) lostN++;
-      out[i] = { ms: times[i], x: r.cx, y: r.cy, lost: r.lost };
+  var boxes = o.boxes || [o.box], p = preset(o.preset), results = [], b, dir, i;
+  for (b = 0; b < boxes.length; b++) {
+    var out = new Array(times.length), tex = 0, lostN = 0;
+    out[ri] = { ms: ref, x: boxes[b].cx, y: boxes[b].cy, lost: false };
+    for (dir = 1; dir >= -1; dir -= 2) {
+      var tr = createTracker(fr.frames[ri], fr.W, fr.H, boxes[b], { radiusFrac: p.radius, lostAt: p.lostAt, adapt: p.adapt }); tex = tr.texture;
+      for (i = ri + dir; i >= 0 && i < times.length; i += dir) {
+        check(); var r = tr.step(fr.frames[i]); if (r.lost) lostN++;
+        out[i] = { ms: times[i], x: r.cx, y: r.cy, lost: r.lost };
+      }
     }
+    results.push({ track: out, texture: tex, lostFrac: lostN / Math.max(1, out.length - 1) });
+    if (o.onProgress) o.onProgress(0.8 + 0.2 * (b + 1) / boxes.length);
   }
-  if (o.onProgress) o.onProgress(1);
-  return { track: out, texture: tex, lostFrac: lostN / Math.max(1, out.length - 1) };
+  return { results: results, track: results[0].track, texture: results[0].texture, lostFrac: results[0].lostFrac };
 }
 
-  var api = { STEP_MS: STEP_MS, toGray: toGray, createTracker: createTracker, isPlain: isPlain, makeGeo: makeGeo, frameToMovie: frameToMovie, movieToFrame: movieToFrame,
+  var api = { STEP_MS: STEP_MS, toGray: toGray, createTracker: createTracker, isPlain: isPlain, makeGeo: makeGeo, frameToMovie: frameToMovie, movieToFrame: movieToFrame, PRESETS: PRESET_LIST, preset: preset,
     sizeToMovie: sizeToMovie, smooth: smooth, at: at, sampleTimes: sampleTimes, simplify: simplify, toKeyframes: toKeyframes, analyze: analyze };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') { window.NakiTracker = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['tracker.js'] = 'track'; }

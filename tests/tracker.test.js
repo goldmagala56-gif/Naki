@@ -54,7 +54,7 @@ ok('picture geometry: plain, zoom, flip, turn, and back again through crop + zoo
 });
 ok('a straight track becomes two keyframes, moved by the offset; a held stretch stays put; limits can be widened', () => {
   const track = [{ ms: 0, x: 0.2, y: 0.5 }, { ms: 1000, x: 0.6, y: 0.5 }], rels = NTK.sampleTimes(1000), movie = rels.slice();
-  assert.strictEqual(rels.length, 11);
+  assert.strictEqual(rels.length, 32);
   const kf = NTK.toKeyframes(track, rels, movie, { fa: 1.5, ma: 1.5, offX: 0.1, offY: 0 });
   assert.strictEqual(kf.x.length, 2); near(kf.x[0][1], 0.3, 1e-6); near(kf.x[1][1], 0.7, 1e-6); assert.strictEqual(kf.y.length, 2); near(kf.y[0][1], 0.5, 1e-6);
   const held = NTK.toKeyframes(track, [0, 500, 1000], [0, null, null], { fa: 1.5, ma: 1.5 });
