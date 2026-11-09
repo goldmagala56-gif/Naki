@@ -161,17 +161,23 @@ var NakiAnim = (function () {
   // An ffmpeg expression for a keyframe list. tv is the name of the time variable in seconds ('t', or 'T' inside geq). shiftMs is added to every
   // keyframe time; mul converts the keyframe clock to the clock the filter sees (the speed of the picture).
   function kfExpr(points, shiftMs, mul, tv) {
-    tv = tv || 't'; mul = mul || 1;
-    var P = points.map(function (p) { return [(p[0] + (shiftMs || 0)) * mul / 1000, p[1]]; });
-    function f(n) { return String(Math.round(n * 10000) / 10000); }
-    var e = f(P[P.length - 1][1]);
-    for (var i = P.length - 1; i > 0; i--) {
-      var a = P[i - 1], b = P[i];
-      var seg = b[0] === a[0] ? f(b[1]) : f(a[1]) + '+(' + f(b[1] - a[1]) + ')*(' + tv + '-(' + f(a[0]) + '))/' + f(b[0] - a[0]);
-      e = 'if(lt(' + tv + ',' + f(b[0]) + '),' + seg + ',' + e + ')';
-    }
-    return 'if(lt(' + tv + ',' + f(P[0][0]) + '),' + f(P[0][1]) + ',' + e + ')';
+  tv = tv || 't'; mul = mul || 1;
+  var P = points.map(function (p) { return [(p[0] + (shiftMs || 0)) * mul / 1000, p[1]]; });
+  function f(n) { return String(Math.round(n * 10000) / 10000); }
+  function seg(a, b) { return b[0] === a[0] ? f(b[1]) : f(a[1]) + '+(' + f(b[1] - a[1]) + ')*(' + tv + '-(' + f(a[0]) + '))/' + f(b[0] - a[0]); }
+  if (P.length > 8) {   // many keyframes (tracking): a balanced tree, so the nesting is log2(n) deep instead of n
+    var build = function (lo, hi) {
+      if (lo === hi) return seg(P[lo - 1], P[lo]);
+      var mid = (lo + hi) >> 1;
+      return 'if(lt(' + tv + ',' + f(P[mid][0]) + '),' + build(lo, mid) + ',' + build(mid + 1, hi) + ')';
+    };
+    var last = P.length - 1;
+    return 'if(lt(' + tv + ',' + f(P[0][0]) + '),' + f(P[0][1]) + ',if(gte(' + tv + ',' + f(P[last][0]) + '),' + f(P[last][1]) + ',' + build(1, last) + '))';
   }
+  var e = f(P[P.length - 1][1]);
+  for (var i = P.length - 1; i > 0; i--) e = 'if(lt(' + tv + ',' + f(P[i][0]) + '),' + seg(P[i - 1], P[i]) + ',' + e + ')';
+  return 'if(lt(' + tv + ',' + f(P[0][0]) + '),' + f(P[0][1]) + ',' + e + ')';
+}
   // How far a title is moved from its usual place (fractions of the frame) relMs after it appeared: its x / y keyframes, else its fixed dx / dy.
   function shiftOf(o, relMs) {
     var kf = (o && o.kf) || {};

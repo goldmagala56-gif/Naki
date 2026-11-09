@@ -2028,7 +2028,8 @@ crop: { title: 'Crop', build: function (body){
     var base = isText ? NANIM.shiftOf(c, relNow(c)) : trackHere(tg), key = c.start + '|' + c.dur, id = c.id;
     pause(); T.running = true; T.cancelled = false; T.msg = 'Starting...'; renderDock();
     function say(m){ T.msg = m; if (E.trkStatus) E.trkStatus.textContent = m; }
-    NTK.analyze(url, { refMs: ref.ms, fromMs: lo, toMs: hi, box: box, onProgress: function (f){ say('Following... ' + Math.round(f * 100) + '%'); }, isCancelled: function (){ return T.cancelled; } }).then(function (res){
+    var file = h.getAssetFile && h.getAssetFile(ref.asset);
+    NTK.analyze(file || url, { refMs: ref.ms, fromMs: lo, toMs: hi, box: box, onProgress: function (f){ say('Following... ' + Math.round(f * 100) + '%'); }, isCancelled: function (){ return T.cancelled; } }).then(function (res){
       T.running = false;
       var f = P.findClip(E.hist.cur, id);
       if (!f || (f.clip.start + '|' + f.clip.dur) !== key){ renderDock(); toast('It changed while tracking. Tap Start tracking again.', 7000); return; }

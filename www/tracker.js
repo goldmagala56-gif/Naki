@@ -13,7 +13,7 @@
 var NakiTracker = (function () {
   var STEP_MS = 100, FRAME_W = 320, MAX_FRAMES = 600;
   function clamp(x, a, b) { return Math.max(a, Math.min(b, x)); }
-  function r3(x) { return Math.round(x * 1000) / 1000; }
+  function r4(x) { return Math.round(x * 1000) / 1000; }
 
   function toGray(rgba, n) {
     var g = new Uint8Array(n), i, j = 0;
@@ -22,49 +22,55 @@ var NakiTracker = (function () {
   }
 
   // box = { cx, cy, size }: centre as fractions of the picture, size = side as a fraction of the picture height.
-  function createTracker(g0, W, H, box, opts) {
-    opts = opts || {};
-    var th = clamp(Math.round(box.size * H), 8, Math.max(8, Math.floor(Math.min(W, H) / 2))), tw = th;
-    var x0 = clamp(Math.round(box.cx * W - tw / 2), 0, W - tw), y0 = clamp(Math.round(box.cy * H - th / 2), 0, H - th);
-    var tpl = new Float32Array(tw * th), i, j, k, n = tw * th, sum = 0;
-    for (j = 0; j < th; j++) for (i = 0; i < tw; i++) tpl[j * tw + i] = g0[(y0 + j) * W + x0 + i];
-    for (k = 0; k < n; k++) sum += tpl[k];
-    var mean = sum / n, vr = 0;
-    for (k = 0; k < n; k++) vr += (tpl[k] - mean) * (tpl[k] - mean);
-    var texture = Math.sqrt(vr / n);
-    var baseR = opts.radius || Math.max(10, Math.round(0.15 * W)), lostAt = opts.lostAt || 38, miss = 0, lx = x0, ly = y0;
+function createTracker(g0, W, H, box, opts) {
+  opts = opts || {};
+  var th = clamp(Math.round(box.size * H), 8, Math.max(8, Math.floor(Math.min(W, H) / 2))), tw = th;
+  var x0 = clamp(Math.round(box.cx * W - tw / 2), 0, W - tw), y0 = clamp(Math.round(box.cy * H - th / 2), 0, H - th);
+  var tpl = new Float32Array(tw * th), i, j, k, n = tw * th, sum = 0;
+  for (j = 0; j < th; j++) for (i = 0; i < tw; i++) tpl[j * tw + i] = g0[(y0 + j) * W + x0 + i];
+  for (k = 0; k < n; k++) sum += tpl[k];
+  var mean = sum / n, vr = 0;
+  for (k = 0; k < n; k++) vr += (tpl[k] - mean) * (tpl[k] - mean);
+  var texture = Math.sqrt(vr / n);
+  var baseR = opts.radius || Math.max(8, Math.round(0.06 * W)), lostAt = opts.lostAt || 38, miss = 0, lx = x0, ly = y0, vx = 0, vy = 0;
 
-    // sum of absolute differences between the template and the picture at (px, py), sampling every stride-th pixel; stops early once it passes cap
-    function sad(g, px, py, stride, cap) {
-      var s = 0, a, b;
-      for (a = 0; a < th; a += stride) {
-        var row = (py + a) * W + px, trow = a * tw;
-        for (b = 0; b < tw; b += stride) { var d = g[row + b] - tpl[trow + b]; s += d < 0 ? -d : d; }
-        if (s >= cap) return s;
-      }
-      return s;
+  function sad(g, px, py, stride, cap) {
+    var s = 0, a, b;
+    for (a = 0; a < th; a += stride) {
+      var row = (py + a) * W + px, trow = a * tw;
+      for (b = 0; b < tw; b += stride) { var d = g[row + b] - tpl[trow + b]; s += d < 0 ? -d : d; }
+      if (s >= cap) return s;
     }
-    function search(g, r) {
-      var best = Infinity, bx = lx, by = ly, x, y, s;
-      var xa = Math.max(0, lx - r), xb = Math.min(W - tw, lx + r), ya = Math.max(0, ly - r), yb = Math.min(H - th, ly + r);
-      for (y = ya; y <= yb; y += 2) for (x = xa; x <= xb; x += 2) { s = sad(g, x, y, 2, best); if (s < best) { best = s; bx = x; by = y; } }
-      best = Infinity;
-      for (y = Math.max(0, by - 2); y <= Math.min(H - th, by + 2); y++) for (x = Math.max(0, bx - 2); x <= Math.min(W - tw, bx + 2); x++) {
-        s = sad(g, x, y, 1, best); if (s < best) { best = s; bx = x; by = y; }
-      }
-      return { x: bx, y: by, mean: best / n };
-    }
-    function step(g) {
-      var r = Math.min(baseR * 2, Math.round(baseR * (1 + 0.5 * miss))), res = search(g, r), lost = res.mean > lostAt;
-      if (lost) miss++;
-      else {
-        miss = 0; lx = res.x; ly = res.y;
-        if (res.mean < 20) for (var b = 0; b < th; b++) for (var a = 0; a < tw; a++) { var q = b * tw + a; tpl[q] += (g[(ly + b) * W + lx + a] - tpl[q]) * 0.08; }   // follow slow changes of the look
-      }
-      return { cx: (lx + tw / 2) / W, cy: (ly + th / 2) / H, score: res.mean, lost: lost };
-    }
-    return { step: step, texture: texture, tw: tw, th: th };
+    return s;
   }
+  function part(a, b, c) { var d = a - 2 * b + c; return d > 1e-6 ? clamp((a - c) / (2 * d), -0.5, 0.5) : 0; }
+  function search(g, r, cx, cy) {
+    cx = clamp(cx, 0, W - tw); cy = clamp(cy, 0, H - th);
+    var best = Infinity, bx = cx, by = cy, x, y, s;
+    var xa = Math.max(0, cx - r), xb = Math.min(W - tw, cx + r), ya = Math.max(0, cy - r), yb = Math.min(H - th, cy + r);
+    for (y = ya; y <= yb; y += 2) for (x = xa; x <= xb; x += 2) { s = sad(g, x, y, 2, best); if (s < best) { best = s; bx = x; by = y; } }
+    best = Infinity;
+    for (y = Math.max(0, by - 2); y <= Math.min(H - th, by + 2); y++) for (x = Math.max(0, bx - 2); x <= Math.min(W - tw, bx + 2); x++) {
+      s = sad(g, x, y, 1, best); if (s < best) { best = s; bx = x; by = y; }
+    }
+    var fx = 0, fy = 0;   // sub-pixel: a parabola through the match and its two neighbours
+    if (bx > 0 && bx < W - tw) fx = part(sad(g, bx - 1, by, 1, Infinity), best, sad(g, bx + 1, by, 1, Infinity));
+    if (by > 0 && by < H - th) fy = part(sad(g, bx, by - 1, 1, Infinity), best, sad(g, bx, by + 1, 1, Infinity));
+    return { x: bx + fx, y: by + fy, bx: bx, by: by, mean: best / n };
+  }
+  function step(g) {
+    var kk = miss + 1, r = Math.min(baseR * 3, Math.round(baseR * (1 + 0.5 * miss)));
+    var res = search(g, r, Math.round(lx + vx * kk), Math.round(ly + vy * kk)), lost = res.mean > lostAt;
+    if (lost) miss++;
+    else {
+      vx = 0.5 * vx + 0.5 * (res.x - lx) / kk; vy = 0.5 * vy + 0.5 * (res.y - ly) / kk;
+      miss = 0; lx = res.x; ly = res.y;
+      if (res.mean < 20) for (var b = 0; b < th; b++) for (var a = 0; a < tw; a++) { var q = b * tw + a; tpl[q] += (g[(res.by + b) * W + res.bx + a] - tpl[q]) * 0.08; }
+    }
+    return { cx: (lx + tw / 2) / W, cy: (ly + th / 2) / H, score: res.mean, lost: lost };
+  }
+  return { step: step, texture: texture, tw: tw, th: th };
+}
   function isPlain(texture) { return texture < 5; }   // a flat colour has nothing to hold on to
 
   /* ---------- movie <-> frame coordinates ---------- */
@@ -108,13 +114,29 @@ var NakiTracker = (function () {
 
   /* ---------- from a track to keyframes ---------- */
   // track = [{ ms, x, y, lost }] in movie time, sorted. Light smoothing of the points in between (the ends and keepMs stay exactly where they are).
-  function smooth(track, keepMs) {
-    return track.map(function (p, i) {
-      if (i === 0 || i === track.length - 1 || p.ms === keepMs) return p;
-      var a = track[i - 1], c = track[i + 1];
-      return { ms: p.ms, x: (a.x + 2 * p.x + c.x) / 4, y: (a.y + 2 * p.y + c.y) / 4, lost: p.lost };
-    });
+  function smooth(track, keepMs, passes) {
+  var n = track.length; if (n < 3) return track;
+  passes = passes == null ? 8 : passes;
+  function fill(key) {
+    var a = track.map(function (p) { return p[key]; }), i = 0;
+    while (i < n) {
+      if (!track[i].lost) { i++; continue; }
+      var j = i; while (j < n && track[j].lost) j++;
+      var L = i > 0 ? a[i - 1] : null, R = j < n ? a[j] : null;
+      for (var k = i; k < j; k++) a[k] = (L == null) ? R : (R == null) ? L : L + (R - L) * (k - i + 1) / (j - i + 1);
+      i = j;
+    }
+    return a;
   }
+  function med(a, b, c) { return Math.max(Math.min(a, b), Math.min(Math.max(a, b), c)); }
+  function despike(a) { return a.map(function (v, i) { return (i === 0 || i === n - 1) ? v : med(a[i - 1], v, a[i + 1]); }); }
+  function blur(a) { return a.map(function (v, i) { return (a[i > 0 ? i - 1 : 1] + 2 * v + a[i < n - 1 ? i + 1 : n - 2]) / 4; }); }
+  var xs = despike(fill('x')), ys = despike(fill('y')), k, pi = -1;
+  for (k = 0; k < passes; k++) { xs = blur(xs); ys = blur(ys); }
+  track.forEach(function (p, i) { if (p.ms === keepMs) pi = i; });
+  var dx = pi >= 0 ? track[pi].x - xs[pi] : 0, dy = pi >= 0 ? track[pi].y - ys[pi] : 0;
+  return track.map(function (p, i) { return { ms: p.ms, x: xs[i] + dx, y: ys[i] + dy, lost: p.lost }; });
+}
   function at(track, ms) {
     var n = track.length; if (!n) return { x: 0.5, y: 0.5 };
     if (ms <= track[0].ms) return track[0];
@@ -134,7 +156,7 @@ var NakiTracker = (function () {
   }
   // drops the points that a straight line between their neighbours would reproduce (within eps)
   function simplify(pts, eps) {
-    if (pts.length < 3) return pts.map(function (p) { return [p[0], r3(p[1])]; });
+    if (pts.length < 3) return pts.map(function (p) { return [p[0], r4(p[1])]; });
     var keep = {}; keep[0] = 1; keep[pts.length - 1] = 1;
     (function rec(a, b) {
       var worst = -1, wi = -1, i;
@@ -144,7 +166,7 @@ var NakiTracker = (function () {
       }
       if (worst > eps) { keep[wi] = 1; rec(a, wi); rec(wi, b); }
     })(0, pts.length - 1);
-    return pts.filter(function (p, i) { return keep[i]; }).map(function (p) { return [p[0], r3(p[1])]; });
+    return pts.filter(function (p, i) { return keep[i]; }).map(function (p) { return [p[0], r4(p[1])]; });
   }
   // rels[i] = a time on the clip (ms since it started); infos[i] = what the picture is at that moment: { ms (movie time), toFrame(u, v) -> { x, y } }, or null when the
   // video being tracked is not on screen then (the clip keeps its last place). (A plain number is a movie time, converted with o.fa / o.ma.)
@@ -190,33 +212,54 @@ var NakiTracker = (function () {
   }
   // o = { refMs, fromMs, toMs (video file time), box: { cx, cy, size } in movie fractions, onProgress(0..1), isCancelled() }.
   // Follows forwards from refMs to toMs and backwards to fromMs. Resolves { track, texture, lostFrac }.
-  async function analyze(url, o) {
-    if (typeof document === 'undefined') throw new Error('Tracking only works in the browser.');
-    var v = await openVideo(url), vw = v.videoWidth, vh = v.videoHeight;
-    if (!vw || !vh) throw new Error('the video has no picture');
-    var W = Math.min(FRAME_W, vw), H = Math.max(2, Math.round(W * vh / vw));
+  var MBP = null;
+function loadMB() { if (!MBP) MBP = import(new URL('vendor/mediabunny/mediabunny.min.mjs', location.href).href); return MBP; }
+async function framesFromFile(file, times, check, prog) {
+  var M = await loadMB(), input = new M.Input({ source: new M.BlobSource(file), formats: M.ALL_FORMATS });
+  try {
+    var vt = await input.getPrimaryVideoTrack(); if (!vt) throw new Error('the video has no picture');
+    var vw = vt.displayWidth, vh = vt.displayHeight, W = Math.min(FRAME_W, vw), H = Math.max(2, Math.round(W * vh / vw));
     var cv = document.createElement('canvas'); cv.width = W; cv.height = H;
-    var g = cv.getContext('2d', { willReadFrequently: true });
-    function grab() { g.drawImage(v, 0, 0, W, H); return toGray(g.getImageData(0, 0, W, H).data, W * H); }
-    function check() { if (o.isCancelled && o.isCancelled()) { var e = new Error('Tracking stopped'); e.cancelled = true; throw e; } }
-    var ref = Math.round(o.refMs), lo = Math.min(o.fromMs, ref), hi = Math.max(o.toMs, ref), step = Math.max(STEP_MS, Math.ceil((hi - lo) / MAX_FRAMES));
-    var total = Math.max(1, Math.floor((ref - lo) / step) + Math.floor((hi - ref) / step)), done = 0, tex = 0, lostN = 0;
-    try {
-      await seekTo(v, ref);
-      var g0 = grab(), out = [{ ms: ref, x: o.box.cx, y: o.box.cy, lost: false }];
-      for (var dir = 1; dir >= -1; dir -= 2) {
-        var tr = createTracker(g0, W, H, o.box); tex = tr.texture;
-        for (var t = ref + dir * step; dir > 0 ? t <= hi : t >= lo; t += dir * step) {
-          check(); await seekTo(v, t);
-          var r = tr.step(grab()); if (r.lost) lostN++;
-          out.push({ ms: t, x: r.cx, y: r.cy, lost: r.lost });
-          done++; if (o.onProgress) o.onProgress(Math.min(1, done / total));
-        }
-      }
-      out.sort(function (a, b) { return a.ms - b.ms; });
-      return { track: out, texture: tex, lostFrac: lostN / Math.max(1, out.length - 1) };
-    } finally { try { v.removeAttribute('src'); v.load(); } catch (e) {} }
+    var g = cv.getContext('2d', { willReadFrequently: true }), frames = [], last = null;
+    for await (var s of new M.VideoSampleSink(vt).samplesAtTimestamps(times.map(function (ms) { return ms / 1000; }))) {
+      check();
+      if (s) { g.drawImage(s.toCanvasImageSource(), 0, 0, W, H); s.close(); last = toGray(g.getImageData(0, 0, W, H).data, W * H); }
+      frames.push(last || new Uint8Array(W * H)); prog(frames.length / times.length);
+    }
+    return { frames: frames, W: W, H: H };
+  } finally { try { if (input.dispose) input.dispose(); } catch (e) {} }
+}
+async function framesFromUrl(url, times, check, prog) {   // old way: seek a hidden video (slow, not frame-exact)
+  var v = await openVideo(url), vw = v.videoWidth, vh = v.videoHeight;
+  if (!vw || !vh) throw new Error('the video has no picture');
+  var W = Math.min(FRAME_W, vw), H = Math.max(2, Math.round(W * vh / vw)), cv = document.createElement('canvas'), frames = [];
+  cv.width = W; cv.height = H; var g = cv.getContext('2d', { willReadFrequently: true });
+  try {
+    for (var i = 0; i < times.length; i++) { check(); await seekTo(v, times[i]); g.drawImage(v, 0, 0, W, H); frames.push(toGray(g.getImageData(0, 0, W, H).data, W * H)); prog((i + 1) / times.length); }
+  } finally { try { v.removeAttribute('src'); v.load(); } catch (e) {} }
+  return { frames: frames, W: W, H: H };
+}
+// src = a File/Blob (frame-exact, preferred) or a URL. o as before.
+async function analyze(src, o) {
+  if (typeof document === 'undefined') throw new Error('Tracking only works in the browser.');
+  var ref = Math.round(o.refMs), lo = Math.min(o.fromMs, ref), hi = Math.max(o.toMs, ref), step = Math.max(STEP_MS, Math.ceil((hi - lo) / MAX_FRAMES)), t;
+  var before = []; for (t = ref - step; t >= lo; t -= step) before.push(t); before.reverse();
+  var times = before.concat([ref]), ri = before.length; for (t = ref + step; t <= hi; t += step) times.push(t);
+  function check() { if (o.isCancelled && o.isCancelled()) { var e = new Error('Tracking stopped'); e.cancelled = true; throw e; } }
+  var prog = function (f) { if (o.onProgress) o.onProgress(f * 0.9); };
+  var fr = (typeof Blob !== 'undefined' && src instanceof Blob) ? await framesFromFile(src, times, check, prog) : await framesFromUrl(src, times, check, prog);
+  var out = new Array(times.length), tex = 0, lostN = 0, dir, i;
+  out[ri] = { ms: ref, x: o.box.cx, y: o.box.cy, lost: false };
+  for (dir = 1; dir >= -1; dir -= 2) {
+    var tr = createTracker(fr.frames[ri], fr.W, fr.H, o.box); tex = tr.texture;
+    for (i = ri + dir; i >= 0 && i < times.length; i += dir) {
+      check(); var r = tr.step(fr.frames[i]); if (r.lost) lostN++;
+      out[i] = { ms: times[i], x: r.cx, y: r.cy, lost: r.lost };
+    }
   }
+  if (o.onProgress) o.onProgress(1);
+  return { track: out, texture: tex, lostFrac: lostN / Math.max(1, out.length - 1) };
+}
 
   var api = { STEP_MS: STEP_MS, toGray: toGray, createTracker: createTracker, isPlain: isPlain, makeGeo: makeGeo, frameToMovie: frameToMovie, movieToFrame: movieToFrame,
     sizeToMovie: sizeToMovie, smooth: smooth, at: at, sampleTimes: sampleTimes, simplify: simplify, toKeyframes: toKeyframes, analyze: analyze };
