@@ -367,21 +367,23 @@ function zoomToSel(){
   function renderLabels(){
     var u = E.ui; u.labels.textContent = ''; u.labels.appendChild(mk('div', 'ed-spacer'));
     E.proj.tracks.forEach(function (tr){
-      var nm = ROLE_NAME[tr.role] || tr.role, l = mk('div', 'ed-label' + (tr.muted ? ' muted' : '') + (tr.hidden ? ' off' : '') + (tr.locked ? ' locked' : '')), box = mk('div', 'ed-lbtns');
-      l.style.height = rowH(tr) + 'px'; var ic = mk('span', 'ed-lbicon'); ic.innerHTML = roleIcon(tr.role); ic.title = nm; ic.setAttribute('role', 'img'); ic.setAttribute('aria-label', nm); l.appendChild(ic);
-      var tog = function (icon, on, label, key){
-        var b = iconBtn(null, icon, label, 'ed-lb' + (on ? ' on' : '')); b.setAttribute('aria-pressed', String(!!on));
-        b.addEventListener('pointerdown', function (ev){ ev.stopPropagation(); });
-        b.onclick = function (ev){ ev.stopPropagation(); var o = {}; o[key] = !tr[key]; commit(P.setTrackProps(E.hist.cur, tr.id, o)); };
-        box.appendChild(b);
-      };
-      if (tr.kind === 'audio') tog(tr.muted ? LB.mute : LB.sound, tr.muted, (tr.muted ? 'Unmute ' : 'Mute ') + nm, 'muted');
-      else tog(tr.hidden ? LB.eyeoff : LB.eye, tr.hidden, (tr.hidden ? 'Show ' : 'Hide ') + nm, 'hidden');
-      tog(LB.lock, tr.locked, (tr.locked ? 'Unlock ' : 'Lock ') + nm, 'locked');
-      l.appendChild(box); u.labels.appendChild(l);
+      var nm = ROLE_NAME[tr.role] || tr.role, snd = tr.kind === 'audio', stuck = !!(tr.locked || tr.hidden);
+      var l = mk('div', 'ed-label' + (tr.muted ? ' muted' : '') + (tr.hidden ? ' off' : '') + (tr.locked ? ' locked' : '') + (snd || stuck ? ' tap' : ''));
+      l.style.height = rowH(tr) + 'px';
+      var ic = mk('span', 'ed-lbicon'); ic.innerHTML = roleIcon(tr.role); l.title = nm; l.setAttribute('role', snd ? 'button' : 'img');
+      l.setAttribute('aria-label', snd ? (tr.muted ? 'Unmute ' : 'Mute ') + nm : nm); if (snd) l.setAttribute('aria-pressed', String(!!tr.muted));
+      l.appendChild(ic);
+      if (snd || stuck){
+        l.addEventListener('pointerdown', function (ev){ ev.stopPropagation(); });
+        l.onclick = function (ev){
+          ev.stopPropagation();
+          if (stuck){ commit(P.setTrackProps(E.hist.cur, tr.id, { locked: false, hidden: false })); return; }
+          commit(P.setTrackProps(E.hist.cur, tr.id, { muted: !tr.muted }));
+        };
+      }
+      u.labels.appendChild(l);
     });
   }
-  
   function placeHead(){ if (E.ui.head) E.ui.head.style.left = tx(E.t) + 'px'; if (E.meter) drawGrid(); }
   function readout(){
     E.ui.time.textContent = fmtP(E.t) + ' / ' + fmtP(E.proj.durationMs); updateKfBar();
@@ -476,7 +478,7 @@ function zoomToSel(){
   }
   function deleteSel(){
     if (!E.sel){ toast('Tap a clip first.'); return; }
-    var lk = P.findClip(E.proj, E.sel); if (lk && lk.track.locked){ toast('This row is locked. Tap its lock to edit it.'); return; }
+    var lk = P.findClip(E.proj, E.sel); if (lk && lk.track.locked){ toast('This row is locked. Tap its icon on the left to unlock it.'); return; }
     var id = E.sel, f0 = P.findClip(E.proj, id), pic = !!(f0 && (f0.track.role === 'movie' || f0.track.role === 'movieSound')); E.sel = null;
     var q0 = P.deleteClip(E.hist.cur, id); commit(pic ? tidy(q0) : q0);
   }
@@ -3976,7 +3978,7 @@ crop: { title: 'Crop', build: function (body){
       if (E.multi && Object.keys(E.multi).length) E.multi = {};
       var wasSel = E.sel === id; E.sel = id; var tr = f.track, c = f.clip;
       var gm = P.groupIds ? P.groupIds(E.proj, id) : [id]; if (gm.length > 1){ E.multi = {}; gm.forEach(function (g){ E.multi[g] = true; }); }   // a group is selected as a whole
-      if (tr.locked){ renderSelectionOnly(); toast('This row is locked. Tap its lock to edit it.'); return; }
+      if (tr.locked){ renderSelectionOnly(); toast('This row is locked. Tap its icon on the left to unlock it.'); return; }
       E.drag = { mode: handle ? (handle.classList.contains('ed-hl') ? 'trimL' : 'trimR') : 'pending', id: id, x0: ev.clientX, y0: ev.clientY, el: clipE, tr: tr,
         s0: c.start, e0: c.start + c.dur, touch: ev.pointerType === 'touch', moved: false, press: 0, timer: 0, wasSel: wasSel, sl0: E.ui.scroll.scrollLeft, lastX: ev.clientX };
         

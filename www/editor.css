@@ -329,3 +329,15 @@
 .ed.big .ed-pbody{max-height:30vh}
 .ed.big:fullscreen .ed-top{display:none}
 @media (orientation:landscape) and (max-height:520px){ .ed.big .ed-pbody{max-height:36vh} }
+
+/* the left panel, CapCut style: one icon per row, nothing else */
+.ed .ed-labels{flex:0 0 44px;width:44px}
+@media (pointer:coarse){ .ed .ed-labels{flex:0 0 46px;width:46px} }
+.ed-label{position:relative;justify-content:center;padding:0;background:var(--panel-2);border-radius:0 8px 8px 0}
+.ed-label .ed-lbicon{width:26px;height:26px}
+.ed-label .ed-lbicon svg{width:20px;height:20px}
+.ed-label.tap{cursor:pointer;touch-action:manipulation}
+.ed-label.tap:active{background:rgba(255,255,255,.1)}
+.ed-label.muted .ed-lbicon{color:var(--dim)}
+.ed-label.muted::after{content:"";position:absolute;left:11px;right:11px;top:50%;height:2px;margin-top:-1px;border-radius:1px;background:var(--hibiscus);transform:rotate(-40deg);pointer-events:none}
+.ed-label.locked .ed-lbicon,.ed-label.off .ed-lbicon{color:var(--mango)}
