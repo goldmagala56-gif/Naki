@@ -2607,44 +2607,87 @@ crop: { title: 'Crop', build: function (body){
   // The diamond: puts a keyframe on this property at the playhead, or takes the one that is there away. Change the value at another moment and it
   // moves smoothly between the keyframes.
     // ----- the easing graph: how a value moves from the keyframe at the playhead to the next one -----
+  var EZ = { X0: 26, X1: 178, Y0: 6, Y1: 164, MIN: -0.6, MAX: 1.6, W: 200, H: 170 };
+  function ezY(p){ return EZ.Y1 - (p - EZ.MIN) / (EZ.MAX - EZ.MIN) * (EZ.Y1 - EZ.Y0); }
+  // A small picture of an ease (used on the gallery tiles and on the keyframe bar button). e = what is stored: null, 'hold', a name or four numbers.
+  function curveSvg(e, W, H, pad, base){
+    var d = '', i, f, y = function (p){ return (H - pad) - (clamp(p, -0.5, 1.5) + 0.5) / 2 * (H - 2 * pad); };
+    for (i = 0; i <= 28; i++){ f = i / 28; d += (i ? 'L' : 'M') + (pad + f * (W - 2 * pad)).toFixed(1) + ' ' + y(NANIM.easeProgress(e, f)).toFixed(1); }
+    var g = base ? '<path d="M' + pad + ' ' + y(0).toFixed(1) + 'H' + (W - pad) + 'M' + pad + ' ' + y(1).toFixed(1) + 'H' + (W - pad) + '" stroke="currentColor" stroke-opacity=".25" stroke-width="1" fill="none"/>' : '';
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" fill="none">' + g + '<path d="' + d + '" stroke="currentColor" stroke-width="' + (base ? 2.4 : 2.6) + '" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+  }
+  function ezGroupOf(name){ var g = 'Basic'; NANIM.EASES.forEach(function (x){ if (x.key === name) g = x.group; }); return g; }
+  // ----- the easing graph (CapCut style): a gallery of curves, a graph you can drag, and a ball that shows how it moves -----
   function easeBlock(c, prop, all){
     var info = NANIM && P.keyframeEase(E.hist.cur, c.id, prop, relNow(c)); if (!info) return null;
     var box = mk('div', 'ed-easebox');
     if (!info.hasNext){ box.appendChild(mk('div', 'ed-hint', 'This is the last keyframe, so there is nothing after it to ease into.')); return box; }
     var set = function (e){ var q = all ? P.setKeyframeEaseAll(E.hist.cur, c.id, relNow(c), e) : P.setKeyframeEase(E.hist.cur, c.id, prop, relNow(c), e); if (q === E.hist.cur) renderDock(); else commit(q); };
-    var bz = NANIM.bezierOf(info.ease), name = NANIM.easeName(info.ease), list = NANIM.EASES.map(function (x){ return { key: x.key, label: x.label }; });
-    if (name === 'custom') list.push({ key: 'custom', label: 'Custom' });
+    var stored = NANIM.cleanEase(info.ease), name = NANIM.easeName(stored), bz = NANIM.bezierOf(stored).slice(), dragged = false;
+    var handles = !(stored === 'hold' || typeof stored === 'string');
+    var liveE = function (){ return dragged ? bz : stored; };
+    var gk = NANIM.EASE_GROUPS.map(function (g){ return { key: g, label: g }; }), grp = chipKey('easegroup', gk, ezGroupOf(name));
     box.appendChild(mk('div', 'ed-hint', 'How it moves from this keyframe to the next:'));
-    box.appendChild(chips(list, name, function (k){ if (k !== 'custom') set(k); }));
-    if (name === 'hold'){ box.appendChild(mk('div', 'ed-hint', 'Hold keeps the value still until the next keyframe, then jumps to it.')); return box; }
-    var NS = 'http://www.w3.org/2000/svg', svg0 = document.createElementNS(NS, 'svg'), X0 = 16, X1 = 124, Y0 = 12, Y1 = 118;
-    svg0.setAttribute('viewBox', '0 0 140 130'); svg0.setAttribute('class', 'ed-ease'); svg0.setAttribute('role', 'img'); svg0.setAttribute('aria-label', 'Easing curve');
-    var px = function (x){ return X0 + x * (X1 - X0); }, py = function (y){ return Y1 - y * (Y1 - Y0); };
+    box.appendChild(chips(gk, grp, pickChip('easegroup')));
+    var gal = mk('div', 'ed-ezgal');
+    NANIM.EASES.filter(function (x){ return x.group === grp; }).forEach(function (x){
+      var b = mk('button', 'ed-ezt' + (x.key === name ? ' on' : '')); b.type = 'button'; b.setAttribute('aria-label', x.label);
+      b.innerHTML = curveSvg(NANIM.cleanEase(x.key), 60, 40, 6, true) + '<span>' + x.label + '</span>';
+      b.onclick = function (){ set(x.key); }; gal.appendChild(b);
+    });
+    if (grp === 'Basic'){
+      var cb = mk('button', 'ed-ezt' + (name === 'custom' ? ' on' : '')); cb.type = 'button'; cb.setAttribute('aria-label', 'Custom');
+      cb.innerHTML = curveSvg(name === 'custom' ? stored : [0.25, 0.1, 0.25, 1], 60, 40, 6, true) + '<span>Custom</span>';
+      cb.onclick = function (){ set(name === 'custom' ? bz.slice() : [0.25, 0.1, 0.25, 1]); }; gal.appendChild(cb);
+    }
+    box.appendChild(cueScroller(gal, false));
+    if (name === 'hold'){ box.appendChild(mk('div', 'ed-hint', 'Hold keeps the value still until the next keyframe, then jumps to it.')); }
+    var NS = 'http://www.w3.org/2000/svg', svg0 = document.createElementNS(NS, 'svg');
+    svg0.setAttribute('viewBox', '0 0 ' + EZ.W + ' ' + EZ.H); svg0.setAttribute('class', 'ed-ease'); svg0.setAttribute('role', 'img'); svg0.setAttribute('aria-label', 'Easing curve');
+    var px = function (x){ return EZ.X0 + x * (EZ.X1 - EZ.X0); };
     var node = function (tag, attrs){ var e = document.createElementNS(NS, tag); Object.keys(attrs).forEach(function (k){ e.setAttribute(k, attrs[k]); }); return e; };
     var draw = function (){
       while (svg0.firstChild) svg0.removeChild(svg0.firstChild);
-      svg0.appendChild(node('rect', { x: X0, y: Y0, width: X1 - X0, height: Y1 - Y0, 'class': 'ed-ezbox' }));
-      svg0.appendChild(node('line', { x1: px(0), y1: py(0), x2: px(1), y2: py(1), 'class': 'ed-ezdiag' }));
-      svg0.appendChild(node('line', { x1: px(0), y1: py(0), x2: px(bz[0]), y2: py(bz[1]), 'class': 'ed-ezh' }));
-      svg0.appendChild(node('line', { x1: px(1), y1: py(1), x2: px(bz[2]), y2: py(bz[3]), 'class': 'ed-ezh' }));
-      var d = ''; for (var i = 0; i <= 40; i++){ var f = i / 40; d += (i ? 'L' : 'M') + px(f).toFixed(1) + ' ' + py(NANIM.easeProgress(bz, f)).toFixed(1); }
+      svg0.appendChild(node('rect', { x: EZ.X0, y: ezY(1), width: EZ.X1 - EZ.X0, height: ezY(0) - ezY(1), 'class': 'ed-ezbox' }));
+      svg0.appendChild(node('line', { x1: px(0), y1: ezY(0), x2: px(1), y2: ezY(1), 'class': 'ed-ezdiag' }));
+      if (handles){
+        svg0.appendChild(node('line', { x1: px(0), y1: ezY(0), x2: px(bz[0]), y2: ezY(bz[1]), 'class': 'ed-ezh' }));
+        svg0.appendChild(node('line', { x1: px(1), y1: ezY(1), x2: px(bz[2]), y2: ezY(bz[3]), 'class': 'ed-ezh' }));
+      }
+      var d = '', e = liveE(); for (var i = 0; i <= 60; i++){ var f = i / 60; d += (i ? 'L' : 'M') + px(f).toFixed(1) + ' ' + ezY(NANIM.easeProgress(e, f)).toFixed(1); }
       svg0.appendChild(node('path', { d: d, 'class': 'ed-ezpath' }));
-      svg0.appendChild(node('circle', { cx: px(bz[0]), cy: py(bz[1]), r: 7, 'class': 'ed-ezdot' })); svg0.appendChild(node('circle', { cx: px(bz[2]), cy: py(bz[3]), r: 7, 'class': 'ed-ezdot' }));
+      if (handles){ svg0.appendChild(node('circle', { cx: px(bz[0]), cy: ezY(bz[1]), r: 8, 'class': 'ed-ezdot' })); svg0.appendChild(node('circle', { cx: px(bz[2]), cy: ezY(bz[3]), r: 8, 'class': 'ed-ezdot' })); }
     };
-    var drag = -1, where = function (ev){ var r = svg0.getBoundingClientRect(), s = 140 / (r.width || 140); return { x: (ev.clientX - r.left) * s, y: (ev.clientY - r.top) * s }; };
+    var drag = -1, where = function (ev){ var r = svg0.getBoundingClientRect(), s = EZ.W / (r.width || EZ.W); return { x: (ev.clientX - r.left) * s, y: (ev.clientY - r.top) * s }; };
     svg0.addEventListener('pointerdown', function (ev){
-      var p = where(ev), d1 = Math.hypot(px(bz[0]) - p.x, py(bz[1]) - p.y), d2 = Math.hypot(px(bz[2]) - p.x, py(bz[3]) - p.y);
-      if (Math.min(d1, d2) > 22) return;
-      drag = d1 <= d2 ? 0 : 1; try { svg0.setPointerCapture(ev.pointerId); } catch (e) {} ev.preventDefault();
+      if (!handles) return;
+      var p = where(ev), d1 = Math.hypot(px(bz[0]) - p.x, ezY(bz[1]) - p.y), d2 = Math.hypot(px(bz[2]) - p.x, ezY(bz[3]) - p.y);
+      if (Math.min(d1, d2) > 26) return;
+      drag = d1 <= d2 ? 0 : 1; dragged = true; try { svg0.setPointerCapture(ev.pointerId); } catch (e) {} ev.preventDefault();
     });
     svg0.addEventListener('pointermove', function (ev){
       if (drag < 0) return; var p = where(ev);
-      bz[drag * 2] = clamp((p.x - X0) / (X1 - X0), 0, 1); bz[drag * 2 + 1] = clamp((Y1 - p.y) / (Y1 - Y0), 0, 1); draw();
+      bz[drag * 2] = clamp((p.x - EZ.X0) / (EZ.X1 - EZ.X0), 0, 1);
+      bz[drag * 2 + 1] = clamp(EZ.MIN + (EZ.Y1 - p.y) / (EZ.Y1 - EZ.Y0) * (EZ.MAX - EZ.MIN), EZ.MIN, EZ.MAX); draw();
     });
     var letGo = function (){ if (drag < 0) return; drag = -1; set(bz.slice()); };
     svg0.addEventListener('pointerup', letGo); svg0.addEventListener('pointercancel', letGo);
     draw(); box.appendChild(svg0);
-    box.appendChild(mk('div', 'ed-hint', 'Drag the two dots. Up and to the left makes it start fast; down and to the right makes it start slowly. The preview and the export follow the curve.'));
+    // a ball that travels the way the value will: pause, move, pause, again
+    var strip = mk('div', 'ed-ezprev'), ball = mk('i'); strip.appendChild(ball); box.appendChild(strip);
+    var t0 = performance.now();
+    (function tick(now){
+      if (!strip.isConnected) return;
+      var f = ((now - t0) % 1700) / 1700, ph = f < 0.12 ? 0 : f > 0.88 ? 1 : (f - 0.12) / 0.76, w = strip.clientWidth || 200;
+      ball.style.left = Math.max(0, w * 0.22 + NANIM.easeProgress(liveE(), ph) * w * 0.45 - 8) + 'px';
+      requestAnimationFrame(tick);
+    })(t0);
+    box.appendChild(actions([{ id: 'edEzAll', label: 'Apply to all keyframes', run: function (){
+      var e = dragged ? bz.slice() : stored, q = E.hist.cur;
+      P.keyframeTimes(q, c.id).forEach(function (t){ q = P.setKeyframeEaseAll(q, c.id, t, e); });
+      if (q === E.hist.cur) renderDock(); else commit(q);
+      toast('Every move on this clip now uses this curve.'); } }]));
+    box.appendChild(mk('div', 'ed-hint', handles ? 'Pick a curve, or drag the two dots (they can go past the box for a bounce or pop). Back, Bounce and Elastic overshoot. Opacity, size, zoom and volume stay in their limits.' : 'Bounce, Elastic and Hold have no handles. Pick Custom to draw your own curve.'));
     return box;
   }
   function keyframeActions(c, prop){
@@ -3647,6 +3690,12 @@ crop: { title: 'Crop', build: function (body){
     var st = kfState(); if (!st) return;
     k.prev.disabled = st.pt == null; k.nxt.disabled = st.nt == null; k.dia.disabled = st.out; k.ez.disabled = !st.here;
     if (k.here !== st.here){ k.here = st.here; k.dia.classList.toggle('on', st.here); k.dia.innerHTML = st.here ? KFD_ON : KFD_OFF; k.dia.setAttribute('aria-label', st.here ? 'Remove keyframe' : 'Add keyframe'); }
+    var ezk = '';
+    if (st.here){
+      var hk = P.keyframesHere(E.proj, st.c.id, st.rel), ke = hk.length ? P.keyframeEase(E.proj, st.c.id, hk[0], st.rel) : null;
+      if (ke && ke.hasNext) ezk = JSON.stringify(ke.ease == null ? 'linear' : ke.ease);
+      if (k.ezKey !== ezk){ k.ezKey = ezk; k.ez.innerHTML = ezk ? curveSvg(ke.ease, 24, 24, 3, false) : G.curve; }
+    } else if (k.ezKey){ k.ezKey = ''; k.ez.innerHTML = G.curve; }
     var text = st.out ? 'Move the playhead onto this clip' : st.n ? st.n + ' keyframe' + (st.n === 1 ? '' : 's') + (st.here ? ' \u00b7 on one now' : '') : 'Tap the diamond to add a keyframe';
     if (k.text !== text){ k.text = text; k.lab.textContent = text; }
   }

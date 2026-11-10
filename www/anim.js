@@ -12,26 +12,56 @@ var NakiAnim = (function () {
   // A keyframe can carry a third item that says how the value moves from IT to the NEXT keyframe: nothing = in a straight line; 'hold' = it stays
   // until the next keyframe and then jumps; or four numbers [x1, y1, x2, y2], the two handles of a bezier curve, like CSS cubic-bezier(): x is time and y
   // is how far along the move it is (both from 0 to 1, so a value never overshoots).
-  var EASES = [{ key: 'linear', label: 'Linear', v: null }, { key: 'in', label: 'Ease in', v: [0.42, 0, 1, 1] }, { key: 'out', label: 'Ease out', v: [0, 0, 0.58, 1] },
-    { key: 'inout', label: 'Ease in-out', v: [0.42, 0, 0.58, 1] }, { key: 'hold', label: 'Hold', v: 'hold' }];
+  var EASES = [];
+  function addE(group, key, label, v, fn) { EASES.push({ key: key, label: label, v: v, group: group, fn: !!fn }); }
+  addE('Basic', 'linear', 'Linear', null); addE('Basic', 'in', 'Ease in', [0.42, 0, 1, 1]); addE('Basic', 'out', 'Ease out', [0, 0, 0.58, 1]);
+  addE('Basic', 'inout', 'Ease in-out', [0.42, 0, 0.58, 1]); addE('Basic', 'hold', 'Hold', 'hold');
+  [['sine', 'Sine', [0.12, 0, 0.39, 0], [0.61, 1, 0.88, 1], [0.37, 0, 0.63, 1]], ['quad', 'Quad', [0.11, 0, 0.5, 0], [0.5, 1, 0.89, 1], [0.45, 0, 0.55, 1]],
+    ['cubic', 'Cubic', [0.32, 0, 0.67, 0], [0.33, 1, 0.68, 1], [0.65, 0, 0.35, 1]], ['quart', 'Quart', [0.5, 0, 0.75, 0], [0.25, 1, 0.5, 1], [0.76, 0, 0.24, 1]],
+    ['expo', 'Expo', [0.7, 0, 0.84, 0], [0.16, 1, 0.3, 1], [0.87, 0, 0.13, 1]], ['circ', 'Circ', [0.55, 0, 1, 0.45], [0, 0.55, 0.45, 1], [0.85, 0, 0.15, 1]],
+    ['back', 'Back', [0.36, 0, 0.66, -0.56], [0.34, 1.56, 0.64, 1], [0.68, -0.6, 0.32, 1.6]]].forEach(function (r) {
+    addE(r[1], r[0] + 'In', 'In', r[2]); addE(r[1], r[0] + 'Out', 'Out', r[3]); addE(r[1], r[0] + 'InOut', 'In-out', r[4]);
+  });
+  ['bounce', 'elastic'].forEach(function (k) { var g = k === 'bounce' ? 'Bounce' : 'Elastic'; addE(g, k + 'In', 'In', null, true); addE(g, k + 'Out', 'Out', null, true); addE(g, k + 'InOut', 'In-out', null, true); });
+  var EASE_GROUPS = ['Basic', 'Sine', 'Quad', 'Cubic', 'Quart', 'Expo', 'Circ', 'Back', 'Bounce', 'Elastic'];
+  var YMIN = -0.6, YMAX = 1.6;   // a handle may go past the 0..1 square up or down, which is what makes a move overshoot
+  // Bounce and elastic are not one bezier, so they are stored by name and worked out by these formulas (the preview and the export use the same ones).
+  var FN = {
+    bounceOut: function (x) { var n = 7.5625, d = 2.75; if (x < 1 / d) return n * x * x; if (x < 2 / d) { x -= 1.5 / d; return n * x * x + 0.75; } if (x < 2.5 / d) { x -= 2.25 / d; return n * x * x + 0.9375; } x -= 2.625 / d; return n * x * x + 0.984375; },
+    bounceIn: function (x) { return 1 - FN.bounceOut(1 - x); },
+    bounceInOut: function (x) { return x < 0.5 ? (1 - FN.bounceOut(1 - 2 * x)) / 2 : (1 + FN.bounceOut(2 * x - 1)) / 2; },
+    elasticOut: function (x) { return x <= 0 ? 0 : x >= 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * (2 * Math.PI / 3)) + 1; },
+    elasticIn: function (x) { return x <= 0 ? 0 : x >= 1 ? 1 : -Math.pow(2, 10 * x - 10) * Math.sin((x * 10 - 10.75) * (2 * Math.PI / 3)); },
+    elasticInOut: function (x) { var c = 2 * Math.PI / 4.5; return x <= 0 ? 0 : x >= 1 ? 1 : x < 0.5 ? -(Math.pow(2, 20 * x - 10) * Math.sin((20 * x - 11.125) * c)) / 2 : Math.pow(2, -20 * x + 10) * Math.sin((20 * x - 11.125) * c) / 2 + 1; }
+  };
   function c01(x) { x = +x; return isNaN(x) ? 0 : Math.max(0, Math.min(1, x)); }
+  function cy(x) { x = +x; return isNaN(x) ? 0 : Math.max(YMIN, Math.min(YMAX, x)); }
   function q3(x) { return Math.round(x * 1000) / 1000; }
-  // Whatever was given (a name, four numbers, nothing) as what is stored: null (a straight line), 'hold', or four numbers.
+  // A value that overshoots is kept inside what the property can hold (opacity 0..1, size, zoom, turn, volume). Positions may overshoot, which is the pop.
+  function fitVal(kind, prop, v) {
+    if ((prop === 'x' || prop === 'y') && kind !== 'picture') return v;
+    var r = kind && RANGE[kind] && RANGE[kind][prop];
+    return r ? Math.max(r[0], Math.min(r[1], v)) : v;
+  }
+  // Whatever was given (a name, four numbers, nothing) as what is stored: null (a straight line), 'hold', a name (bounce / elastic), or four numbers.
   function cleanEase(e) {
     if (e == null || e === 'linear') return null;
     if (e === 'hold') return 'hold';
-    if (typeof e === 'string') { var pr = EASES.filter(function (k) { return k.key === e; })[0]; return pr && pr.v ? (pr.v === 'hold' ? 'hold' : pr.v.slice()) : null; }
+    if (typeof e === 'string') {
+      if (FN[e]) return e;
+      var pr = EASES.filter(function (k) { return k.key === e; })[0];
+      return pr && pr.v ? (pr.v === 'hold' ? 'hold' : pr.v.slice()) : null;
+    }
     if (e.length === 4) {
-      var a = [q3(c01(e[0])), q3(c01(e[1])), q3(c01(e[2])), q3(c01(e[3]))];
+      var a = [q3(c01(e[0])), q3(cy(e[1])), q3(c01(e[2])), q3(cy(e[3]))];
       return a[0] === a[1] && a[2] === a[3] ? null : a;   // handles on the diagonal are a straight line
     }
     return null;
   }
-  // The four handle numbers of any ease (a straight line gets handles a third of the way along, so there is something to hold and drag).
-  function bezierOf(e) { var c = cleanEase(e); return c && c !== 'hold' ? c : [0.333, 0.333, 0.667, 0.667]; }
+  function bezierOf(e) { var c = cleanEase(e); return c && typeof c !== 'string' ? c : [0.333, 0.333, 0.667, 0.667]; }
   function easeName(e) {
     var c = cleanEase(e);
-    if (c === null) return 'linear'; if (c === 'hold') return 'hold';
+    if (c === null) return 'linear'; if (c === 'hold') return 'hold'; if (typeof c === 'string') return c;
     for (var i = 0; i < EASES.length; i++) if (EASES[i].v && EASES[i].v !== 'hold' && EASES[i].v.join() === c.join()) return EASES[i].key;
     return 'custom';
   }
@@ -39,10 +69,10 @@ var NakiAnim = (function () {
     var u = 1 - t, a = 3 * u * u * t, b = 3 * u * t * t, c = t * t * t;
     return [a * e[0] + b * e[2] + c, a * e[1] + b * e[3] + c];
   }
-  // How far along the move it is (0 to 1) when f (0 to 1) of the time has passed.
+  // How far along the move it is when f (0 to 1) of the time has passed. Mostly 0 to 1, but a Back / bounce / elastic curve goes past it.
   function easeProgress(e, f) {
     f = Math.max(0, Math.min(1, f));
-    if (typeof e === 'string' && e !== 'hold') e = cleanEase(e);   // a name (such as 'in') works too
+    if (typeof e === 'string' && e !== 'hold') { if (FN[e]) return FN[e](f); e = cleanEase(e); if (typeof e === 'string' && e !== 'hold') return FN[e](f); }
     if (e == null) return f;
     if (e === 'hold') return f >= 1 ? 1 : 0;
     var lo = 0, hi = 1, t = f;
@@ -52,6 +82,7 @@ var NakiAnim = (function () {
   // The ease for the part of a move from f0 to f1 (fractions of the whole time), so a move cut in pieces still looks the same.
   function subEase(e, f0, f1) {
     var c = cleanEase(e); if (c === null || c === 'hold') return c;
+    if (typeof c === 'string') return (f0 < 1e-6 && f1 > 1 - 1e-6) ? c : 'out';   // a bounce cannot be cut into a smaller bezier: a piece falls back to Ease out
     function split(b, f) {   // one bezier cut at time f: [first part, second part], each stretched to fill the 0..1 square again
       var lo = 0, hi = 1, t = f, i;
       for (i = 0; i < 26; i++) { t = (lo + hi) / 2; if (bezPt(b, t)[0] < f) lo = t; else hi = t; }
@@ -96,7 +127,7 @@ var NakiAnim = (function () {
   }
   // The keyframes the way the export reads them: every eased move becomes a few straight pieces (the engines only draw straight lines between
   // keyframes), a hold becomes a jump. Plain keyframes come back as they are, without the third item.
-  function bakeKf(kf) {
+  function bakeKf(kf, kind) {
     if (!kf) return kf;
     var out = {};
     Object.keys(kf).forEach(function (k) {
@@ -106,7 +137,7 @@ var NakiAnim = (function () {
         var nx = pts[i + 1]; if (!nx || p[2] == null) return;
         var w = nx[0] - p[0];
         if (p[2] === 'hold') { if (w > 2) arr.push([nx[0] - 1, p[1]]); return; }
-        for (var j = 1; j < 12; j++) { var f = j / 12; arr.push([Math.round(p[0] + w * f), Math.round((p[1] + (nx[1] - p[1]) * easeProgress(p[2], f)) * 1000) / 1000]); }
+        var NS = (typeof p[2] === 'string') ? Math.min(32, Math.max(2, Math.floor(w / 16))) : 12; for (var j = 1; j < NS; j++) { var f = j / NS; arr.push([Math.round(p[0] + w * f), Math.round(fitVal(kind, k, p[1] + (nx[1] - p[1]) * easeProgress(p[2], f)) * 1000) / 1000]); }
       });
       out[k] = arr;
     });
@@ -127,7 +158,7 @@ var NakiAnim = (function () {
   // The value of one property of an overlay clip ('overlay') or a picture clip's zoom / pan ('picture') at relMs since the clip started.
   function valueOf(c, kind, prop, relMs) {
     var pts = c.kf && c.kf[prop];
-    if (pts && pts.length) return kfValue(pts, relMs);
+    if (pts && pts.length) return fitVal(kind, prop, kfValue(pts, relMs));
     if (kind === 'audio') return c.volume != null ? c.volume : 1;
     if (kind === 'overlay') return c[prop] != null ? c[prop] : OVERLAY[prop];
     if (kind === 'sticker') return c[prop] != null ? c[prop] : 0.5;
@@ -142,7 +173,7 @@ var NakiAnim = (function () {
   // The picture clip's transform { zoom, x, y, rot, flipH } at relMs, with its zoom / pan keyframes applied.
   function pictureTransform(t, kf, relMs) {
     var o = Object.assign({ zoom: 1, x: 0, y: 0, rot: 0, flipH: false }, t || {});
-    ['zoom', 'x', 'y'].forEach(function (k) { if (kf && kf[k] && kf[k].length) o[k] = kfValue(kf[k], relMs); });
+    ['zoom', 'x', 'y'].forEach(function (k) { if (kf && kf[k] && kf[k].length) o[k] = fitVal('picture', k, kfValue(kf[k], relMs)); });
     return o;
   }
   // The span of an export plan with its keyframes worked out for one moment (relMs since the span started).
@@ -298,9 +329,9 @@ function simplifyKf(pts, tol) {
   }
   var api = { OVERLAY: OVERLAY, PICTURE: PICTURE, RANGE: RANGE, kfValue: kfValue, valueOf: valueOf, overlayState: overlayState, pictureTransform: pictureTransform,
     spanAt: spanAt, overlayRect: overlayRect, shiftKf: shiftKf, kfExpr: kfExpr,
-    EASES: EASES, cleanEase: cleanEase, bezierOf: bezierOf, easeName: easeName, easeProgress: easeProgress, subEase: subEase, sliceKf: sliceKf, insertKf: insertKf, bakeKf: bakeKf, makeTracker: makeTracker, findBlock: findBlock, smoothSeries: smoothSeries, simplifyKf: simplifyKf, LOST_ERR: LOST_ERR, shiftOf: shiftOf,
+    EASES: EASES, EASE_GROUPS: EASE_GROUPS, YMIN: YMIN, YMAX: YMAX, cleanEase: cleanEase, bezierOf: bezierOf, easeName: easeName, easeProgress: easeProgress, subEase: subEase, sliceKf: sliceKf, insertKf: insertKf, bakeKf: bakeKf, makeTracker: makeTracker, findBlock: findBlock, smoothSeries: smoothSeries, simplifyKf: simplifyKf, LOST_ERR: LOST_ERR, shiftOf: shiftOf,
     wrapDeg: wrapDeg, snapTo: snapTo, snapRot: snapRot, pointInBox: pointInBox, handlePos: handlePos, scaleRotate: scaleRotate, pinch: pinch, panFor: panFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
-  if (typeof window !== 'undefined') { window.NakiAnim = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['anim.js'] = 'ease'; }
+  if (typeof window !== 'undefined') { window.NakiAnim = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['anim.js'] = 'gesture'; }
   return api;
 })();

@@ -251,7 +251,7 @@ function setTrackProps(p, trackId, patch){
 // ---------- reading ----------
 function clipGainAt(tr, c, t){
   if (tr.muted) return 0;
-  var rel = t - c.start, vol = (c.kf && c.kf.volume && c.kf.volume.length && _AN) ? _AN.kfValue(c.kf.volume, rel) : (c.volume != null ? c.volume : 1);   // volume keyframes
+  var rel = t - c.start, vol = (c.kf && c.kf.volume && c.kf.volume.length && _AN) ? Math.max(0, Math.min(2, _AN.kfValue(c.kf.volume, rel))) : (c.volume != null ? c.volume : 1);   // volume keyframes
   var g = (tr.volume != null ? tr.volume : 1) * vol * gainAt(c.gain, rel);
   if (c.fadeIn > 0){ var xi = rel + (c.fadeInOff || 0); if (xi < c.fadeIn) g *= xi / c.fadeIn; }
   if (c.fadeOut > 0){ var xo = c.dur + (c.fadeOutOff || 0) - rel; if (xo < c.fadeOut) g *= Math.max(0, xo / c.fadeOut); }

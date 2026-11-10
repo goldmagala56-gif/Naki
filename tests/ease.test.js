@@ -9,10 +9,10 @@ const E_IO = [0.42, 0, 0.58, 1], CUSTOM = [0.2, 0.1, 0.7, 0.95];
 
 ok('easing: names and handles are tidied, a straight line is stored as nothing, and the presets are what they say', () => {
   assert.strictEqual(A.cleanEase(null), null); assert.strictEqual(A.cleanEase('linear'), null); assert.strictEqual(A.cleanEase([0.3, 0.3, 0.7, 0.7]), null, 'handles on the diagonal are a straight line');
-  assert.deepStrictEqual(A.cleanEase([2, -1, 0.5, 0.5]), [1, 0, 0.5, 0.5], 'kept inside the square, so a value never overshoots'); assert.strictEqual(A.cleanEase('hold'), 'hold');
+  assert.deepStrictEqual(A.cleanEase([2, -1, 0.5, 0.5]), [1, -0.6, 0.5, 0.5], 'a handle may go past the square (down to -0.6 and up to 1.6) so a move can overshoot, but not further'); assert.strictEqual(A.cleanEase('hold'), 'hold');
   assert.deepStrictEqual(A.cleanEase('in'), [0.42, 0, 1, 1]); assert.strictEqual(A.cleanEase('nonsense'), null); assert.strictEqual(A.cleanEase([1, 2, 3]), null);
   assert.deepStrictEqual([A.easeName(null), A.easeName('hold'), A.easeName([0.42, 0, 1, 1]), A.easeName([0, 0, 0.58, 1]), A.easeName(E_IO), A.easeName(CUSTOM)], ['linear', 'hold', 'in', 'out', 'inout', 'custom']);
-  assert(A.EASES.length === 5); assert.deepStrictEqual(A.bezierOf(null), [0.333, 0.333, 0.667, 0.667]); assert.deepStrictEqual(A.bezierOf(E_IO), E_IO);
+  assert(A.EASES.length >= 5 && A.EASES.slice(0, 5).map(x => x.key).join() === 'linear,in,out,inout,hold'); assert.deepStrictEqual(A.bezierOf(null), [0.333, 0.333, 0.667, 0.667]); assert.deepStrictEqual(A.bezierOf(E_IO), E_IO);
 });
 ok('easing: progress follows the curve (slow start, slow end, a jump for hold), never goes backwards, and a value between keyframes uses it', () => {
   near(A.easeProgress(null, 0.3), 0.3); assert.strictEqual(A.easeProgress('hold', 0.99), 0); assert.strictEqual(A.easeProgress('hold', 1), 1);

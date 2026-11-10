@@ -367,3 +367,17 @@
 .ed-spacerbtn{appearance:none;border:0;background:transparent;color:var(--dim);width:100%;height:100%;display:flex;align-items:center;justify-content:center;padding:0;cursor:pointer;touch-action:manipulation}
 .ed-spacerbtn svg{width:19px;height:19px}
 .ed-spacerbtn.on{background:var(--mango);color:#1d1300}
+
+/* curve gallery, taller graph, preview ball */
+.ed-ease{width:200px;height:170px;max-width:100%}
+.ed-ezgal{display:flex;gap:6px;overflow-x:auto;scrollbar-width:none;padding:2px 0}
+.ed-ezgal::-webkit-scrollbar{display:none}
+.ed-sw>.ed-ezgal{width:100%}
+.ed-ezt{flex:0 0 72px;display:flex;flex-direction:column;align-items:center;gap:2px;padding:4px 2px;border:1px solid var(--line);border-radius:10px;background:var(--panel-2);color:var(--chalk);font:inherit;cursor:pointer;touch-action:manipulation}
+.ed-ezt svg{width:60px;height:40px}
+.ed-ezt span{font-size:11px;font-weight:650;color:var(--dim)}
+.ed-ezt.on{background:var(--mango);border-color:transparent;color:#1d1300}
+.ed-ezt.on span{color:#1d1300}
+.ed-ezprev{position:relative;height:26px;background:#0f1820;border:1px solid var(--line);border-radius:13px}
+.ed-ezprev i{position:absolute;top:4px;width:16px;height:16px;border-radius:50%;background:var(--mango)}
+.ed-kfb svg{width:20px;height:20px}

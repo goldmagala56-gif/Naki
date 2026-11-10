@@ -36,7 +36,7 @@ var NakiPlan = (function () {
       if (c.mblur) sp.mblur = c.mblur;
       if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;
       if (c.vFadeOut) sp.vFadeOut = c.vFadeOut;
-      if (c.kf && (c.kf.zoom || c.kf.x || c.kf.y)) { sp.kf = {}; ['zoom', 'x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sp.kf[k] = NAN && NAN.bakeKf ? NAN.bakeKf({ v: c.kf[k] }).v : JSON.parse(JSON.stringify(c.kf[k])); }); }
+      if (c.kf && (c.kf.zoom || c.kf.x || c.kf.y)) { sp.kf = {}; ['zoom', 'x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sp.kf[k] = NAN && NAN.bakeKf ? (function () { var oo = {}; oo[k] = c.kf[k]; return NAN.bakeKf(oo, 'picture')[k]; })() : JSON.parse(JSON.stringify(c.kf[k])); }); }
       video.push(sp);
       cursor = e;
     });
@@ -114,7 +114,7 @@ var NakiPlan = (function () {
         if (e <= s) return;
         var o = { startMs: s, durMs: e - s, asset: c.asset, kind: c.type === 'freeze' ? 'image' : 'video', inMs: Math.round(c.in || 0), x: c.x, y: c.y, size: c.size, rot: c.rot || 0, opacity: c.opacity != null ? c.opacity : 1, w: a.w || 0, h: a.h || 0 };
         if (c.gen){ o.gen = JSON.parse(JSON.stringify(c.gen)); o.asset = 'gen_' + c.id; o.kind = 'image'; o.inMs = 0; o.w = c.gen.full ? 0 : 1000; o.h = c.gen.full ? 0 : Math.max(2, Math.round(1000 * (c.gen.ar || 1))); }
-        if (c.kf) o.kf = NAN && NAN.bakeKf ? NAN.bakeKf(c.kf) : JSON.parse(JSON.stringify(c.kf));
+        if (c.kf) o.kf = NAN && NAN.bakeKf ? NAN.bakeKf(c.kf, 'overlay') : JSON.parse(JSON.stringify(c.kf));
         if (c.mblur) o.mblur = c.mblur;
         if (c.blend) o.blend = c.blend;
         if (c.mask) o.mask = JSON.parse(JSON.stringify(c.mask));
