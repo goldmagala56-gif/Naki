@@ -180,6 +180,80 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <link rel="stylesheet" href="fonts/fonts.css">
 <link rel="stylesheet" href="theme.css">
 <link rel="stylesheet" href="newui.css">
+<style id="home-css">
+/* ---- Home: a calmer, CapCut-style start screen ---- */
+html[data-view="home"] body{background:radial-gradient(900px 380px at 16% -80px,rgba(46,230,214,.11),transparent 70%),radial-gradient(700px 320px at 96% -60px,rgba(255,159,28,.07),transparent 70%),var(--ink)}
+html[data-view="home"] .top{background:transparent;border-bottom:0}
+html[data-view="home"] .top .brand{display:flex;align-items:center;gap:10px;letter-spacing:-.01em}
+html[data-view="home"] .top .brand::before{content:"";width:30px;height:30px;border-radius:9px;background:url(icon.svg) center/cover;flex:none}
+@media (min-width:900px){html[data-view="home"] .top .brand::before{display:none}}
+#view-home{max-width:1100px;margin:0 auto}
+#view-home .hm-intro h1{font-size:32px;line-height:1.1;letter-spacing:-.025em;margin:8px 0 8px}
+#view-home .hm-intro .lead{font-size:15px;color:var(--dim);max-width:52ch;margin:0 0 22px}
+.hm-actions{display:grid;gap:14px;grid-template-columns:1fr 1fr}
+.hm-actions .hm-card.pri{grid-column:1/-1}
+@media (min-width:900px){.hm-actions{grid-template-columns:1.5fr 1fr 1fr}.hm-actions .hm-card.pri{grid-column:auto}}
+.hm-actions .hm-card{appearance:none;-webkit-appearance:none;text-align:left;position:relative;overflow:hidden;display:flex;flex-direction:column;justify-content:space-between;align-items:flex-start;gap:20px;
+  min-height:150px;margin:0;padding:18px;border-radius:20px;border:1px solid var(--line);background:linear-gradient(160deg,#1b1e23,#121417);color:var(--chalk);cursor:pointer;
+  transition:transform .15s ease,border-color .15s ease,box-shadow .15s ease;touch-action:manipulation}
+.hm-actions .hm-card:hover{border-color:var(--line-2);transform:translateY(-2px);box-shadow:0 16px 36px rgba(0,0,0,.38)}
+.hm-actions .hm-card:active{transform:scale(.985)}
+.hm-ic{width:46px;height:46px;border-radius:14px;display:grid;place-items:center;background:rgba(255,255,255,.07);color:var(--chalk);flex:none;position:relative;z-index:1}
+.hm-ic svg{width:24px;height:24px}
+.hm-ic.amber{background:rgba(255,159,28,.15);color:#ffab2e}
+.hm-tx{position:relative;z-index:1}
+.hm-tx b{display:block;font-size:17px;letter-spacing:-.01em}
+.hm-tx small{display:block;margin-top:4px;color:var(--dim);font-size:13px;line-height:1.35}
+.hm-actions .hm-card.pri{background:linear-gradient(135deg,#3bf2e2 0%,#19c6b8 52%,#0f969d 100%);border-color:transparent;color:var(--on-accent)}
+.hm-actions .hm-card.pri:hover{box-shadow:0 18px 44px rgba(46,230,214,.25)}
+.hm-card.pri .hm-ic{background:rgba(3,32,29,.16);color:var(--on-accent)}
+.hm-card.pri .hm-tx small{color:rgba(3,32,29,.74)}
+.hm-card.pri::after{content:"";position:absolute;right:-46px;top:-56px;width:190px;height:190px;border-radius:50%;background:rgba(255,255,255,.17)}
+.hm-card.pri::before{content:"";position:absolute;right:46px;bottom:-70px;width:130px;height:130px;border-radius:50%;background:rgba(255,255,255,.1)}
+.hm-actions .hm-card.drop{border-style:dashed;border-color:var(--line-2);background:rgba(255,255,255,.02)}
+.hm-actions .hm-card.drop.over{border-color:var(--mango);background:rgba(46,230,214,.07)}
+@media (max-width:899px){
+  #view-home .hm-intro h1{font-size:28px}
+  .hm-actions .hm-card.pri{flex-direction:row;align-items:center;gap:16px;min-height:96px}
+  .hm-actions .hm-card{min-height:136px;padding:16px}
+}
+.hm-sec{display:flex;align-items:center;gap:12px;margin:34px 0 14px}
+#view-home .hm-sec h2{margin:0;font-size:18px;letter-spacing:-.01em;flex:1;display:flex;align-items:center;gap:8px}
+.hm-count{font-size:12px;font-weight:700;color:var(--dim);background:var(--panel-2);border-radius:999px;padding:2px 9px}
+.hm-count:empty{display:none}
+.hm-link{appearance:none;background:none;border:0;color:var(--dim);font-weight:650;font-size:13px;padding:8px 10px;border-radius:8px;cursor:pointer}
+.hm-link:hover{background:var(--panel-2);color:var(--chalk)}
+.hm-foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:30px;padding-top:14px;border-top:1px solid var(--line)}
+.hm-ver{margin:6px 0 0;opacity:.7}
+/* project cards */
+#sessList{grid-template-columns:repeat(auto-fill,minmax(min(220px,100%),1fr));gap:22px 16px}
+.pj{min-width:0}
+@media (max-width:520px){#sessList{grid-template-columns:repeat(2,minmax(0,1fr));gap:18px 12px}}
+.pj{border:0;background:none;border-radius:0;overflow:visible}
+.pj:hover{border-color:transparent}
+.pj .th{border-radius:14px;border:1px solid rgba(255,255,255,.07);overflow:hidden;box-shadow:inset 0 -46px 40px -30px rgba(0,0,0,.6);background:linear-gradient(135deg,#25304f,#3b2a5e);transition:transform .18s ease,box-shadow .18s ease}
+.pj .th.g1{background:linear-gradient(135deg,#124a47,#1d6b4d)}.pj .th.g2{background:linear-gradient(135deg,#5a3418,#6b2530)}.pj .th.g3{background:linear-gradient(135deg,#243649,#16526b)}
+.pj .th:hover{transform:translateY(-2px);box-shadow:inset 0 -46px 40px -30px rgba(0,0,0,.6),0 14px 30px rgba(0,0,0,.4)}
+.pj .th::after{width:22px;height:25px;opacity:.6}
+.pj .th.has::after{display:none}
+.pj .dur{background:rgba(0,0,0,.62);backdrop-filter:blur(6px);border-radius:7px;padding:2px 7px;font-size:11.5px}
+.pj .kind{background:rgba(255,159,28,.9);color:#2a1700;border-radius:7px;font-size:10.5px;letter-spacing:.02em}
+.pj .pm{padding:10px 0 0 2px;gap:4px;align-items:flex-start}
+.pj .pm .t b{font-size:14px;font-weight:650}
+.pj .pm .t span{display:block;margin-top:2px;font-size:12.5px;color:var(--dim)}
+.pj .pm .mn{appearance:none;border:0;background:none;color:var(--dim);width:32px;height:32px;border-radius:50%;display:grid;place-items:center;cursor:pointer;flex:none;margin-top:-4px}
+.pj .pm .mn:hover{background:var(--panel-2);color:var(--chalk)}
+.pj .pm .mn svg{width:20px;height:20px}
+.hm-empty{grid-column:1/-1;display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;padding:40px 20px;border:1.5px dashed var(--line-2);border-radius:20px;color:var(--dim)}
+.hm-empty .hm-empty-ic{width:64px;height:64px;border-radius:20px;display:grid;place-items:center;background:var(--panel-2);color:var(--dim);margin-bottom:8px}
+.hm-empty .hm-empty-ic svg{width:30px;height:30px}
+.hm-empty b{color:var(--chalk);font-size:16px}
+.pj-menu{position:fixed;z-index:70;min-width:200px;background:var(--panel-2);border:1px solid var(--line-2);border-radius:14px;padding:6px;box-shadow:0 20px 56px rgba(0,0,0,.6);animation:fadeIn .12s ease-out}
+.pj-menu button{display:flex;align-items:center;gap:12px;width:100%;min-height:44px;padding:0 12px;border:0;background:none;color:var(--chalk);border-radius:9px;font-weight:600;font-size:14px;text-align:left;cursor:pointer}
+.pj-menu button:hover{background:var(--panel-3)}
+.pj-menu button.danger{color:#ff7a88}
+.pj-menu svg{width:18px;height:18px}
+</style>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Naki">
@@ -240,19 +314,35 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <main>
   <!-- Home -->
   <section id="view-home">
-    <h1>What do you want to make today?</h1>
-    <p class="lead">Narrate a movie live, or edit any video on the timeline. Everything is saved on this device and works without internet.</p>
-    <div class="hero">
-      <div class="act"><div class="tile" data-ic="mic-vocal" data-s="26"></div><h3>Session</h3><p>Play a movie, talk over it and pause whenever you want to explain. Then export it, or send it to the editor.</p><button id="btnNew" data-noskin class="btn primary big"><span data-ic="mic"></span>Start a session</button></div>
-      <div class="act alt"><div class="tile" data-ic="clapperboard" data-s="26"></div><h3>Editor</h3><p>Open any video and edit it on the timeline: cut, text, captions, effects, music and more. No narration needed.</p><button id="btnEditor" data-noskin class="btn big"><span data-ic="scissors"></span>Edit a video</button></div>
+    <div class="hm-intro">
+      <h1>Create</h1>
+      <p class="lead">Edit a video, narrate a movie, or import one. Everything stays on this device and works offline.</p>
     </div>
-    <div class="drop"><div class="tile" data-ic="file-up"></div><div class="dtx"><b>Import a video</b>Choose a file (or drop it here), then pick: edit it, or narrate it.</div><button id="btnImport" data-noskin class="btn"><span data-ic="upload"></span>Choose video</button></div>
-    <h2>Your projects</h2>
-    <div id="sessList"></div>
-    <div class="home-sub"><button id="btnCheck" class="btn ghost">Check this device</button><button id="btnInstall" class="btn" hidden>Install Naki on this phone</button></div>
-          <button id="btnRestore" class="dim small" style="background:none;border:0;text-decoration:underline;cursor:pointer;justify-self:start;padding:4px 0">Restore from a backup file</button>
+    <div class="hm-actions">
+      <button id="btnEditor" data-noskin type="button" class="hm-card pri">
+        <span class="hm-ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span>
+        <span class="hm-tx"><b>New edit</b><small>Cut, text, captions, effects and music on the timeline</small></span>
+      </button>
+      <button id="btnNew" data-noskin type="button" class="hm-card">
+        <span class="hm-ic amber" data-ic="mic-vocal" data-s="24"></span>
+        <span class="hm-tx"><b>Narrate a movie</b><small>Talk over it live and pause to explain</small></span>
+      </button>
+      <button id="btnImport" data-noskin type="button" class="hm-card drop">
+        <span class="hm-ic" data-ic="file-up" data-s="24"></span>
+        <span class="hm-tx"><b>Import a video</b><small>Choose a file or drop it here</small></span>
+      </button>
+    </div>
+    <div class="hm-sec">
+      <h2>Projects <span id="pjCount" class="hm-count"></span></h2>
+      <button id="btnRestore" type="button" class="hm-link">Restore backup</button>
       <input type="file" id="restorePick" hidden>
-    <p id="verLine" class="dim small" style="margin-top:20px"></p>
+    </div>
+    <div id="sessList"></div>
+    <div class="hm-foot">
+      <button id="btnCheck" type="button" class="hm-link">Check this device</button>
+      <button id="btnInstall" class="btn" hidden>Install Naki on this phone</button>
+    </div>
+    <p id="verLine" class="dim small hm-ver"></p>
   </section>
 
   <!-- Device check -->
@@ -1307,26 +1397,54 @@ el.voice.addEventListener('play', updatePreviewUI);
 el.voice.addEventListener('pause', updatePreviewUI);
 
 /* ---------- home ---------- */
+var MORE_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="1.9"/><circle cx="12" cy="12" r="1.9"/><circle cx="12" cy="19" r="1.9"/></svg>';
+var FILM_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9.5l5 2.5-5 2.5z"/></svg>';
+function closePjMenu(){ var m = document.querySelector('.pj-menu'); if (m) m.remove(); document.removeEventListener('pointerdown', pjOutside, true); }
+function pjOutside(e){ var m = document.querySelector('.pj-menu'); if (m && !m.contains(e.target)) closePjMenu(); }
+function openPjMenu(btn, s){
+  closePjMenu();
+  function item(ic, label, fn, danger){
+    return h('button', { type: 'button', role: 'menuitem', class: danger ? 'danger' : '', onclick: function(){ closePjMenu(); fn(); } }, h('span', { 'data-ic': ic, 'data-s': '18' }), label);
+  }
+  var m = h('div', { class: 'pj-menu', role: 'menu' },
+    item('pencil', 'Edit video', function(){ openAndEdit(s.id); }),
+    item('download', 'Back up', function(){ backupSaved(s); }),
+    item('trash-2', 'Delete', function(){ delSaved(s); }, true));
+  document.body.appendChild(m);
+  var r = btn.getBoundingClientRect(), w = m.offsetWidth, hh = m.offsetHeight;
+  var left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)), top = r.bottom + 6;
+  if (top + hh > window.innerHeight - 8) top = Math.max(8, r.top - hh - 6);
+  m.style.left = left + 'px'; m.style.top = top + 'px';
+  setTimeout(function(){ document.addEventListener('pointerdown', pjOutside, true); }, 0);
+}
+window.addEventListener('scroll', closePjMenu, true); window.addEventListener('resize', closePjMenu);
+document.addEventListener('keydown', function(e){ if (e.key === 'Escape') closePjMenu(); });
 function refreshHome(){
-  var list = $('sessList');
-  list.textContent = '';
+  closePjMenu();
+  var list = $('sessList'), cnt = $('pjCount');
+  list.textContent = ''; if (cnt) cnt.textContent = '';
   if (!DB.ok){
     list.appendChild(h('p', { class: 'dim' }, 'Saving is not available here, so sessions are not kept after you close Naki.'));
     return Promise.resolve();
   }
   return DB.all('sessions').then(function(all){
     all.sort(function(a, b){ return b.created - a.created; });
-    if (!all.length){ list.appendChild(h('p', { class: 'dim' }, 'No sessions yet. Start one and it will appear here.')); return; }
+    if (!all.length){
+      var ic = h('span', { class: 'hm-empty-ic' }); ic.innerHTML = FILM_SVG;
+      list.appendChild(h('div', { class: 'hm-empty' }, ic, h('b', null, 'No projects yet'), h('span', null, 'Edit a video or narrate a movie and it will show up here.')));
+      return;
+    }
+    if (cnt) cnt.textContent = all.length;
     all.forEach(function(s, i){
-      var label = s.status === 'stopped' ? 'Saved' : 'Recovered';
+      var open = function(){ openSaved(s.id); };
+      var more = h('button', { class: 'mn', type: 'button', 'aria-label': 'More for ' + s.name, 'aria-haspopup': 'menu', onclick: function(e){ e.stopPropagation(); openPjMenu(more, s); } });
+      more.innerHTML = MORE_SVG;
       list.appendChild(h('div', { class: 'pj' },
-        h('div', { class: 'th g' + (i % 4), 'data-sid': s.id, style: s.thumb ? 'background-image:url(' + s.thumb + ');background-size:cover;background-position:center' : '', role: 'button', tabindex: '0', 'aria-label': 'Open ' + s.name, onclick: function(){ openSaved(s.id); } },
-          h('span', { class: 'kind' }, label), h('span', { class: 'dur' }, fmt(s.durationMs || 0))),
+        h('div', { class: 'th g' + (i % 4) + (s.thumb ? ' has' : ''), 'data-sid': s.id, style: s.thumb ? 'background-image:url(' + s.thumb + ');background-size:cover;background-position:center' : '', role: 'button', tabindex: '0', 'aria-label': 'Open ' + s.name, onclick: open, onkeydown: function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); open(); } } },
+          s.status === 'stopped' ? null : h('span', { class: 'kind' }, 'Recovered'), h('span', { class: 'dur' }, fmt(s.durationMs || 0))),
         h('div', { class: 'pm' },
-          h('div', { class: 't' }, h('b', null, s.name), h('span', null, new Date(s.created).toLocaleDateString() + ' \u00b7 ' + fmt(s.durationMs || 0))),
-          h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Edit', onclick: function(){ openAndEdit(s.id); } }, h('span', { 'data-ic': 'pencil', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Edit'))),
-          h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Back up', onclick: function(){ backupSaved(s); } }, h('span', { 'data-ic': 'download', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Back up'))),
-          h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Delete', onclick: function(){ delSaved(s); } }, h('span', { 'data-ic': 'trash-2', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Delete'))))));
+          h('div', { class: 't' }, h('b', null, s.name), h('span', null, new Date(s.created).toLocaleDateString())),
+          more)));
     });
   }).catch(function(){ list.appendChild(h('p', { class: 'dim' }, 'Could not read saved sessions.')); });
 }
@@ -2310,7 +2428,7 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
             if (!r) return; r.thumb = t;
             return DB.put('sessions', r).then(function(){
               var card = document.querySelector('[data-sid="' + x.id + '"]');
-              if (card){ card.style.backgroundImage = 'url(' + t + ')'; card.style.backgroundSize = 'cover'; card.style.backgroundPosition = 'center'; }
+              if (card){ card.classList.add('has'); card.style.backgroundImage = 'url(' + t + ')'; card.style.backgroundSize = 'cover'; card.style.backgroundPosition = 'center'; }
             });
           });
         }).then(next, next);
