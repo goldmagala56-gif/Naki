@@ -18,17 +18,19 @@
 <title>Naki</title>
 <style id="splash-css">
 /* ---- launch screen + motion (Naki) ---- */
+html.booting,html.booting body{background:#111b24}
 html.booting body>*:not(#splash){visibility:hidden}
 #splash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
-  background:radial-gradient(120% 90% at 50% 38%,#17242f 0%,#0c0d0f 62%);color:#f3eee3;transition:opacity .4s ease,transform .4s ease}
+  background:#111b24;color:#f3eee3;transition:opacity .45s ease,transform .45s ease}
 #splash.out{opacity:0;transform:scale(1.05);pointer-events:none}
-#splash .sp-tile{width:116px;height:116px;display:block;filter:drop-shadow(0 20px 44px rgba(0,0,0,.6));animation:spTile .6s cubic-bezier(.2,.85,.25,1) both}
+#splash .sp-tile{width:120px;height:120px;display:block;animation:spTile .7s cubic-bezier(.2,.85,.25,1) both}
 .sp-n{transform-box:fill-box;transform-origin:50% 100%;animation:spN .6s .16s cubic-bezier(.2,.85,.25,1) both}
 .sp-dot{transform-box:fill-box;transform-origin:50% 50%;animation:spDot .65s .52s cubic-bezier(.3,1.7,.5,1) both,spBreath 1.8s 1.2s ease-in-out infinite}
 .sp-word{font:700 15px/1 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:.42em;text-indent:.42em;text-transform:uppercase;color:#cfd6dd;animation:spUp .5s .7s ease-out both}
+.sp-tag{font:500 13px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#7f8f9d;letter-spacing:.04em;margin-top:-6px;animation:spUp .6s 1.25s ease-out both}
 .sp-bar{position:relative;width:110px;height:3px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;animation:spFade .4s .9s both}
 .sp-bar i{position:absolute;top:0;bottom:0;width:42%;border-radius:3px;background:#ff9f1c;animation:spBar 1.25s .9s ease-in-out infinite}
-@keyframes spTile{from{opacity:0;transform:scale(.82)}to{opacity:1;transform:none}}
+@keyframes spTile{from{opacity:.0;transform:scale(.9)}to{opacity:1;transform:none}}
 @keyframes spN{from{opacity:0;transform:translateY(14%) scaleY(.82)}to{opacity:1;transform:none}}
 @keyframes spDot{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
 @keyframes spBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
@@ -52,7 +54,7 @@ html.entered .rail,html.entered .bottomnav{animation:fadeIn .5s ease-out both}
 }
 </style>
 
-<link rel="stylesheet" href="editor.css">
+<link rel="stylesheet" href="editor.css" media="print" onload="this.media='all'">
 <style>
 :root{
   --ink:#172938; --panel:#192733; --panel-2:#20313f; --line:#2f4556;
@@ -177,9 +179,9 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
   #movie{max-height:70vh}
 }
 </style>
-<link rel="stylesheet" href="fonts/fonts.css">
-<link rel="stylesheet" href="theme.css">
-<link rel="stylesheet" href="newui.css">
+<link rel="stylesheet" href="fonts/fonts.css" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="theme.css" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="newui.css" media="print" onload="this.media='all'">
 <style id="home-css">
 /* ---- Home: a calmer, CapCut-style start screen ---- */
 html[data-view="home"] body{background:radial-gradient(900px 380px at 16% -80px,rgba(46,230,214,.11),transparent 70%),radial-gradient(700px 320px at 96% -60px,rgba(255,159,28,.07),transparent 70%),var(--ink)}
@@ -330,6 +332,100 @@ details.pcard .stats{margin:2px 0 8px}
 }
 @media (prefers-reduced-motion:reduce){.pl-btn,.pl-play,.rec-wrap #bRec{transition:none}}
 </style>
+<style id="editor-polish">
+/* ---- Editor: calmer and cleaner, CapCut-style. Look only: every tool, button and panel is still there. ---- */
+.ed{--edbg:#0b0c0e;--edpanel:#14161a;--edcard:#1c1f24;--edline:#272b31;background:var(--edbg)}
+/* top bar */
+.ed .ed-top{background:var(--edpanel);border-bottom:1px solid var(--edline);padding:8px 12px;gap:8px;min-height:56px}
+.ed .ed-top .ed-btn{min-height:38px;border-radius:10px;background:transparent;border-color:var(--edline);transition:background .12s,border-color .12s}
+.ed .ed-top .ed-btn:hover:not(:disabled){background:var(--edcard);border-color:#3a3e46}
+.ed #edClose{border-color:transparent;padding:0 14px 0 8px;font-size:15px;font-weight:700}
+.ed .ed-title{font-size:15px;font-weight:700;letter-spacing:-.005em}
+.ed .ed-saved{font-size:12px;color:var(--dim)}
+.ed #edExport{background:linear-gradient(135deg,#3bf2e2,#19c6b8);border-color:transparent;color:var(--on-accent);padding:0 20px;border-radius:999px;font-weight:750;box-shadow:0 6px 18px rgba(46,230,214,.22)}
+.ed #edExport:hover:not(:disabled){filter:brightness(1.07);background:linear-gradient(135deg,#3bf2e2,#19c6b8)}
+/* preview */
+.ed .ed-stage{background:radial-gradient(120% 100% at 50% 40%,#101318 0%,#000 72%);border-bottom:0}
+/* play row */
+.ed .ed-bar{background:var(--edpanel);border-top:1px solid var(--edline);padding:8px 14px;gap:12px}
+.ed .ed-ibtn{background:transparent;border:1px solid var(--edline);color:var(--chalk);transition:background .12s,transform .08s}
+.ed .ed-ibtn:hover:not(:disabled){background:var(--edcard)}
+.ed .ed-ibtn.on,.ed .ed-spacerbtn.on{background:var(--mango);border-color:transparent;color:var(--on-accent)}
+.ed .ed-play{width:46px;height:46px;background:var(--mango);border-color:transparent;color:var(--on-accent);box-shadow:0 6px 18px rgba(46,230,214,.25)}
+.ed .ed-play:hover:not(:disabled){background:var(--mango);filter:brightness(1.08)}
+.ed .ed-stagebtn{background:rgba(10,11,13,.6);border:1px solid rgba(255,255,255,.16);opacity:1;backdrop-filter:blur(8px)}
+.ed .ed-stagebtn.on{background:var(--mango);color:var(--on-accent);border-color:transparent}
+.ed .ed-time{font-size:12.5px;color:var(--chalk);opacity:.85;min-width:7.5em}
+.ed .ed-note{font-size:12.5px}
+/* sliders */
+.ed input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;height:24px;margin:0;cursor:pointer;--v:0%}
+.ed input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:4px;background:linear-gradient(to right,var(--mango) var(--v),#3a3e46 var(--v))}
+.ed input[type=range]::-moz-range-track{height:4px;border-radius:4px;background:#3a3e46}
+.ed input[type=range]::-moz-range-progress{height:4px;border-radius:4px;background:var(--mango)}
+.ed input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:0;margin-top:-6px;box-shadow:0 1px 5px rgba(0,0,0,.55)}
+.ed input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:0;box-shadow:0 1px 5px rgba(0,0,0,.55)}
+.ed input[type=range]:disabled{opacity:.45;cursor:default}
+.ed input[type=range]:focus-visible{outline:2px solid var(--mango);outline-offset:3px;border-radius:6px}
+/* timeline */
+.ed .ed-tl{background:var(--edbg);border-top:1px solid var(--edline)}
+.ed .ed-ruler,.ed .ed-labels .ed-spacer{background:#0f1115}
+.ed .ed-ruler{border-bottom:1px solid var(--edline)}
+.ed .ed-tick{color:#707a86;font-size:10.5px;border-left-color:rgba(255,255,255,.09);font-variant-numeric:tabular-nums}
+.ed .ed-labels{background:#0f1115;border-right:1px solid var(--edline)}
+.ed .ed-label{background:var(--edcard);margin-bottom:3px}
+.ed .ed-row{background:rgba(255,255,255,.025);margin-bottom:3px;border-radius:8px}
+.ed .ed-clip{border-radius:8px;border:1px solid rgba(255,255,255,.14);box-shadow:0 1px 2px rgba(0,0,0,.4)}
+.ed .ed-clip .ed-cl{font-weight:600;font-size:11.5px}
+.ed .ed-clip.sel{outline:2px solid #fff;outline-offset:0}
+.ed .ed-head{box-shadow:0 0 8px rgba(255,255,255,.35)}
+.ed .ed-add{border-radius:12px}
+.ed .ed-spacerbtn:hover{color:var(--chalk)}
+/* the bottom dock: tools */
+.ed .ed-dock{background:var(--edpanel);border-top:1px solid var(--edline)}
+.ed .ed-toolbar{padding:8px 6px 10px;gap:4px}
+.ed .ed-tool{border-radius:12px;padding:7px 0 6px;gap:4px;color:#a3abb6;transition:background .12s,color .12s}
+.ed .ed-tool span{font-size:11px;font-weight:650}
+.ed .ed-tool:hover{background:var(--edcard);color:var(--chalk)}
+.ed .ed-tool.on{background:var(--edcard);color:var(--mango)}
+.ed .ed-trow{padding:8px 8px 10px}
+.ed .ed-tbtn{border-radius:12px;padding:6px 0;transition:background .12s}
+.ed .ed-tbtn:hover:not(:disabled){background:var(--edcard)}
+.ed .ed-back{border-radius:12px}
+.ed .ed-sarr.l{background:linear-gradient(90deg,var(--edpanel) 35%,transparent)}
+.ed .ed-sarr.r{background:linear-gradient(270deg,var(--edpanel) 35%,transparent)}
+.ed .ed-selbar,.ed .ed-kfbar{background:var(--edcard);border-bottom:1px solid var(--edline)}
+/* tool settings panel */
+.ed .ed-panel{padding:6px 16px 14px}
+.ed .ed-phead{border-bottom:1px solid var(--edline);margin-bottom:10px;padding-bottom:6px}
+.ed .ed-ptitle{font-size:15px}
+.ed .ed-pdone{width:40px;height:40px;border-radius:50%;padding:0;background:var(--mango);border-color:transparent;color:var(--on-accent)}
+.ed .ed-pbody{gap:10px}
+.ed .ed-chip{min-height:34px;padding:0 14px;background:var(--edcard);border-color:var(--edline);transition:border-color .12s}
+.ed .ed-chip:hover{border-color:#3a3e46}
+.ed .ed-chip.on{background:var(--mango);border-color:transparent;color:var(--on-accent)}
+.ed .ed-btn{transition:background .12s,border-color .12s}
+.ed .ed-btn.ed-small{border-radius:9px}
+.ed .ed-textin{background:var(--edbg);border-color:var(--edline);border-radius:12px;min-height:46px}
+.ed .ed-textin:focus{outline:none;border-color:var(--mango);box-shadow:0 0 0 3px rgba(46,230,214,.18)}
+.ed .ed-gbtn,.ed .ed-tpl{background-color:var(--edcard);border-color:var(--edline)}
+.ed .ed-curve,.ed .ed-ease,.ed .ed-scopecv,.ed .ed-meterpad{background-color:var(--edbg);border-color:var(--edline)}
+/* desktop side panel */
+.ed .ed-insp{background:var(--edpanel);border-left:1px solid var(--edline);padding:18px 16px}
+.ed .ed-insp h3{font-size:11.5px;letter-spacing:.12em;margin:0 0 10px}
+.ed .ed-insp h3:not(:first-child){margin-top:22px}
+.ed .ed-mixrow{background:var(--edcard);border:1px solid var(--edline);border-radius:12px;padding:8px 12px;margin:8px 0}
+.ed .ed-selinfo{background:var(--edcard);border:1px solid var(--edline);border-radius:12px;padding:12px 14px;line-height:1.5}
+@media (min-width:900px){
+  .ed:has(.ed-dock>.ed-sw>.ed-toolbar):not(:has(.ed-kfbar)) .ed-dock{background:var(--edpanel);border-right:1px solid var(--edline);max-height:none}   /* the tool column is as tall as the preview, so all tools show */
+}
+@media (max-width:520px){
+  .ed .ed-bar{gap:8px;padding:8px 10px}
+  .ed .ed-time{min-width:0}
+  .ed .ed-ibtn{width:34px;height:34px}
+  .ed .ed-play{width:42px;height:42px}
+}
+@media (prefers-reduced-motion:reduce){.ed .ed-btn,.ed .ed-ibtn,.ed .ed-tool,.ed .ed-tbtn,.ed .ed-chip{transition:none}}
+</style>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Naki">
@@ -343,6 +439,7 @@ details.pcard .stats{margin:2px 0 8px}
     <circle class="sp-dot" cx="395.264" cy="133.12" r="40" fill="#ff9f1c"/>
   </svg>
   <div class="sp-word">Naki</div>
+  <div class="sp-tag">Narrate. Edit. Export.</div>
   <div class="sp-bar"><i></i></div>
 </div>
 <nav class="rail" id="rail" aria-label="Main">
@@ -613,11 +710,10 @@ details.pcard .stats{margin:2px 0 8px}
 
 <script src="core.js"></script>
 <script>
-/* launch screen: stays until the app is really ready (storage open, project list drawn, fonts loaded), never less than MIN ms, never more than MAX ms */
+/* launch screen: stays until the app is really ready (storage open, project list drawn, style sheets and fonts loaded), never less than MIN ms, never more than MAX ms */
 (function(){
-  var t0 = Date.now(), MIN = 1200, MAX = 9000, homeReady = false, fontsReady = !(document.fonts && document.fonts.ready), gone = false;
+  var t0 = Date.now(), MIN = 2800, MAX = 10000, homeReady = false, gone = false;
   var root = document.documentElement, el = document.getElementById('splash');
-  if (!fontsReady) document.fonts.ready.then(function(){ fontsReady = true; }, function(){ fontsReady = true; });
   function finish(){
     if (gone) return; gone = true;
     root.classList.remove('booting'); root.classList.add('entered');
@@ -627,7 +723,9 @@ details.pcard .stats{margin:2px 0 8px}
   window.nakiBooted = function(){ homeReady = true; };
   (function check(){
     var age = Date.now() - t0, restoring = window.nakiRestoring && window.S && window.S.view === 'home';
-    if (age > MAX || (homeReady && fontsReady && age > MIN && !restoring)) finish(); else setTimeout(check, 60);
+    var sheets = document.querySelectorAll('link[rel="stylesheet"][media="print"]').length === 0;
+    var fonts = !(document.fonts && document.fonts.status === 'loading');
+    if (age > MAX || (homeReady && sheets && fonts && age > MIN && !restoring)) finish(); else setTimeout(check, 60);
   })();
 })();
 </script>
@@ -2624,16 +2722,20 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
 })();
 </script>
 <script>
-/* sliders on the project screen: paint the filled part of the track */
+/* sliders on the project screen and in the editor: paint the filled part of the track */
 (function(){
+  function paint(r){
+    if (!r || r.offsetParent === null) return;
+    var mn = +r.min || 0, mx = +r.max || 100, v = mx > mn ? (r.value - mn) / (mx - mn) * 100 : 0, t = v.toFixed(1) + '%';
+    if (r.style.getPropertyValue('--v') !== t) r.style.setProperty('--v', t);
+  }
   var ids = ['seek', 'pSeek', 'rVol', 'rDuck', 'rThr', 'rOff'];
   setInterval(function(){
-    if (!window.S || S.view !== 'work') return;
-    ids.forEach(function(id){
-      var r = document.getElementById(id); if (!r || r.offsetParent === null) return;
-      var mn = +r.min || 0, mx = +r.max || 100, v = mx > mn ? (r.value - mn) / (mx - mn) * 100 : 0, t = v.toFixed(1) + '%';
-      if (r.style.getPropertyValue('--v') !== t) r.style.setProperty('--v', t);
-    });
+    if (!window.S) return;
+    var ed = document.getElementById('editor');
+    if (ed && !ed.hidden){ [].forEach.call(ed.querySelectorAll('input[type=range]'), paint); return; }
+    if (S.view !== 'work') return;
+    ids.forEach(function(id){ paint(document.getElementById(id)); });
   }, 100);
 })();
 </script>
