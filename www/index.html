@@ -2118,9 +2118,6 @@ $('bCover').onclick = function(){
 
 placeThr();
 DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show('home'); return refreshHome(); });
-DB.open().then(function(){ return DB.ok ? DB.get('sessions', localStorage.getItem('naki.last')) : null; }).then(function(rec){
-if (rec && rec.status === 'stopped' && S.view === 'home') openSaved(rec.id);
-}, function(){});
 </script>
 <script>
 /* new interface: navigation, icons, project buttons, export sheet */
@@ -2340,6 +2337,120 @@ if (rec && rec.status === 'stopped' && S.view === 'home') openSaved(rec.id);
   };
   icons(); window.markNav(S.view); document.documentElement.setAttribute('data-view', S.view);
   new MutationObserver(icons).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+<script>
+/* history router: the phone's Back button walks back one screen, and a refresh stays on the screen you are on.
+   Screens (home, settings, project, editor, export sheet) each get a browser-history entry and a #/ address. */
+(function(){
+  var cur, applying = false;
+  var HOME = location.pathname + location.search;
+  function urlFor(k, id){
+    if (k === 'check') return '#/settings';
+    if (k === 'work') return id ? '#/p/' + encodeURIComponent(id) : '#/work';
+    if (k === 'editor') return id ? '#/p/' + encodeURIComponent(id) + '/edit' : '#/work';
+    return HOME;
+  }
+  function mkState(k, id, d, url){ return { nk: 1, k: k, id: id || null, d: d, url: url }; }
+  function push(k, id, url){
+    var u = url || urlFor(k, id);
+    cur = mkState(k, id, cur.d + 1, u); history.pushState(cur, '', u);
+  }
+  function replace(k, id){
+    var u = urlFor(k, id);
+    cur = mkState(k, id, cur.d, u); history.replaceState(cur, '', u);
+  }
+  function route(){
+    var h = location.hash, m = /^#\/p\/([^\/]+)(\/edit)?$/.exec(h);
+    if (m) return { id: decodeURIComponent(m[1]), edit: !!m[2] };
+    if (h === '#/settings') return { settings: true };
+    return null;
+  }
+  function toBase(){ if (cur.d > 0) history.go(-cur.d); else replace('home'); }
+
+  /* ---- start-up: refresh keeps you where you were ---- */
+  var r = route();
+  if (history.state && history.state.nk){ cur = history.state; }
+  else {
+    cur = mkState('home', null, 0, HOME); history.replaceState(cur, '', HOME);
+    if (r){ // opened straight from a link: put Home underneath so Back still works
+      if (r.settings) push('check'); else { push('work', r.id); if (r.edit) push('editor', r.id); }
+    }
+  }
+
+  /* ---- screens ---- */
+  var _show = window.show;
+  window.show = function(view){
+    var prev = S.view;
+    _show.apply(this, arguments);
+    if (applying || view === prev) return;
+    if (view === 'home'){ if (prev && cur.d > 0) history.go(-cur.d); return; }
+    if (view === 'check'){ if (cur.d > 0) replace('check'); else push('check'); return; }
+    if (cur.k === 'work' || cur.k === 'editor' || cur.k === 'export') return;   // already on a project entry
+    var deadDialog = (cur.k === 'import' && $('importModal').hidden) || (cur.k === 'check');
+    if (deadDialog) replace('work'); else push('work');
+  };
+  // once a project is open, put its id in the address so a refresh can reopen it
+  var _pp = window.preparePreview;
+  window.preparePreview = function(s){
+    var res = _pp.apply(this, arguments);
+    if (!applying && s && s.id && (cur.k === 'work' || cur.k === 'editor') && cur.id !== s.id){
+      var u = urlFor(cur.k, s.id); cur = mkState(cur.k, s.id, cur.d, u); history.replaceState(cur, '', u);
+    }
+    return res;
+  };
+
+  /* ---- editor, export sheet and import dialog are layers on top of a screen ---- */
+  var layers = [
+    { k: 'editor', was: false, open: function(){ return !!(window.NakiEditor && NakiEditor.isOpen()); }, close: function(){ NakiEditor.close(); } },
+    { k: 'export', was: false, open: function(){ return !$('exportSheet').hidden; }, close: function(){ $('bSheetClose').click(); } },
+    { k: 'import', was: false, open: function(){ return !$('importModal').hidden; }, close: function(){ $('bImportCancel').click(); } }
+  ];
+  setInterval(function(){
+    layers.forEach(function(L){
+      var now = L.open(); if (now === L.was) return; L.was = now;
+      if (now){ if (cur.k !== L.k) push(L.k, S.sess && S.sess.id, L.k === 'editor' ? null : location.href); }
+      else if (cur.k === L.k) history.back();     // closed with its own button: drop its history entry
+    });
+  }, 100);
+
+  /* ---- the Back / Forward buttons ---- */
+  window.addEventListener('popstate', function(e){
+    var prev = cur, st = e.state && e.state.nk ? e.state : null;
+    if (!st){ st = mkState('home', null, 0, HOME); history.replaceState(st, '', HOME); }
+    cur = st;
+    var leaving = (st.k === 'home' || st.k === 'check' || st.k === 'import');
+    if (S.rec && (S.rec.on || S.rec.starting) && S.view === 'work' && leaving){
+      toast('Stop the recording first.'); cur = prev; history.pushState(prev, '', prev.url || HOME); return;
+    }
+    applying = true;
+    try {
+      layers.forEach(function(L){
+        if (L.open() && st.k !== L.k && !(L.k === 'editor' && st.k === 'export')) L.close();
+      });
+      var want = st.k === 'check' ? 'check' : (st.k === 'home' || st.k === 'import') ? 'home' : 'work';
+      if (want === 'work' && S.view !== 'work'){   // Forward into something that cannot be rebuilt: stay on Home
+        st = cur = mkState('home', null, 0, HOME); history.replaceState(cur, '', HOME); want = 'home';
+      }
+      if (S.view !== want){
+        if (want === 'check') runCheck(); else $('btnBack').click();
+      }
+    } finally { applying = false; }
+  });
+
+  /* ---- refresh: reopen what the address says, or fall back to Home ---- */
+  DB.open().then(function(){}, function(){}).then(function(){
+    if (!r){ if (cur.k !== 'home') toBase(); return; }
+    if (r.settings) runCheck();
+    else if (r.edit) openAndEdit(r.id);
+    else openSaved(r.id);
+    setTimeout(function(){ if (S.view === 'home' && cur.k !== 'home') toBase(); }, 6000);
+  });
+
+  // a refresh or closed tab during a recording would lose it
+  window.addEventListener('beforeunload', function(e){
+    if (S.rec && (S.rec.on || S.rec.starting)){ e.preventDefault(); e.returnValue = ''; }
+  });
 })();
 </script>
 <script src="skin.js"></script>

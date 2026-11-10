@@ -304,8 +304,49 @@ var NakiLook = (function () {
     }
     return lines;
   }
-  // Draws a title onto a canvas context of W x H pixels: wrapped to 88% of the width, at the same heights as the preview.
+  // ---------- a turned title, and where a title is ----------
+  // A title can be turned: t.rot, degrees, -180 to 180, around the middle of its lines. That is the very point motion.js turns an animated title
+  // around, so a turned title with an animation still looks right. Drawn here, so the preview and both export engines agree.
+  function wrapDeg(a){ a = ((num(a)) % 360 + 360) % 360; return a > 180 ? a - 360 : a; }
+  // Lays the text out the way both drawings do (wrapped to 88% of the width). Sets the font on g, so g.measureText works.
+  function wrapTitle(g, t, W, H){
+    var px = titleLook(t, H).px;
+    g.font = (t.weight || 700) + ' ' + px + 'px ' + fontCss(t.font);
+    var maxW = W * 0.88, lines = [], widest = 0;
+    String(t.text || '').split('\n').forEach(function (par){
+      var line = '';
+      par.split(' ').forEach(function (w){
+        var test = line ? line + ' ' + w : w;
+        if (line && g.measureText(test).width > maxW){ lines.push(line); line = w; } else line = test;
+      });
+      lines.push(line);
+    });
+    lines.forEach(function (l){ widest = Math.max(widest, g.measureText(l).width); });
+    return { px: px, lines: lines, lh: Math.round(px * 1.2), y0: Math.round((TITLE_POS[t.pos] != null ? TITLE_POS[t.pos] : TITLE_POS.bottom) * H), widest: widest };
+  }
+  var _measure = null;
+  function measureCtx(px){
+    if (_measure === null){ var cv = mkLayer(2, 2); _measure = (cv && cv.getContext) ? cv.getContext('2d') : false; }
+    return _measure || { font: '', measureText: function (s){ return { width: String(s).length * px * 0.55 }; } };   // no canvas here: a fair guess
+  }
+  // The box a title fills before it is turned or moved: its centre, size and number of lines, in a W x H frame (pixels). g is optional.
+  function titleBox(t, W, H, g){
+    var px = titleLook(t, H).px, m = wrapTitle(g || measureCtx(px), t, W, H), n = Math.max(1, m.lines.length);
+    return { cx: W / 2, cy: m.y0 + n * m.lh / 2, w: Math.min(W, m.widest + m.px * 0.8), h: n * m.lh + m.px * 0.4, px: m.px, lines: n };
+  }
+  // Draws a title onto a canvas context of W x H pixels: wrapped to 88% of the width, at the same heights as the preview. A turned title (t.rot)
+  // is turned around the middle of its lines.
   function drawTitle(g, t, W, H){
+    var rot = t && t.rot ? wrapDeg(t.rot) : 0;
+    if (!rot) return drawTitlePlain(g, t, W, H);
+    var m = wrapTitle(g, t, W, H), py = m.y0 + Math.max(1, m.lines.length) * m.lh / 2, lines;
+    g.save(); g.translate(W / 2, py); g.rotate(rot * Math.PI / 180); g.translate(-W / 2, -py);
+    lines = drawTitlePlain(g, t, W, H);
+    g.restore();
+    return lines;
+  }
+  // The drawing itself, not turned.
+  function drawTitlePlain(g, t, W, H){
     if (hasTitleFx(t)) return drawStyledTitle(g, t, W, H);
     var L = titleLook(t, H), px = L.px;
     g.font = (t.weight || 700) + ' ' + px + 'px ' + fontCss(t.font);
@@ -352,7 +393,7 @@ var NakiLook = (function () {
     vignetteAngle: vignetteAngle, vignetteLevel: vignetteLevel, vignetteStops: vignetteStops, vignetteCss: vignetteCss,
     sharpenKernel: sharpenKernel, ffmpegExtras: ffmpegExtras, MATTE_GRAY: MATTE_GRAY,
     fontCss: fontCss, fontList: fontList, loadFonts: loadFonts, titleLook: titleLook, titleStyle: titleStyle, drawTitle: drawTitle, TITLE_POS: TITLE_POS,
-    hasTitleFx: hasTitleFx, cleanStyle: cleanStyle, ART: ART, art: art, FX_KEYS: FX_KEYS };
+    hasTitleFx: hasTitleFx, cleanStyle: cleanStyle, ART: ART, art: art, FX_KEYS: FX_KEYS, titleBox: titleBox };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') window.NakiLook = api;
   return api;

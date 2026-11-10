@@ -152,7 +152,7 @@ ok('text: add, edit, see it at the right moments, and it survives cutting', () =
   assert(out.id); assert.deepStrictEqual(P.validate(p), []);
   assert.strictEqual(P.textsAt(p, 13000).length, 1); assert.strictEqual(P.textsAt(p, 15000).length, 0); assert.strictEqual(P.textsAt(p, 11999).length, 0);
   p = P.setTextProps(p, out.id, { text: 'Hello', size: 40, color: '#ff0000', pos: 'top' });
-  const c = P.findClip(p, out.id).clip; assert.strictEqual(c.text, 'Hello'); assert.strictEqual(c.size, 16, 'size is kept within range'); assert.strictEqual(c.pos, 'top');
+  const c = P.findClip(p, out.id).clip; assert.strictEqual(c.text, 'Hello'); assert.strictEqual(c.size, 30, 'size is kept within range'); assert.strictEqual(c.pos, 'top');
   assert.strictEqual(P.sourceAt(p, 13000).audio.filter(a => a.role === 'text').length, 0, 'text is not sound');
   const cut = P.rippleDelete(p, 10000, 13000);   // cuts the first second of the text
   assert.strictEqual(P.textsAt(cut, 10000).length, 1); assert.strictEqual(P.findClip(cut, out.id).clip.dur, 2000);

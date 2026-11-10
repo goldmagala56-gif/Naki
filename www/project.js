@@ -339,7 +339,7 @@ function addTextClip(p, t, dur, out){
   return finish(q);
 }
 var TEXT_FONTS = ['sans', 'serif', 'mono', 'bold', 'script', 'inter', 'montserrat', 'poppins', 'bebas', 'anton', 'oswald', 'archivo', 'bangers', 'righteous', 'playfair', 'pacifico', 'lobster', 'caveat', 'dancing', 'lora', 'merriweather', 'librebaskerville', 'crimsontext', 'ebgaramond', 'cormorantgaramond', 'ptserif', 'sourceserif4', 'librecaslontext', 'abrilfatface', 'dmserifdisplay', 'cinzel', 'cinzeldecorative', 'marcellus', 'oldstandardtt', 'alfaslabone', 'unifrakturcook', 'greatvibes', 'sacramento', 'allura', 'parisienne', 'alexbrush', 'pinyonscript', 'italianno', 'tangerine', 'satisfy', 'kaushanscript', 'yellowtail', 'courgette', 'cookie', 'playball', 'shadowsintolight', 'indieflower', 'permanentmarker', 'rocksalt', 'amaticsc', 'gloriahallelujah', 'luckiestguy', 'chewy', 'creepster', 'bungee', 'staatliches', 'monoton', 'blackopsone', 'russoone', 'pressstart2p', 'orbitron', 'specialelite', 'lilitaone', 'fredoka', 'teko', 'lato', 'opensans', 'roboto', 'raleway', 'nunito', 'quicksand', 'comfortaa', 'josefinsans', 'barlowcondensed', 'baloo2'];
-// Changes the look of one text clip (in place). size 3 to 16 (% of the picture height), font, outline 0 to 1 and shadow 0 to 1
+// Changes the look of one text clip (in place). size 3 to 30 (% of the picture height), font, outline 0 to 1 and shadow 0 to 1
 // (shadow 1 is the look titles always had, so it is not stored; outline 0 is not stored either).
 // Text effects (see look.js): grad, arc, glow, bubble, extrude. null / empty turns one off.
 function applyTextStyleExtras(clip, patch){
@@ -352,7 +352,9 @@ function applyTextStyleExtras(clip, patch){
 }
 function applyTextPatch(clip, patch){
   ['text', 'size', 'color', 'pos', 'weight', 'bg'].forEach(function (k){ if (patch[k] !== undefined) clip[k] = patch[k]; });
-  clip.size = Math.max(3, Math.min(16, +clip.size || 7));
+  clip.size = r3(Math.max(3, Math.min(30, +clip.size || 7)));   // 3 to 30 (% of the picture height): the slider stays at 16, a pinch can go further
+  if (patch.rot !== undefined){ var rt = Math.round((+patch.rot || 0) * 10) / 10; rt = Math.round((((rt % 360) + 540) % 360 - 180) * 10) / 10; if (Math.abs(rt) >= 0.05) clip.rot = rt; else delete clip.rot; }   // turn, -180 to 180, not stored when 0
+  ['dx', 'dy'].forEach(function (k){ if (patch[k] === undefined) return; var v = r3(Math.max(-1, Math.min(1, +patch[k] || 0))); if (v) clip[k] = v; else delete clip[k]; });   // moved by hand
   if (patch.font !== undefined){ if (patch.font && patch.font !== 'sans' && TEXT_FONTS.indexOf(patch.font) >= 0) clip.font = patch.font; else delete clip.font; }
   if (patch.outline !== undefined){ var o = r3(Math.max(0, Math.min(1, +patch.outline || 0))); if (o > 0) clip.outline = o; else delete clip.outline; }
   if (patch.shadow !== undefined){ var sh = r3(Math.max(0, Math.min(1, isNaN(+patch.shadow) ? 1 : +patch.shadow))); if (sh < 1) clip.shadow = sh; else delete clip.shadow; }
@@ -1317,7 +1319,7 @@ function kfKind(tr){ return tr.kind === 'overlay' ? 'overlay' : tr.kind === 'sti
 function setStaticProp(c, kind, prop, v){
   if (kind === 'audio'){ c.volume = v; return; }
   if (kind === 'overlay' || kind === 'sticker'){ c[prop] = v; return; }
-  if (kind === 'text'){ c[prop === 'x' ? 'dx' : 'dy'] = v; return; }
+  if (kind === 'text'){ var tk = prop === 'x' ? 'dx' : 'dy'; if (v) c[tk] = v; else delete c[tk]; return; }   // a text put back on its usual line stores nothing
   var t = Object.assign({ zoom: 1, x: 0, y: 0, rot: 0, flipH: false }, c.transform || {});   // same tidy-up as setTransform
   t[prop] = v; t.zoom = r3(Math.max(1, Math.min(4, +t.zoom || 1)));
   t.x = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.x || 0))); t.y = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.y || 0)));

@@ -65,7 +65,7 @@ ok('text styles are kept within range, and the old look is not stored', () => {
   const t = {}, p = P.addTextClip(base, 5000, 3000, t), set = (o) => P.findClip(P.setTextProps(p, t.id, o), t.id).clip;
   assert.deepStrictEqual([set({ outline: 19 }).outline, set({ outline: 0 }).outline, set({ shadow: 1 }).shadow, set({ shadow: 0 }).shadow, set({ shadow: 0.4 }).shadow], [1, undefined, undefined, 0, 0.4]);
   assert.deepStrictEqual([set({ font: 'serif' }).font, set({ font: 'sans' }).font, set({ font: 'comic-nonsense' }).font], ['serif', undefined, undefined]);
-  const styled = P.setTextProps(P.setTextProps(p, t.id, { font: 'mono', outline: 0.3 }), t.id, { size: 99 }); const c = P.findClip(styled, t.id).clip; assert.deepStrictEqual([c.font, c.outline, c.size], ['mono', 0.3, 16], 'one setting does not undo another');
+  const styled = P.setTextProps(P.setTextProps(p, t.id, { font: 'mono', outline: 0.3 }), t.id, { size: 99 }); const c = P.findClip(styled, t.id).clip; assert.deepStrictEqual([c.font, c.outline, c.size], ['mono', 0.3, 30], 'one setting does not undo another');
 });
 ok('the export plan carries captions and the new looks, and a plain title is exactly what it was', () => {
   const t = {}; let p = P.setTextProps(P.addTextClip(base, 9000, 2000, t), t.id, { text: 'Plain' });

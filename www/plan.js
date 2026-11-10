@@ -84,6 +84,7 @@ var NakiPlan = (function () {
           ['grad', 'arc', 'glow', 'bubble', 'extrude'].forEach(function (k) { if (c[k] != null) tx[k] = JSON.parse(JSON.stringify(c[k])); });
           if (c.anim) tx.anim = JSON.parse(JSON.stringify(c.anim));
           if (c.kf && (c.kf.x || c.kf.y) && NAN && NAN.bakeKf){ var tk = {}; ['x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) tk[k] = c.kf[k]; }); tx.kf = NAN.bakeKf(tk); tx.kfT0 = s; }   // tracked text: moves by an offset
+          if (c.rot) tx.rot = c.rot;
           if (c.dx) tx.dx = c.dx; if (c.dy) tx.dy = c.dy;
           if (c.hl && P.wordTimes){ var wt = P.wordTimes(c, e - s); if (wt.length){ tx.text = String(c.text).split(/\s+/).filter(Boolean).join(' '); tx.hl = { color: c.hl, t: wt }; } }   // word highlight
           texts.push(tx);

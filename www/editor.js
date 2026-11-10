@@ -140,6 +140,10 @@ function buildCodes(p){
     fl.appendChild(u.sharpK); sv.appendChild(fl); u.stage.appendChild(sv);
     u.textlayer = mk('div', 'ed-textlayer'); u.stage.appendChild(u.textlayer);
     u.croplayer = mk('div', 'ed-croplayer'); u.croplayer.style.cssText = 'position:absolute;display:none;overflow:hidden;pointer-events:none;z-index:6'; u.stage.appendChild(u.croplayer);
+    // the gesture layer: the box and round handle of the chosen text / sticker / overlay, and the centre guides (see "moving things directly on the picture")
+    u.handles = mk('div'); u.handles.style.cssText = 'position:absolute;pointer-events:none;z-index:9;overflow:visible'; u.stage.appendChild(u.handles);
+    u.stage.style.touchAction = 'none';   // two fingers on the preview pinch and turn, they do not scroll or zoom the page
+    u.stage.addEventListener('pointerdown', stageDown, true); u.stage.addEventListener('pointerdown', stageBare);
     u.bigBtn = iconBtn('edBig', G_EXPAND, 'Big preview', 'ed-ibtn ed-stagebtn b2'); u.fullBtn = iconBtn('edFull', G_LAND, 'Full screen', 'ed-ibtn ed-stagebtn');
     [u.bigBtn, u.fullBtn].forEach(function (b){ b.addEventListener('pointerdown', function (ev){ ev.stopPropagation(); }); u.stage.appendChild(b); });
     u.bigBtn.onclick = function (){ setBig(!E.big); }; u.fullBtn.onclick = toggleFull;
@@ -1292,12 +1296,16 @@ crop: { title: 'Crop', build: function (body){
     } },
     textstyle: { title: 'Text style', build: function (body){
       var c = selText(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a text on the timeline first.')); return; }
-      var keys = [{ key: 'size', label: 'Size' }, { key: 'pos', label: 'Position' }, { key: 'color', label: 'Colour' }, { key: 'bg', label: 'Dark box' },
+      var keys = [{ key: 'size', label: 'Size' }, { key: 'pos', label: 'Position' }, { key: 'rot', label: 'Turn' }, { key: 'color', label: 'Colour' }, { key: 'bg', label: 'Dark box' },
         { key: 'font', label: 'Font' }, { key: 'outline', label: 'Outline' }, { key: 'shadow', label: 'Shadow' }], cur = chipKey('textstyle', keys, 'size');
       var pt = function (o){ return P.setTextProps(E.hist.cur, c.id, o); }, one = function (v){ var o = {}; o[cur] = v; return o; };
       body.appendChild(chips(keys, cur, pickChip('textstyle')));
-      if (cur === 'size') body.appendChild(sliderRow('Size', 3, 16, 1, c.size || 7, function (v){ return v + '%'; }, function (v){ live(pt({ size: v })); }, function (v){ commit(pt({ size: v })); }));
-      else if (cur === 'pos') body.appendChild(chips([{ key: 'top', label: 'Top' }, { key: 'center', label: 'Middle' }, { key: 'bottom', label: 'Bottom' }], c.pos, function (k){ commit(pt({ pos: k })); }));
+      if (cur === 'size') body.appendChild(sliderRow('Size', 3, 30, 1, Math.round(c.size || 7), function (v){ return v + '%'; }, function (v){ live(pt({ size: v })); }, function (v){ commit(pt({ size: v })); }));
+      else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(c.rot || 0), function (v){ return v + '\u00b0'; }, function (v){ live(pt({ rot: v })); }, function (v){ commit(pt({ rot: v })); }));
+      else if (cur === 'pos'){
+        body.appendChild(chips([{ key: 'top', label: 'Top' }, { key: 'center', label: 'Middle' }, { key: 'bottom', label: 'Bottom' }], (c.dx || c.dy) ? '' : c.pos, function (k){ commit(pt({ pos: k, dx: 0, dy: 0 })); }));
+        body.appendChild(mk('div', 'ed-hint', 'Or drag the text anywhere on the picture. Tap Top, Middle or Bottom to put it back.'));
+      }
       else if (cur === 'font') body.appendChild(chips(lookLib().fontList(), c.font || 'sans', function (k){ commit(pt({ font: k })); }));
       else if (cur === 'outline') body.appendChild(sliderRow('Outline', 0, 100, 5, Math.round((c.outline || 0) * 100), pct, function (v){ live(pt({ outline: v / 100 })); }, function (v){ commit(pt({ outline: v / 100 })); }));
       else if (cur === 'shadow') body.appendChild(sliderRow('Shadow', 0, 100, 5, Math.round((c.shadow == null ? 1 : c.shadow) * 100), pct, function (v){ live(pt({ shadow: v / 100 })); }, function (v){ commit(pt({ shadow: v / 100 })); }));
@@ -2422,11 +2430,12 @@ crop: { title: 'Crop', build: function (body){
     ev.preventDefault(); ev.stopPropagation();
     if (E.sel !== id){ E.sel = id; renderTimeline(); syncDock(); }
     var r = E.ui.stickerlayer.getBoundingClientRect(), c = f.clip, st = { x0: ev.clientX, y0: ev.clientY, cx: NANIM.valueOf(c, 'sticker', 'x', relNow(c)), cy: NANIM.valueOf(c, 'sticker', 'y', relNow(c)), w: r.width || 1, h: r.height || 1, moved: false };
-    function at(e){ var q = P.setAnimated(E.hist.cur, id, 'x', st.cx + (e.clientX - st.x0) / st.w, relNow(c)); return P.setAnimated(q, id, 'y', st.cy + (e.clientY - st.y0) / st.h, relNow(c)); }
-    function mv(e){ st.moved = true; live(at(e)); }
+    var seq0 = GP.seq;   // a pinch starting meanwhile takes over, this drag then does nothing more
+    function at(e){ var q = P.setAnimated(E.hist.cur, id, 'x', gSnap(st.cx + (e.clientX - st.x0) / st.w, 'x'), relNow(c)); return P.setAnimated(q, id, 'y', gSnap(st.cy + (e.clientY - st.y0) / st.h, 'y'), relNow(c)); }
+    function mv(e){ if (GP.seq !== seq0) return; st.moved = true; live(at(e)); }
     function up(e){
       window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
-      if (st.moved) commit(at(e));
+      if (st.moved && GP.seq === seq0) commit(at(e));
     }
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   }
@@ -2577,14 +2586,15 @@ crop: { title: 'Crop', build: function (body){
     if (E.sel !== id){ E.sel = id; renderTimeline(); syncDock(); }
     if (f.clip.gen && f.clip.gen.full) return dragGenCenter(f.clip, ev);
     var r = E.ui.overlaylayer.getBoundingClientRect(), c = f.clip, s0 = NANIM.overlayState(c, E.t - c.start), st = { x0: ev.clientX, y0: ev.clientY, w: r.width || 1, h: r.height || 1, moved: false };
+    var seq0 = GP.seq;   // a pinch starting meanwhile takes over, this drag then does nothing more
     function at(e){
-      var q = P.setAnimated(E.hist.cur, id, 'x', s0.x + (e.clientX - st.x0) / st.w, relNow(c));
-      return P.setAnimated(q, id, 'y', s0.y + (e.clientY - st.y0) / st.h, relNow(c));
+      var q = P.setAnimated(E.hist.cur, id, 'x', gSnap(s0.x + (e.clientX - st.x0) / st.w, 'x'), relNow(c));
+      return P.setAnimated(q, id, 'y', gSnap(s0.y + (e.clientY - st.y0) / st.h, 'y'), relNow(c));
     }
-    function mv(e){ st.moved = true; live(at(e)); }
+    function mv(e){ if (GP.seq !== seq0) return; st.moved = true; live(at(e)); }
     function up(e){
       window.removeEventListener('pointermove', mv); window.removeEventListener('pointerup', up); window.removeEventListener('pointercancel', up);
-      if (st.moved) commit(at(e));
+      if (st.moved && GP.seq === seq0) commit(at(e));
     }
     window.addEventListener('pointermove', mv); window.addEventListener('pointerup', up); window.addEventListener('pointercancel', up);
   }
@@ -3245,7 +3255,7 @@ crop: { title: 'Crop', build: function (body){
     var stt = (c.anim && NMO) ? NMO.textState(c.anim, E.t - c.start, c.dur) : null, shown = c.text || '';
     if (stt && stt.chars < 1) shown = NMO.visibleText(shown, stt.chars);
     var dpr = Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1), cw = Math.max(2, Math.round(W * dpr)), ch = Math.max(2, Math.round(H * dpr));
-    var key = JSON.stringify([shown, c.size, c.color, c.pos, c.weight, c.bg, c.font, c.outline, c.shadow, c.grad, c.arc, c.glow, c.bubble, c.extrude, cw, ch]);
+    var key = JSON.stringify([shown, c.size, c.color, c.pos, c.weight, c.bg, c.font, c.outline, c.shadow, c.grad, c.arc, c.glow, c.bubble, c.extrude, c.rot, cw, ch]);
     if (d._key !== key){
       if (d.width !== cw) d.width = cw;
       if (d.height !== ch) d.height = ch;
@@ -3843,9 +3853,9 @@ crop: { title: 'Crop', build: function (body){
     var now = 0, span = 0; P.curvePieces(E.hist.cur, info.g).forEach(function (p){ now += p.dur; span += p.dur * (p.speed || 1); });
     return { now: now, span: span };
   }
-  function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); syncOverlays(); drawCrop(); syncTrackBox(); }
+  function layoutTextLayer(){ layoutTextLayerBase(); layoutPicture(); syncStickers(); syncOverlays(); drawCrop(); syncTrackBox(); syncHandles(); }
   function layoutTextLayerBase(){
-    var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe, E.ui.stickerlayer, E.ui.overlaylayer, E.ui.croplayer]; if (!boxes[0]) return;
+    var m = E.hooks && E.hooks.movie, st = E.ui.stage, boxes = [E.ui.textlayer, E.ui.picframe, E.ui.stickerlayer, E.ui.overlaylayer, E.ui.croplayer, E.ui.handles].filter(Boolean); if (!boxes[0]) return;
     var sw = st.clientWidth, sh = st.clientHeight, vw = m && m.videoWidth, vh = m && m.videoHeight;
     if (m && E.curAsset && E.curAsset !== 'movie' && E.frameDims) { vw = E.frameDims.w; vh = E.frameDims.h; } else if (vw && vh) E.frameDims = { w: vw, h: vh };   // an added video is fitted inside this frame
     var fr0 = frameAspect(); if (fr0){ vw = Math.round(fr0 * 1000); vh = 1000; }   // the frame has the chosen shape, not the movie's
@@ -3904,14 +3914,203 @@ crop: { title: 'Crop', build: function (body){
       if (an){
         var LW = layer.clientWidth || 320, LH = layer.clientHeight || 240;
         d.style.transformOrigin = '50% 50%'; d.style.opacity = shownText ? String(an.alpha) : '0';
-        d.style.transform = 'translate(' + (an.dx * LW) + 'px,' + (an.dy * LH) + 'px) rotate(' + an.rot + 'deg) scale(' + an.scale + ')';
-      } else { if (d.style.transform) d.style.transform = ''; if (d.style.opacity) d.style.opacity = ''; }
+        d.style.transform = 'translate(' + (an.dx * LW) + 'px,' + (an.dy * LH) + 'px) rotate(' + an.rot + 'deg) scale(' + an.scale + ')' + (c.rot ? ' rotate(' + c.rot + 'deg)' : '');
+      } else { var trn = c.rot ? 'rotate(' + c.rot + 'deg)' : ''; if (d.style.transform !== trn) d.style.transform = trn; if (d.style.opacity) d.style.opacity = ''; }
     });
     list.forEach(function (c){   // a tracked text is moved by its offset from the usual place
       var d = E.textEls[c.id], sh = NANIM ? NANIM.shiftOf(c, E.t - c.start) : null; if (!d || !sh || (!sh.x && !sh.y)) return;
       d.style.transform = 'translate(' + (sh.x * (layer.clientWidth || 320)) + 'px,' + (sh.y * (layer.clientHeight || 240)) + 'px) ' + (d.style.transform || '');
     });
     Object.keys(E.textEls).forEach(function (id){ if (!want[id]){ E.textEls[id].remove(); delete E.textEls[id]; } });
+  }
+
+  // ---------- moving things directly on the picture ----------
+  // One gesture layer over the preview, like CapCut:
+  //   text       drag it anywhere (stored as an offset dx / dy from Top / Middle / Bottom, which every renderer already understands)
+  //   text, stickers, overlays   the round handle on the box corner makes it bigger and turns it at once; two fingers pinch and twist the chosen one
+  //   the picture   two fingers pinch to zoom (and move); one finger moves it once it is zoomed in; a tap on the bare picture chooses it
+  // Each gesture shows its result live and leaves ONE undo step when the fingers lift. The maths is in anim.js (NakiAnim), which has tests.
+  var GP = { pts: {}, n: 0, seq: 0, drag: null, pinch: null, lock: false };   // fingers on the preview, the one-finger action, the two-finger action
+  var SIZE_RANGE = { text: [3, 30], sticker: [0.04, 0.9], overlay: [0.05, 1.5] };
+  function gpOn(){ return !!(E.isOpen && !E.cropOn && !E.eye && E.panel !== 'track'); }
+  function frameSize(){ var l = E.ui.handles; return { W: (l && l.clientWidth) || 320, H: (l && l.clientHeight) || 240 }; }
+  // What a gesture works on: the chosen text, sticker or overlay (if it shows right now), or the chosen picture clip.
+  function gestureTarget(){
+    var f = (E.sel && E.proj && E.proj.tracks) ? P.findClip(E.proj, E.sel) : null; if (!f || f.track.hidden) return null;
+    var c = f.clip, k = f.track.kind;
+    if (E.t < c.start || E.t >= c.start + c.dur) return null;
+    if (k === 'text' || k === 'sticker') return { kind: k, clip: c };
+    if (k === 'overlay') return (c.gen && c.gen.full) ? null : { kind: 'overlay', clip: c };
+    if (k === 'video' && f.track.role === 'movie' && (c.type === 'video' || c.type === 'freeze')) return { kind: 'picture', clip: c };
+    return null;
+  }
+  function pictureTarget(){
+    var s = (E.proj && E.proj.tracks) ? P.sourceAt(E.proj, E.t) : null, vc = s && s.video && s.video.clip;
+    return (vc && (vc.type === 'video' || vc.type === 'freeze')) ? { kind: 'picture', clip: vc } : null;
+  }
+  function shapeOf(tg){   // how big and how turned it is now
+    var c = tg.clip;
+    if (tg.kind === 'overlay'){ var s = NANIM.overlayState(c, relNow(c)); return { size: s.size, rot: s.rot }; }
+    return { size: c.size || (tg.kind === 'text' ? 7 : 0.2), rot: c.rot || 0 };
+  }
+  // The box a thing fills on the preview, before the pixel size of the frame is taken into account: { cx, cy, w, h, rot } in pixels of the gesture layer.
+  function boxOf(tg, W, H){
+    var c = tg.clip, rel = E.t - c.start, el, s;
+    if (tg.kind === 'text'){
+      var b = lookLib().titleBox(c, W, H), sh = NANIM.shiftOf(c, rel);
+      return { cx: b.cx + sh.x * W, cy: b.cy + sh.y * H, w: b.w, h: b.h, rot: c.rot || 0 };
+    }
+    if (tg.kind === 'sticker'){
+      el = E.stickerEls && E.stickerEls[c.id]; if (!el) return null;
+      return { cx: NANIM.valueOf(c, 'sticker', 'x', rel) * W, cy: NANIM.valueOf(c, 'sticker', 'y', rel) * H, w: el.offsetWidth, h: el.offsetHeight, rot: c.rot || 0 };
+    }
+    el = E.overlayEls && E.overlayEls[c.id]; if (!el) return null; el = el._cv || el; s = NANIM.overlayState(c, rel);
+    return { cx: s.x * W, cy: s.y * H, w: el.offsetWidth, h: el.offsetHeight, rot: s.rot };
+  }
+  // The new size and turn of a text / sticker / overlay, as a changed project. Text and sticker turns are fixed values; an overlay's size and turn can have keyframes.
+  function setShape(tg, size, rot, base){
+    var c = tg.clip, rg = SIZE_RANGE[tg.kind], z = Math.max(rg[0], Math.min(rg[1], size)), r = NANIM.wrapDeg(rot), rel = relNow(c), q;
+    if (tg.kind === 'text') return P.setTextProps(base, c.id, { size: Math.round(z * 10) / 10, rot: r });
+    if (tg.kind === 'sticker') return P.setStickerProps(base, c.id, { size: z, rot: r });
+    q = P.setAnimated(base, c.id, 'size', z, rel); return P.setAnimated(q, c.id, 'rot', r, rel);
+  }
+  // The centre guides: a thin line shows while something sits exactly in the middle of the frame.
+  function guide(axis, on){
+    var lay = E.ui.handles; if (!lay) return;
+    var key = axis === 'x' ? 'gv' : 'gh', el = E.ui[key];
+    if (!el){
+      el = E.ui[key] = mk('i');
+      el.style.cssText = 'position:absolute;background:#ff9f1c;pointer-events:none;display:none;' + (axis === 'x' ? 'left:50%;top:0;bottom:0;width:1px' : 'top:50%;left:0;right:0;height:1px');
+      lay.appendChild(el);
+    }
+    el.style.display = on ? 'block' : 'none';
+  }
+  function gSnap(v, axis){ var s = NANIM.snapTo(v, [0.5], 0.012); guide(axis, s.hit); return s.v; }
+  // The box and the round handle around the chosen text / sticker / overlay (not while playing, not in crop or tracking).
+  function syncHandles(){
+    var lay = E.ui && E.ui.handles; if (!lay || !E.proj || !E.proj.tracks) return;
+    var tg = (gpOn() && !E.playing) ? gestureTarget() : null, fs = frameSize(), bx = (tg && tg.kind !== 'picture') ? boxOf(tg, fs.W, fs.H) : null, el = E.ui.hbox;
+    if (!bx || !(bx.w > 0) || !(bx.h > 0)){ if (el) el.style.display = 'none'; return; }
+    if (!el){
+      el = E.ui.hbox = mk('div');
+      el.style.cssText = 'position:absolute;box-sizing:border-box;border:1.5px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.55);pointer-events:none';
+      var hd = E.ui.hhandle = mk('i');
+      hd.style.cssText = 'position:absolute;right:-16px;bottom:-16px;width:32px;height:32px;box-sizing:border-box;border-radius:50%;background:#ff9f1c;border:2px solid #fff;box-shadow:0 1px 4px rgba(0,0,0,.5);pointer-events:auto;touch-action:none;cursor:nwse-resize';
+      hd.setAttribute('aria-label', 'Drag to resize and turn'); hd.addEventListener('pointerdown', handleDown);
+      el.appendChild(hd); lay.appendChild(el);
+    }
+    el.style.display = 'block'; el.style.left = (bx.cx - bx.w / 2 - 4) + 'px'; el.style.top = (bx.cy - bx.h / 2 - 4) + 'px';
+    el.style.width = (bx.w + 8) + 'px'; el.style.height = (bx.h + 8) + 'px'; el.style.transform = 'rotate(' + bx.rot + 'deg)';
+  }
+  // The round handle: drag it away from the middle to make the thing bigger, around the middle to turn it.
+  function handleDown(ev){
+    var tg = gestureTarget(), lay = E.ui.handles; if (!tg || tg.kind === 'picture' || !lay) return;
+    ev.preventDefault(); ev.stopPropagation();
+    var fs = frameSize(), bx = boxOf(tg, fs.W, fs.H); if (!bx) return;
+    var r = lay.getBoundingClientRect(), cen = { x: r.left + bx.cx, y: r.top + bx.cy }, p0 = { x: ev.clientX, y: ev.clientY }, sh0 = shapeOf(tg), st = { moved: false };
+    function at(e){ var k = NANIM.scaleRotate(cen, p0, { x: e.clientX, y: e.clientY }); return setShape(tg, sh0.size * k.scale, NANIM.snapRot(sh0.rot + k.dRot).rot, E.hist.cur); }
+    GP.drag = { id: ev.pointerId,
+      move: function (e){ st.moved = true; live(at(e)); },
+      up: function (e, cancelled){ if (!st.moved) return; if (cancelled) live(E.hist.cur); else commit(at(e)); } };
+  }
+  // The text (if any) under a point of the screen, the one on top first.
+  function textHit(x, y){
+    var lay = E.ui.handles; if (!lay || !E.proj || !E.proj.tracks) return null;
+    var fs = frameSize(), r = lay.getBoundingClientRect(), list = P.textsAt(E.proj, E.t);
+    for (var i = list.length - 1; i >= 0; i--){
+      var c = list[i]; if (!String(c.text || '').trim()) continue;
+      var bx = boxOf({ kind: 'text', clip: c }, fs.W, fs.H);
+      if (bx && NANIM.pointInBox(x - r.left, y - r.top, bx, 8)) return c;
+    }
+    return null;
+  }
+  // Drag a text anywhere. It snaps to the middle of the frame, and keeps a keyframe when the text already moves over time.
+  function beginTextDrag(c, ev){
+    var id = c.id, fs = frameSize(), rel = relNow(c), sh0 = NANIM.shiftOf(c, rel), bb = lookLib().titleBox(c, fs.W, fs.H), x0 = ev.clientX, y0 = ev.clientY, st = { moved: false };
+    var tx = (fs.W / 2 - bb.cx) / fs.W, ty = (fs.H / 2 - bb.cy) / fs.H;
+    if (E.sel !== id){ E.sel = id; renderTimeline(); syncDock(); }
+    function at(e){
+      var sx = NANIM.snapTo(sh0.x + (e.clientX - x0) / fs.W, [tx], 6 / fs.W), sy = NANIM.snapTo(sh0.y + (e.clientY - y0) / fs.H, [ty], 6 / fs.H);
+      guide('x', sx.hit); guide('y', sy.hit);
+      return P.setAnimated(P.setAnimated(E.hist.cur, id, 'x', sx.v, rel), id, 'y', sy.v, rel);
+    }
+    GP.drag = { id: ev.pointerId,
+      move: function (e){ if (!st.moved && Math.sqrt(Math.pow(e.clientX - x0, 2) + Math.pow(e.clientY - y0, 2)) < 3) return; st.moved = true; live(at(e)); },
+      up: function (e, cancelled){ if (!st.moved) return; if (cancelled) live(E.hist.cur); else commit(at(e)); } };
+  }
+  // A finger lands on the picture area. This runs first (capture), before the sticker, overlay or handle that was touched gets it.
+  function stageDown(ev){
+    if (!gpOn() || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+    if (!GP.n){
+      GP.drag = null; GP.pinch = null; GP.lock = false;
+      window.addEventListener('pointermove', gpMove); window.addEventListener('pointerup', gpUp); window.addEventListener('pointercancel', gpUp);
+    }
+    GP.pts[ev.pointerId] = { x: ev.clientX, y: ev.clientY }; GP.n = Object.keys(GP.pts).length;
+    if (GP.n >= 2){   // a second finger: pinch and turn the chosen thing, if there is one
+      if (!GP.pinch && !GP.lock) beginPinch();
+      if (GP.pinch){ ev.preventDefault(); ev.stopPropagation(); } else GP.lock = true;
+      return;
+    }
+    if (ev.target === E.ui.hhandle) return;   // the round handle has its own listener
+    var hit = textHit(ev.clientX, ev.clientY);
+    if (hit){ ev.preventDefault(); ev.stopPropagation(); beginTextDrag(hit, ev); }
+  }
+  // A finger on the bare picture (nothing else took it): move the picture if it is chosen, choose it if it is not.
+  function stageBare(ev){
+    if (!gpOn() || GP.n !== 1 || GP.lock || GP.drag) return;
+    var pt = pictureTarget(); if (!pt) return;
+    ev.preventDefault();
+    var fs = frameSize(), c = pt.clip, wasSel = E.sel === c.id, rel = relNow(c), x0 = ev.clientX, y0 = ev.clientY, st = { moved: false }, t0 = NANIM.pictureTransform(c.transform, c.kf, rel);
+    function at(e){
+      var pan = NANIM.panFor(t0, t0.zoom, e.clientX - x0, e.clientY - y0, fs.W, fs.H);
+      return P.setAnimated(P.setAnimated(E.hist.cur, c.id, 'x', pan.x, rel), c.id, 'y', pan.y, rel);
+    }
+    GP.drag = { id: ev.pointerId,
+      move: function (e){
+        if (!wasSel || !(t0.zoom > 1)) return;
+        if (!st.moved && Math.sqrt(Math.pow(e.clientX - x0, 2) + Math.pow(e.clientY - y0, 2)) < 4) return;
+        st.moved = true; live(at(e));
+      },
+      up: function (e, cancelled){ if (st.moved){ if (cancelled) live(E.hist.cur); else commit(at(e)); } else if (!cancelled && !wasSel) select(c.id); } };
+  }
+  function beginPinch(){
+    var ids = Object.keys(GP.pts); if (ids.length < 2) return false;
+    var tg = gestureTarget() || (!E.sel ? pictureTarget() : null); if (!tg) return false;
+    GP.seq++; GP.drag = null; if (E.proj !== E.hist.cur) live(E.hist.cur);   // whatever the first finger was doing is dropped
+    var c = tg.clip, rel = relNow(c), pn = { tg: tg, ids: [ids[0], ids[1]], a0: { x: GP.pts[ids[0]].x, y: GP.pts[ids[0]].y }, b0: { x: GP.pts[ids[1]].x, y: GP.pts[ids[1]].y }, rel: rel, fs: frameSize(), moved: false };
+    if (tg.kind === 'picture') pn.t0 = NANIM.pictureTransform(c.transform, c.kf, rel); else pn.sh0 = shapeOf(tg);
+    GP.pinch = pn; return true;
+  }
+  // The project with the pinch applied to what it was when the second finger landed.
+  function pinchAt(){
+    var pn = GP.pinch, a1 = GP.pts[pn.ids[0]], b1 = GP.pts[pn.ids[1]]; if (!a1 || !b1) return E.hist.cur;
+    var k = NANIM.pinch(pn.a0, pn.b0, a1, b1), c = pn.tg.clip, q;
+    if (pn.tg.kind === 'picture'){   // zoom (the picture only turns in quarter turns, so the twist is not used) and move
+      var z = Math.max(1, Math.min(4, pn.t0.zoom * k.scale));
+      q = P.setAnimated(E.hist.cur, c.id, 'zoom', z, pn.rel);
+      if (z > 1){ var pan = NANIM.panFor(pn.t0, z, k.dx, k.dy, pn.fs.W, pn.fs.H); q = P.setAnimated(P.setAnimated(q, c.id, 'x', pan.x, pn.rel), c.id, 'y', pan.y, pn.rel); }
+      return q;
+    }
+    return setShape(pn.tg, pn.sh0.size * k.scale, NANIM.snapRot(pn.sh0.rot + k.dRot).rot, E.hist.cur);
+  }
+  function gpMove(e){
+    var pt = GP.pts[e.pointerId]; if (!pt) return;
+    pt.x = e.clientX; pt.y = e.clientY;
+    if (GP.pinch){ GP.pinch.moved = true; live(pinchAt()); return; }
+    if (GP.drag && GP.drag.id === e.pointerId && !GP.lock) GP.drag.move(e);
+  }
+  function gpUp(e){
+    var pt = GP.pts[e.pointerId]; if (!pt) return;
+    var cancelled = e.type === 'pointercancel'; pt.x = e.clientX; pt.y = e.clientY;
+    if (GP.pinch && GP.pinch.ids.indexOf(String(e.pointerId)) >= 0){
+      var q = (GP.pinch.moved && !cancelled) ? pinchAt() : null; GP.pinch = null; GP.lock = true;
+      if (q) commit(q); else if (E.proj !== E.hist.cur) live(E.hist.cur);
+    } else if (GP.drag && GP.drag.id === e.pointerId){ var d = GP.drag; GP.drag = null; d.up(e, cancelled); }
+    delete GP.pts[e.pointerId]; GP.n = Object.keys(GP.pts).length;
+    if (!GP.n){
+      window.removeEventListener('pointermove', gpMove); window.removeEventListener('pointerup', gpUp); window.removeEventListener('pointercancel', gpUp);
+      GP.drag = null; GP.pinch = null; GP.lock = false; guide('x', false); guide('y', false);
+    }
   }
 
   // ---------- zoom and position ----------
@@ -3993,7 +4192,7 @@ crop: { title: 'Crop', build: function (body){
     }
     renderTexts(P.textsAt(E.proj, E.t));
     syncBackdrop(m);
-    syncStickers(); syncOverlays(); syncSfx(s); syncFx(); syncTransition(m, s, vc); syncScopes(); syncLayout(m, photo ? null : vc, css); syncGrade(m, photo ? null : vc, css);
+    syncStickers(); syncOverlays(); syncHandles(); syncSfx(s); syncFx(); syncTransition(m, s, vc); syncScopes(); syncLayout(m, photo ? null : vc, css); syncGrade(m, photo ? null : vc, css);
     var ms = null, vo = null, mu = null;
     s.audio.forEach(function (a){ if (a.role === 'movieSound') ms = a; else if (a.role === 'voice') vo = a; else if (a.role === 'music') mu = a; });
     h.setMovieGain(ms && !ms.clip.reverse ? ms.gain : 0);

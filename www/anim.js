@@ -252,9 +252,54 @@ function simplifyKf(pts, tol) {
   }
   return pts.filter(function (_, i) { return keep[i]; });
 }
-var api = { OVERLAY: OVERLAY, PICTURE: PICTURE, RANGE: RANGE, kfValue: kfValue, valueOf: valueOf, overlayState: overlayState, pictureTransform: pictureTransform,
+// ---------- gestures: the maths behind dragging, resizing and turning things on the picture ----------
+  // Angles are degrees, screen style (y points down, a positive turn goes clockwise, like CSS rotate()).
+  function wrapDeg(a) { a = ((+a || 0) % 360 + 360) % 360; return a > 180 ? a - 360 : a; }   // into (-180, 180]
+  // The nearest of some target numbers within tol, else the number itself: { v, hit }.
+  function snapTo(v, targets, tol) {
+    var best = null;
+    for (var i = 0; i < targets.length; i++) { var d = Math.abs(v - targets[i]); if (d <= tol && (best === null || d < best.d)) best = { t: targets[i], d: d }; }
+    return best ? { v: best.t, hit: true } : { v: v, hit: false };
+  }
+  var ROT_SNAPS = [-180, -135, -90, -45, 0, 45, 90, 135, 180];
+  // A turn that is within tol degrees of a straight or a diagonal position clicks onto it.
+  function snapRot(rot, tol) { var s = snapTo(wrapDeg(rot), ROT_SNAPS, tol == null ? 4 : tol); return { rot: wrapDeg(s.v), hit: s.hit }; }
+  // Is the point (x, y) inside a box { cx, cy, w, h, rot } (centre, size, turn), with pad extra pixels around it?
+  function pointInBox(x, y, b, pad) {
+    var a = -(b.rot || 0) * Math.PI / 180, dx = x - b.cx, dy = y - b.cy, c = Math.cos(a), s = Math.sin(a), lx = dx * c - dy * s, ly = dx * s + dy * c;
+    pad = pad || 0;
+    return Math.abs(lx) <= b.w / 2 + pad && Math.abs(ly) <= b.h / 2 + pad;
+  }
+  // Where the bottom-right corner of a turned box is.
+  function handlePos(b) {
+    var a = (b.rot || 0) * Math.PI / 180, c = Math.cos(a), s = Math.sin(a);
+    return { x: b.cx + (b.w / 2) * c - (b.h / 2) * s, y: b.cy + (b.w / 2) * s + (b.h / 2) * c };
+  }
+  // Dragging a corner handle from p0 to p1 around the box centre: how much bigger (scale) and how far turned (dRot) the thing gets.
+  function scaleRotate(center, p0, p1) {
+    var ax = p0.x - center.x, ay = p0.y - center.y, bx = p1.x - center.x, by = p1.y - center.y, r0 = Math.sqrt(ax * ax + ay * ay), r1 = Math.sqrt(bx * bx + by * by);
+    if (r0 < 4) return { scale: 1, dRot: 0 };
+    return { scale: r1 / r0, dRot: wrapDeg((Math.atan2(by, bx) - Math.atan2(ay, ax)) * 180 / Math.PI) };
+  }
+  // Two fingers that were at a0, b0 and are now at a1, b1: the pinch (scale), the twist (dRot) and how far the middle between them moved (dx, dy).
+  function pinch(a0, b0, a1, b1) {
+    var d0 = Math.sqrt(Math.pow(b0.x - a0.x, 2) + Math.pow(b0.y - a0.y, 2)), d1 = Math.sqrt(Math.pow(b1.x - a1.x, 2) + Math.pow(b1.y - a1.y, 2));
+    var g0 = Math.atan2(b0.y - a0.y, b0.x - a0.x), g1 = Math.atan2(b1.y - a1.y, b1.x - a1.x);
+    return { scale: d0 > 4 ? d1 / d0 : 1, dRot: d0 > 4 && d1 > 4 ? wrapDeg((g1 - g0) * 180 / Math.PI) : 0,
+      dx: (a1.x + b1.x) / 2 - (a0.x + b0.x) / 2, dy: (a1.y + b1.y) / 2 - (a0.y + b0.y) / 2 };
+  }
+  // The pan (x, y, each -1 to 1) of a picture clip when its picture is moved dxPx / dyPx pixels from where t0 { zoom, x, y } had it, now at zoom z1,
+  // in a W x H frame. Same maths as the preview's CSS (the picture moves by -x * (zoom - 1) / 2 of the frame). At zoom 1 there is nothing to move.
+  function panFor(t0, z1, dxPx, dyPx, W, H) {
+    if (!(z1 > 1)) return { x: 0, y: 0 };
+    var z0 = t0.zoom || 1, sx = -(t0.x || 0) * (z0 - 1) * 0.5 * W + dxPx, sy = -(t0.y || 0) * (z0 - 1) * 0.5 * H + dyPx, k = (z1 - 1) * 0.5;
+    function lim(v) { return Math.max(-1, Math.min(1, v)); }
+    return { x: lim(-sx / (k * W)), y: lim(-sy / (k * H)) };
+  }
+  var api = { OVERLAY: OVERLAY, PICTURE: PICTURE, RANGE: RANGE, kfValue: kfValue, valueOf: valueOf, overlayState: overlayState, pictureTransform: pictureTransform,
     spanAt: spanAt, overlayRect: overlayRect, shiftKf: shiftKf, kfExpr: kfExpr,
-    EASES: EASES, cleanEase: cleanEase, bezierOf: bezierOf, easeName: easeName, easeProgress: easeProgress, subEase: subEase, sliceKf: sliceKf, insertKf: insertKf, bakeKf: bakeKf, makeTracker: makeTracker, findBlock: findBlock, smoothSeries: smoothSeries, simplifyKf: simplifyKf, LOST_ERR: LOST_ERR, shiftOf: shiftOf };
+    EASES: EASES, cleanEase: cleanEase, bezierOf: bezierOf, easeName: easeName, easeProgress: easeProgress, subEase: subEase, sliceKf: sliceKf, insertKf: insertKf, bakeKf: bakeKf, makeTracker: makeTracker, findBlock: findBlock, smoothSeries: smoothSeries, simplifyKf: simplifyKf, LOST_ERR: LOST_ERR, shiftOf: shiftOf,
+    wrapDeg: wrapDeg, snapTo: snapTo, snapRot: snapRot, pointInBox: pointInBox, handlePos: handlePos, scaleRotate: scaleRotate, pinch: pinch, panFor: panFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') { window.NakiAnim = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['anim.js'] = 'ease'; }
   return api;
