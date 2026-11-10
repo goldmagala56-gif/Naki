@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" class="booting">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -16,6 +16,42 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Naki">
 <title>Naki</title>
+<style id="splash-css">
+/* ---- launch screen + motion (Naki) ---- */
+html.booting body>*:not(#splash){visibility:hidden}
+#splash{position:fixed;inset:0;z-index:9999;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:20px;
+  background:radial-gradient(120% 90% at 50% 38%,#17242f 0%,#0c0d0f 62%);color:#f3eee3;transition:opacity .4s ease,transform .4s ease}
+#splash.out{opacity:0;transform:scale(1.05);pointer-events:none}
+#splash .sp-tile{width:116px;height:116px;display:block;filter:drop-shadow(0 20px 44px rgba(0,0,0,.6));animation:spTile .6s cubic-bezier(.2,.85,.25,1) both}
+.sp-n{transform-box:fill-box;transform-origin:50% 100%;animation:spN .6s .16s cubic-bezier(.2,.85,.25,1) both}
+.sp-dot{transform-box:fill-box;transform-origin:50% 50%;animation:spDot .65s .52s cubic-bezier(.3,1.7,.5,1) both,spBreath 1.8s 1.2s ease-in-out infinite}
+.sp-word{font:700 15px/1 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:.42em;text-indent:.42em;text-transform:uppercase;color:#cfd6dd;animation:spUp .5s .7s ease-out both}
+.sp-bar{position:relative;width:110px;height:3px;border-radius:3px;background:rgba(255,255,255,.08);overflow:hidden;animation:spFade .4s .9s both}
+.sp-bar i{position:absolute;top:0;bottom:0;width:42%;border-radius:3px;background:#ff9f1c;animation:spBar 1.25s .9s ease-in-out infinite}
+@keyframes spTile{from{opacity:0;transform:scale(.82)}to{opacity:1;transform:none}}
+@keyframes spN{from{opacity:0;transform:translateY(14%) scaleY(.82)}to{opacity:1;transform:none}}
+@keyframes spDot{from{opacity:0;transform:scale(0)}to{opacity:1;transform:scale(1)}}
+@keyframes spBreath{0%,100%{transform:scale(1)}50%{transform:scale(1.14)}}
+@keyframes spUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes spFade{from{opacity:0}to{opacity:1}}
+@keyframes spBar{0%{left:-45%}100%{left:105%}}
+/* the app comes in after the launch screen, and screens fade in instead of snapping */
+@keyframes appIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes viewIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes sheetIn{from{opacity:0;transform:translateY(22px) scale(.98)}to{opacity:1;transform:none}}
+html.entered main,html.entered .top{animation:appIn .5s ease-out both}
+html.entered .rail,html.entered .bottomnav{animation:fadeIn .5s ease-out both}
+#view-home:not([hidden]),#view-check:not([hidden]),#view-work:not([hidden]){animation:viewIn .26s ease-out}
+#editor:not([hidden]){animation:fadeIn .22s ease-out}
+.veil:not([hidden]),.modalWrap:not([hidden]){animation:fadeIn .2s ease-out}
+.veil:not([hidden]) .sheet,.modalWrap:not([hidden]) .modalCard{animation:sheetIn .28s cubic-bezier(.2,.85,.25,1)}
+@media (prefers-reduced-motion:reduce){
+  #splash *,#splash{animation:none!important;transition:opacity .2s!important}
+  html.entered main,html.entered .top,html.entered .rail,html.entered .bottomnav,#view-home,#view-check,#view-work,#editor,.veil,.sheet,.modalWrap,.modalCard{animation:none!important}
+}
+</style>
+
 <link rel="stylesheet" href="editor.css">
 <style>
 :root{
@@ -146,6 +182,35 @@ details.opts summary{cursor:pointer;font-weight:650;padding:10px 0}
 <link rel="stylesheet" href="newui.css">
 </head>
 <body>
+<div id="splash" role="status" aria-label="Loading Naki">
+  <svg class="sp-tile" viewBox="0 0 180 180" aria-hidden="true">
+    <rect width="180" height="180" rx="40" fill="#111b24"/>
+    <path class="sp-n" fill="#f3eee3" d="M42 138V44h31l37 52V44h30v94h-31L72 86v52z"/>
+    <circle class="sp-dot" cx="140" cy="45" r="14" fill="#ff9f1c"/>
+  </svg>
+  <div class="sp-word">Naki</div>
+  <div class="sp-bar"><i></i></div>
+</div>
+<script>
+/* launch screen: stays until the app is really ready (storage open, project list drawn, fonts loaded), never less than MIN ms, never more than MAX ms */
+(function(){
+  var t0 = Date.now(), MIN = 1200, MAX = 9000, homeReady = false, fontsReady = !(document.fonts && document.fonts.ready), gone = false;
+  var root = document.documentElement, el = document.getElementById('splash');
+  if (!fontsReady) document.fonts.ready.then(function(){ fontsReady = true; }, function(){ fontsReady = true; });
+  function finish(){
+    if (gone) return; gone = true;
+    root.classList.remove('booting'); root.classList.add('entered');
+    if (el) el.classList.add('out');
+    setTimeout(function(){ if (el && el.parentNode) el.parentNode.removeChild(el); root.classList.remove('entered'); }, 650);
+  }
+  window.nakiBooted = function(){ homeReady = true; };
+  (function check(){
+    var age = Date.now() - t0, restoring = window.nakiRestoring && window.S && window.S.view === 'home';
+    if (age > MAX || (homeReady && fontsReady && age > MIN && !restoring)) finish(); else setTimeout(check, 60);
+  })();
+})();
+</script>
+
 <nav class="rail" id="rail" aria-label="Main">
     <img class="logo" src="icon.svg" alt="Naki" onerror="this.remove()">
     <button class="nb" data-noskin data-go="home" aria-label="Home"><span data-ic="house"></span>Home</button>
@@ -2117,7 +2182,7 @@ $('bCover').onclick = function(){
 };
 
 placeThr();
-DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show('home'); return refreshHome(); });
+DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show('home'); return refreshHome(); }).then(function(){ if (window.nakiBooted) nakiBooted(); }, function(){ if (window.nakiBooted) nakiBooted(); });
 </script>
 <script>
 /* new interface: navigation, icons, project buttons, export sheet */
@@ -2370,6 +2435,7 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
 
   /* ---- start-up: refresh keeps you where you were ---- */
   var r = route();
+  window.nakiRestoring = !!(r && !r.settings);   // keeps the launch screen up until the project is open
   if (history.state && history.state.nk){ cur = history.state; }
   else {
     cur = mkState('home', null, 0, HOME); history.replaceState(cur, '', HOME);
@@ -2444,7 +2510,7 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
     if (r.settings) runCheck();
     else if (r.edit) openAndEdit(r.id);
     else openSaved(r.id);
-    setTimeout(function(){ if (S.view === 'home' && cur.k !== 'home') toBase(); }, 6000);
+    setTimeout(function(){ window.nakiRestoring = false; if (S.view === 'home' && cur.k !== 'home') toBase(); }, 6000);
   });
 
   // a refresh or closed tab during a recording would lose it
