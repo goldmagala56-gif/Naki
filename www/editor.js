@@ -1504,7 +1504,7 @@ crop: { title: 'Crop', build: function (body){
       } else if (g.kind === 'arrow') keys = [{ key: 'style', label: 'Style' }, { key: 'color', label: 'Colour' }, { key: 'thick', label: 'Thickness' }, { key: 'ar', label: 'Height' }, { key: 'curve', label: 'Curve' }];
       else if (g.kind === 'spotlight') keys = [{ key: 'shape', label: 'Shape' }, { key: 'size', label: 'Size' }, { key: 'stretch', label: 'Wide / tall' }, { key: 'dim', label: 'Darkness' }, { key: 'feather', label: 'Soft edge' },
         { key: 'cx', label: 'Left / right' }, { key: 'cy', label: 'Up / down' }, { key: 'rot', label: 'Turn' }];
-      else keys = [{ key: 'frame', label: 'Frame' }, { key: 'color', label: 'Colour' }, { key: 'width', label: 'Width' }, { key: 'opacity', label: 'Opacity' }];
+      else keys = [{ key: 'frame', label: 'Frame' }, { key: 'color', label: 'Colour' }, { key: 'width', label: 'Width' }, { key: 'opacity', label: 'Opacity' }, { key: 'anim', label: 'Animate' }];
       if (g.kind === 'shape' || g.kind === 'arrow') ['size', 'rot', 'opacity', 'x', 'y'].forEach(function (k){ keys.push({ key: k, label: KF_LABEL[k] }); });
       var cur = chipKey('genedit', keys, keys[0].key);
       body.appendChild(chips(keys, cur, pickChip('genedit')));
@@ -1542,6 +1542,11 @@ crop: { title: 'Crop', build: function (body){
       else if (kc === 'spotlight:cx') sg('Left / right', 'cx', 0, 100, 1);
       else if (kc === 'spotlight:cy') sg('Up / down', 'cy', 0, 100, 1);
       else if (kc === 'spotlight:rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(g.rot), deg, function (v){ live(gp({ rot: v })); }, function (v){ commit(gp({ rot: v })); }));
+      else if (kc === 'frame:anim'){
+        var fa = c.fanim || { key: 'none', speed: 'normal' };
+        body.appendChild(chips(P.FRAME_ANIMS, fa.key, function (k){ commit(P.setFrameAnim(E.hist.cur, c.id, k, fa.speed)); }));
+        if (fa.key !== 'none' && fa.key.indexOf('fade') !== 0) body.appendChild(chips([{ key: 'slow', label: 'Slow' }, { key: 'normal', label: 'Normal' }, { key: 'fast', label: 'Fast' }], fa.speed, function (k){ commit(P.setFrameAnim(E.hist.cur, c.id, fa.key, k)); }));
+      }
       else if (kc === 'frame:color') col('Colour', 'color', '#ffffff');
       else if (kc === 'frame:width') sg('Width', 'width', 2, 30, 1);
       else {   // size, turn, opacity and position of a shape or an arrow, and the opacity of a frame: with keyframes, like any overlay
