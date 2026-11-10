@@ -254,6 +254,82 @@ html[data-view="home"] .top .brand::before{content:"";width:30px;height:30px;bor
 .pj-menu button.danger{color:#ff7a88}
 .pj-menu svg{width:18px;height:18px}
 </style>
+<style id="work-css">
+/* ---- Project screen: player on one side, tools as cards on the other ---- */
+.vh{position:absolute!important;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+html[data-view="work"] .work{display:grid;gap:0;grid-template-columns:minmax(0,1fr);align-items:start}
+html[data-view="work"] .top{min-height:60px}
+.col-main{display:flex;flex-direction:column;gap:10px;padding:10px 14px 8px;position:sticky;top:60px;z-index:4;background:var(--ink)}
+.col-main .stage{margin:0;border-radius:18px;border:1px solid rgba(255,255,255,.08);box-shadow:0 18px 44px rgba(0,0,0,.45);align-self:auto;position:relative;top:auto}
+.col-main #movie{max-height:34vh;border-radius:0}
+.chip{backdrop-filter:blur(8px);background:rgba(12,13,15,.78);border:1px solid rgba(255,255,255,.1)}
+.count{background:rgba(12,13,15,.62);backdrop-filter:blur(4px)}
+/* player controls */
+.player{display:flex;flex-direction:column;gap:2px}
+.player .seekrow{gap:12px}
+.player .seekrow .num{font-size:12.5px;color:var(--dim);min-width:40px}
+.player .seekrow .num:last-child{text-align:right}
+.pl-ctl{display:flex;align-items:center;justify-content:center;gap:26px;padding:2px 0}
+.pl-btn{appearance:none;-webkit-appearance:none;border:0;background:none;color:var(--chalk);width:48px;height:48px;border-radius:50%;display:grid;place-items:center;position:relative;cursor:pointer;touch-action:manipulation;transition:background .12s,transform .08s}
+.pl-btn:hover{background:var(--panel-2)}
+.pl-btn:active{transform:scale(.92)}
+.pl-btn:disabled{opacity:.4;cursor:default}
+.pl-btn svg{width:30px;height:30px;grid-area:1/1}
+.pl-sub{grid-area:1/1;font-size:8px;font-weight:800;margin-top:1px;pointer-events:none;letter-spacing:-.02em}
+.pl-play{appearance:none;-webkit-appearance:none;border:0;width:58px;height:58px;border-radius:50%;background:var(--mango);color:var(--on-accent);display:grid;place-items:center;cursor:pointer;touch-action:manipulation;box-shadow:0 8px 22px rgba(46,230,214,.28);transition:transform .08s,filter .12s}
+.pl-play:hover{filter:brightness(1.08)}
+.pl-play:active{transform:scale(.94)}
+.pl-play:disabled{opacity:.4;cursor:default;box-shadow:none}
+.pl-play svg{width:28px;height:28px}
+/* sliders */
+#view-work input[type=range]{-webkit-appearance:none;appearance:none;background:transparent;height:24px;margin:0;cursor:pointer;--v:0%}
+#view-work input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:4px;background:linear-gradient(to right,var(--mango) var(--v),#3a3e46 var(--v))}
+#view-work input[type=range]::-moz-range-track{height:4px;border-radius:4px;background:#3a3e46}
+#view-work input[type=range]::-moz-range-progress{height:4px;border-radius:4px;background:var(--mango)}
+#view-work input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;height:16px;border-radius:50%;background:#fff;border:0;margin-top:-6px;box-shadow:0 1px 5px rgba(0,0,0,.55)}
+#view-work input[type=range]::-moz-range-thumb{width:16px;height:16px;border-radius:50%;background:#fff;border:0;box-shadow:0 1px 5px rgba(0,0,0,.55)}
+#view-work input[type=range]:disabled{opacity:.45;cursor:default}
+#view-work input[type=range]:focus-visible{outline:2px solid var(--mango);outline-offset:3px;border-radius:6px}
+/* side panel */
+.col-side.panel{background:var(--panel);border:0;border-top:1px solid var(--line);border-radius:22px 22px 0 0;margin-top:8px;padding:18px 16px calc(28px + env(safe-area-inset-bottom));min-height:0}
+.pcard{background:var(--panel-2);border:1px solid var(--line);border-radius:16px;padding:16px;margin:0 0 12px}
+.pcard .field{margin:0}
+.pcard .field label{font-size:14px}
+.pcard .hint{margin-top:10px}
+.pcard .check{background:var(--panel);margin:12px 0}
+.status{display:flex;align-items:center;gap:10px;margin:0;min-height:30px}
+.status .recdot{width:10px;height:10px;flex:none}
+.status #recTime{font-size:22px;font-weight:700;letter-spacing:-.01em}
+.status #recState{font-size:13px;line-height:1.3}
+.rec-wrap{display:flex;flex-direction:column;align-items:center;gap:8px;margin:16px 0 18px}
+.rec-wrap #bRec{width:84px;height:84px;transition:transform .1s,box-shadow .2s}
+.rec-wrap #bRec:hover{box-shadow:0 0 0 8px rgba(255,77,94,.14)}
+.rec-wrap #bRec:active{transform:scale(.94)}
+.pv-btn{min-height:48px;border-radius:12px;font-size:14px;padding:0 12px;display:inline-flex;align-items:center;justify-content:center;gap:8px;flex:none}
+.pv-main{width:100%;min-height:54px;font-size:16px;border-radius:14px;display:inline-flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
+.pv-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.pv-grid .pv-btn{width:100%;line-height:1.2;text-align:left;justify-content:flex-start}
+.pv-grid .pv-btn .lc{color:var(--dim)}
+.pv-home{display:block;margin:6px auto 0}
+.duckpreset{min-height:36px;padding:0 14px;font-size:13px;border-radius:999px;flex:none}
+details.pcard{padding:2px 16px}
+details.pcard summary{list-style:none;display:flex;justify-content:space-between;align-items:center;font-weight:650;font-size:14px;padding:14px 0;cursor:pointer}
+details.pcard summary::-webkit-details-marker{display:none}
+details.pcard summary::after{content:"";width:8px;height:8px;border-right:2px solid var(--dim);border-bottom:2px solid var(--dim);transform:rotate(45deg);margin-right:4px;transition:transform .15s}
+details.pcard[open] summary::after{transform:rotate(-135deg)}
+details.pcard[open]{padding-bottom:10px}
+details.pcard .stats{margin:2px 0 8px}
+.notice{border-radius:16px;margin-bottom:12px}
+@media (min-width:900px){
+  html[data-view="work"] .work{grid-template-columns:minmax(0,1fr) 380px}
+  .col-main{padding:22px 26px;gap:14px;background:transparent}
+  .col-main #movie{max-height:calc(100vh - 250px)}
+  .col-side.panel{border-top:0;border-left:1px solid var(--line);border-radius:0;margin:0;padding:22px;min-height:calc(100vh - 60px)}
+  .pl-ctl{gap:34px}
+  .pl-play{width:64px;height:64px}
+}
+@media (prefers-reduced-motion:reduce){.pl-btn,.pl-play,.rec-wrap #bRec{transition:none}}
+</style>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Naki">
@@ -356,67 +432,76 @@ html[data-view="home"] .top .brand::before{content:"";width:30px;height:30px;bor
   <!-- Studio and preview -->
   <section id="view-work" hidden>
     <div class="work">
-      <div class="stage" id="stage">
-        <video id="movie" playsinline preload="auto"></video>
-        <div id="chip" class="chip" hidden><b></b><span id="chipText"></span></div>
-        <div id="count" class="count" hidden></div>
-      </div>
-
-      <div class="panel">
-        <!-- Studio -->
-        <div id="studio">
+      <div class="col-main">
+        <div class="stage" id="stage">
+          <video id="movie" playsinline preload="auto"></video>
+          <div id="chip" class="chip" hidden><b></b><span id="chipText"></span></div>
+          <div id="count" class="count" hidden></div>
+        </div>
+        <!-- player controls: one set while recording a session, one while watching it back -->
+        <div id="trStudio" class="player">
           <div class="seekrow">
             <span id="tNow" class="num">0:00</span>
             <input id="seek" type="range" min="0" max="1000" value="0" aria-label="Movie position">
             <span id="tDur" class="num">0:00</span>
           </div>
-          <div class="status">
-            <span id="recDot" class="recdot"></span>
-            <span id="recTime" class="num">0:00</span>
-            <span id="recState" class="dim">Ready</span>
+          <div class="pl-ctl">
+            <button id="bBack" data-noskin type="button" class="pl-btn" aria-label="Back 10 seconds"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 103-6.7L3 8"/><path d="M3 3v5h5"/></svg><span class="pl-sub">10</span></button>
+            <button id="bPlay" data-noskin type="button" class="pl-play" aria-label="Play"><svg id="bPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+            <button id="bFwd" data-noskin type="button" class="pl-btn" aria-label="Forward 10 seconds"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 11-3-6.7L21 8"/><path d="M21 3v5h-5"/></svg><span class="pl-sub">10</span></button>
+            <span id="bPlayLabel" class="vh">Play</span>
           </div>
-          <div class="meter" aria-label="Microphone level"><div id="meterFill"></div><div id="meterThr"></div></div>
-          <div class="dim small" style="margin-top:4px">Speak to test the mic. The movie lowers when the bar passes the white line.</div>
-          <label hidden class="check" style="margin-top:14px"><input id="cRemember" type="checkbox" checked><span>Remember this movie on this device, so you don't have to choose it again next time (uses more storage)</span></label>
+        </div>
+        <div id="trPreview" class="player" hidden>
+          <div class="seekrow">
+            <span id="pNow" class="num">0:00</span>
+            <input id="pSeek" type="range" min="0" max="1000" value="0" aria-label="Session position">
+            <span id="pDur" class="num">0:00</span>
+          </div>
+          <div class="pl-ctl">
+            <button id="pPlay" data-noskin type="button" class="pl-play" aria-label="Play session"><svg id="pPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
+            <span id="pPlayLabel" class="vh">Play session</span>
+          </div>
+        </div>
+      </div>
 
-          <div class="icon-row">
-            <div class="icon-col">
-              <button id="bBack" class="icon-btn md" aria-label="Back 10 seconds"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1.3L6.3 6 12 10.7V7a5 5 0 11-4.9 6H4.9A7.1 7.1 0 1012 5z"/></svg></button>
-              <span class="icon-label">10s</span>
+      <div class="col-side panel">
+        <!-- Studio -->
+        <div id="studio">
+          <section class="pcard rec-card">
+            <div class="status">
+              <span id="recDot" class="recdot"></span>
+              <span id="recTime" class="num">0:00</span>
+              <span id="recState" class="dim">Ready</span>
             </div>
-            <div class="icon-col">
-              <button id="bPlay" data-noskin class="icon-btn lg accent" aria-label="Play"><svg id="bPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
-              <span id="bPlayLabel" class="icon-label">Play</span>
+            <div class="rec-wrap">
+              <button id="bRec" data-noskin type="button" class="icon-btn lg danger" aria-label="Record"><svg id="bRecIcon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6.2"/></svg></button>
+              <span id="bRecLabel" class="icon-label">Record</span>
+              <button id="bTakeBack" data-noskin type="button" class="btn pv-btn" hidden>Take back 5s</button>
             </div>
-            <div class="icon-col">
-              <button id="bFwd" class="icon-btn md" aria-label="Forward 10 seconds"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 5V1.3L17.7 6 12 10.7V7a5 5 0 104.9 6h2.2A7.1 7.1 0 1012 5z"/></svg></button>
-              <span class="icon-label">10s</span>
-            </div>
-          </div>
-          <div class="icon-col" style="margin:8px auto 4px">
-            <button id="bRec" data-noskin class="icon-btn lg danger" aria-label="Record"><svg id="bRecIcon" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="6.2"/></svg></button>
-            <span id="bRecLabel" class="icon-label">Record</span>
-          </div>
-          <div class="row wrap" style="justify-content:center;margin-top:2px">
-            <button id="bTakeBack" class="btn" hidden>Take back 5s</button>
-          </div>
+            <div class="meter" aria-label="Microphone level"><div id="meterFill"></div><div id="meterThr"></div></div>
+            <div class="dim small hint">Speak to test the mic. The movie lowers when the bar passes the white line.</div>
+            <label hidden class="check" style="margin-top:14px"><input id="cRemember" type="checkbox" checked><span>Remember this movie on this device, so you don't have to choose it again next time (uses more storage)</span></label>
+          </section>
 
-          <div class="field">
-            <label for="rVol">Movie volume <span id="volVal">100%</span></label>
-            <input id="rVol" type="range" min="0" max="100" value="100" style="width:100%">
-          </div>
+          <section class="pcard">
+            <div class="field">
+              <label for="rVol">Movie volume <span id="volVal">100%</span></label>
+              <input id="rVol" type="range" min="0" max="100" value="100" style="width:100%">
+            </div>
+          </section>
 
-          <details class="opts">
+          <details class="opts pcard">
             <summary>Sound options</summary>
             <label class="check"><input id="cDuck" type="checkbox" checked><span>Lower the movie when I speak</span></label>
             <div class="field">
               <label for="rDuck">Movie level while I speak <span id="duckVal">6%</span></label>
               <input id="rDuck" type="range" min="0" max="60" value="6" style="width:100%">
-              <div class="row wrap" style="margin-top:6px">
-                <button type="button" class="btn duckpreset" data-v="0">Mute</button>
-                <button type="button" class="btn duckpreset" data-v="6">Almost mute</button>
-                <button type="button" class="btn duckpreset" data-v="18">Light</button>
-                <button type="button" class="btn duckpreset" data-v="35">Subtle</button>
+              <div class="row wrap" style="margin-top:8px">
+                <button type="button" data-noskin class="btn duckpreset" data-v="0">Mute</button>
+                <button type="button" data-noskin class="btn duckpreset" data-v="6">Almost mute</button>
+                <button type="button" data-noskin class="btn duckpreset" data-v="18">Light</button>
+                <button type="button" data-noskin class="btn duckpreset" data-v="35">Subtle</button>
               </div>
             </div>
             <div class="field">
@@ -433,44 +518,47 @@ html[data-view="home"] .top .brand::before{content:"";width:30px;height:30px;bor
           <div id="needMovie" class="notice" hidden>
             <div>Choose the movie file for this session to watch it back.</div>
             <div id="needName" class="dim small" style="margin:4px 0 10px"></div>
-            <button id="bPickMovie" class="btn primary">Choose movie</button>
+            <button id="bPickMovie" data-noskin type="button" class="btn primary">Choose movie</button>
           </div>
-          <div class="seekrow">
-            <span id="pNow" class="num">0:00</span>
-            <input id="pSeek" type="range" min="0" max="1000" value="0" aria-label="Session position">
-            <span id="pDur" class="num">0:00</span>
-          </div>
-          <div class="icon-col" style="margin:8px auto 6px">
-            <button id="pPlay" data-noskin class="icon-btn lg accent" aria-label="Play session"><svg id="pPlayIcon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5.5v13l11-6.5z"/></svg></button>
-            <span id="pPlayLabel" class="icon-label">Play session</span>
-          </div>
-          <div class="field">
-            <label for="rOff">Voice timing <span id="offVal">0 ms</span></label>
-            <input id="rOff" type="range" min="-500" max="500" step="10" value="0" style="width:100%">
-          </div>
-          <div class="dim small">If your voice comes early or late against the pictures, move this until it matches.</div>
-          <dl id="pStats" class="stats"></dl>
-          <div class="row">
-            <button id="bAgain" class="btn">Record again</button>
-            <button id="bTakeBackHere" class="btn">Take back from here</button>
-            <button id="bEdit" class="btn primary">Edit video</button>
-            <button id="bCover" class="btn">Cover image</button>
-            <button id="bOpenExport" data-noskin class="btn"><span data-ic="download"></span>Export</button>
-            <button id="bHome" class="btn">Home</button>
-          </div>
-          <details class="opts">
+
+          <section class="pcard">
+            <button id="bEdit" data-noskin type="button" class="btn primary pv-main"><svg class="lc" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12"/></svg>Edit video</button>
+            <div class="pv-grid">
+              <button id="bOpenExport" data-noskin type="button" class="btn pv-btn"><svg class="lc" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Export</button>
+              <button id="bCover" data-noskin type="button" class="btn pv-btn"><svg class="lc" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg>Cover image</button>
+              <button id="bAgain" data-noskin type="button" class="btn pv-btn"><svg class="lc" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0014 0M12 18v4"/></svg>Record again</button>
+              <button id="bTakeBackHere" data-noskin type="button" class="btn pv-btn"><svg class="lc" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14L4 9l5-5"/><path d="M4 9h10a6 6 0 010 12h-3"/></svg>Take back from here</button>
+            </div>
+          </section>
+
+          <section class="pcard">
+            <div class="field">
+              <label for="rOff">Voice timing <span id="offVal">0 ms</span></label>
+              <input id="rOff" type="range" min="-500" max="500" step="10" value="0" style="width:100%">
+            </div>
+            <div class="dim small hint">If your voice comes early or late against the pictures, move this until it matches.</div>
+          </section>
+
+          <details class="opts pcard">
+            <summary>Session details</summary>
+            <dl id="pStats" class="stats"></dl>
+          </details>
+
+          <details class="opts pcard">
             <summary>Advanced (not needed for normal use)</summary>
             <p class="dim small">These are extra tools for troubleshooting and for computer-based export. Most people never need this section.</p>
-            <div class="row"><button id="dAll" class="btn">Save plan and voice files</button></div>
+            <div class="row"><button id="dAll" data-noskin class="btn">Save plan and voice files</button></div>
             <p class="dim small">For the separate computer export tool (see the README in tools/export). Downloads two raw files, not a video.</p>
             <div class="row wrap">
-              <button id="dVoice" class="btn">Download voice only</button>
-              <button id="dSess" class="btn">Download session data</button>
-              <button id="dPlan" class="btn">Download export plan (data file)</button>
+              <button id="dVoice" data-noskin class="btn">Download voice only</button>
+              <button id="dSess" data-noskin class="btn">Download session data</button>
+              <button id="dPlan" data-noskin class="btn">Download export plan (data file)</button>
             </div>
-            <div class="row"><button id="bBackup" class="btn">Back up this project (.naki file)</button></div>
-            <div class="row"><button id="bReport" class="btn">Copy test report</button></div>
+            <div class="row"><button id="bBackup" data-noskin class="btn">Back up this project (.naki file)</button></div>
+            <div class="row"><button id="bReport" data-noskin class="btn">Copy test report</button></div>
           </details>
+
+          <button id="bHome" data-noskin type="button" class="hm-link pv-home">Back to Home</button>
         </div>
       </div>
     </div>
@@ -779,6 +867,8 @@ function setMode(m){
   S.mode = m;
   $('studio').hidden = (m !== 'studio');
   $('preview').hidden = (m !== 'preview');
+  $('trStudio').hidden = (m !== 'studio');
+  $('trPreview').hidden = (m !== 'preview');
   updateChip();
 }
 function updateChip(){
@@ -1026,6 +1116,7 @@ function updateStudioUI(){
   var pLabel = $('bPlayLabel'); if (pLabel) pLabel.textContent = el.movie.paused ? 'Play' : 'Pause';
   var rIcon = $('bRecIcon'); if (rIcon) rIcon.innerHTML = on ? ICON_STOP : ICON_RECORD;
   var rBtn = $('bRec'); if (rBtn) rBtn.setAttribute('aria-label', on ? 'Stop' : 'Record');
+  var rLabel = $('bRecLabel'); if (rLabel) rLabel.textContent = on ? 'Stop' : 'Record';
   $('bTakeBack').hidden = !on;
   $('seek').disabled = on;
   $('recDot').className = 'recdot' + (on ? ' on' : '');
@@ -2524,6 +2615,20 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
   };
   icons(); window.markNav(S.view); document.documentElement.setAttribute('data-view', S.view);
   new MutationObserver(icons).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+<script>
+/* sliders on the project screen: paint the filled part of the track */
+(function(){
+  var ids = ['seek', 'pSeek', 'rVol', 'rDuck', 'rThr', 'rOff'];
+  setInterval(function(){
+    if (!window.S || S.view !== 'work') return;
+    ids.forEach(function(id){
+      var r = document.getElementById(id); if (!r || r.offsetParent === null) return;
+      var mn = +r.min || 0, mx = +r.max || 100, v = mx > mn ? (r.value - mn) / (mx - mn) * 100 : 0, t = v.toFixed(1) + '%';
+      if (r.style.getPropertyValue('--v') !== t) r.style.setProperty('--v', t);
+    });
+  }, 100);
 })();
 </script>
 <script>
