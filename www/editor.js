@@ -1457,7 +1457,8 @@ crop: { title: 'Crop', build: function (body){
       (NSFX ? NSFX.LIST : []).forEach(function (x){ var c = x.cat || 'Other'; if (!seenCat[c]){ seenCat[c] = 1; cats.push({ key: c, label: c }); } });
       var catNow = chipKey('sfxpick', cats, 'all');
       body.appendChild(chips(cats, catNow, pickChip('sfxpick')));
-      (NSFX ? NSFX.LIST : []).forEach(function (x){ if (catNow !== 'all' && (x.cat || 'Other') !== catNow) return; var b = btn(null, x.label, 'ed-chip'); b.onclick = function (){ addSfxBuiltin(x.key); }; g.appendChild(b); });
+      body.appendChild(actions([{ id: 'edSfxPrev', label: E.chip.sfxPrev ? 'Listen first: on (tap again to add)' : 'Listen first: off', on: !!E.chip.sfxPrev, run: function (){ E.chip.sfxPrev = !E.chip.sfxPrev; E.chip.sfxLast = null; renderDock(); } }]));
+      (NSFX ? NSFX.LIST : []).forEach(function (x){ if (catNow !== 'all' && (x.cat || 'Other') !== catNow) return; var b = btn(null, x.label, 'ed-chip'); b.onclick = function (){ if (E.chip.sfxPrev && NSFX && NSFX.preview && E.chip.sfxLast !== x.key){ E.chip.sfxLast = x.key; NSFX.preview(x.key); toast('Tap again to add it.'); return; } E.chip.sfxLast = null; addSfxBuiltin(x.key); }; g.appendChild(b); });
       body.appendChild(g);
       body.appendChild(actions([{ id: 'edSfxImport', label: 'Import your own sound', run: addSfxFromFile }]));
       body.appendChild(mk('div', 'ed-hint', 'Tap one to put it at the playhead. Drag it on the timeline to move it; under Clip you can change its volume and fades.'));
