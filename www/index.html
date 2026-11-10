@@ -345,26 +345,6 @@ details.pcard .stats{margin:2px 0 8px}
   <div class="sp-word">Naki</div>
   <div class="sp-bar"><i></i></div>
 </div>
-<script>
-/* launch screen: stays until the app is really ready (storage open, project list drawn, fonts loaded), never less than MIN ms, never more than MAX ms */
-(function(){
-  var t0 = Date.now(), MIN = 1200, MAX = 9000, homeReady = false, fontsReady = !(document.fonts && document.fonts.ready), gone = false;
-  var root = document.documentElement, el = document.getElementById('splash');
-  if (!fontsReady) document.fonts.ready.then(function(){ fontsReady = true; }, function(){ fontsReady = true; });
-  function finish(){
-    if (gone) return; gone = true;
-    root.classList.remove('booting'); root.classList.add('entered');
-    if (el) el.classList.add('out');
-    setTimeout(function(){ if (el && el.parentNode) el.parentNode.removeChild(el); root.classList.remove('entered'); }, 650);
-  }
-  window.nakiBooted = function(){ homeReady = true; };
-  (function check(){
-    var age = Date.now() - t0, restoring = window.nakiRestoring && window.S && window.S.view === 'home';
-    if (age > MAX || (homeReady && fontsReady && age > MIN && !restoring)) finish(); else setTimeout(check, 60);
-  })();
-})();
-</script>
-
 <nav class="rail" id="rail" aria-label="Main">
     <img class="logo" src="icon.svg" alt="Naki" onerror="this.remove()">
     <button class="nb" data-noskin data-go="home" aria-label="Home"><span data-ic="house"></span>Home</button>
@@ -632,6 +612,25 @@ details.pcard .stats{margin:2px 0 8px}
 <div id="toast" class="toast" hidden></div>
 
 <script src="core.js"></script>
+<script>
+/* launch screen: stays until the app is really ready (storage open, project list drawn, fonts loaded), never less than MIN ms, never more than MAX ms */
+(function(){
+  var t0 = Date.now(), MIN = 1200, MAX = 9000, homeReady = false, fontsReady = !(document.fonts && document.fonts.ready), gone = false;
+  var root = document.documentElement, el = document.getElementById('splash');
+  if (!fontsReady) document.fonts.ready.then(function(){ fontsReady = true; }, function(){ fontsReady = true; });
+  function finish(){
+    if (gone) return; gone = true;
+    root.classList.remove('booting'); root.classList.add('entered');
+    if (el) el.classList.add('out');
+    setTimeout(function(){ if (el && el.parentNode) el.parentNode.removeChild(el); root.classList.remove('entered'); }, 650);
+  }
+  window.nakiBooted = function(){ homeReady = true; };
+  (function check(){
+    var age = Date.now() - t0, restoring = window.nakiRestoring && window.S && window.S.view === 'home';
+    if (age > MAX || (homeReady && fontsReady && age > MIN && !restoring)) finish(); else setTimeout(check, 60);
+  })();
+})();
+</script>
 <script src="reverse.js"></script>
 <script src="look.js"></script>
 <script src="format.js"></script>
@@ -1492,15 +1491,15 @@ var MORE_SVG = '<svg viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy=
 var FILM_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="3"/><path d="M10 9.5l5 2.5-5 2.5z"/></svg>';
 function closePjMenu(){ var m = document.querySelector('.pj-menu'); if (m) m.remove(); document.removeEventListener('pointerdown', pjOutside, true); }
 function pjOutside(e){ var m = document.querySelector('.pj-menu'); if (m && !m.contains(e.target)) closePjMenu(); }
-function openPjMenu(btn, s){
+function openPjMenu(btn, acts){
   closePjMenu();
-  function item(ic, label, fn, danger){
-    return h('button', { type: 'button', role: 'menuitem', class: danger ? 'danger' : '', onclick: function(){ closePjMenu(); fn(); } }, h('span', { 'data-ic': ic, 'data-s': '18' }), label);
+  function item(ic, label, real, danger){
+    return h('button', { type: 'button', role: 'menuitem', class: danger ? 'danger' : '', onclick: function(){ closePjMenu(); real.click(); } }, h('span', { 'data-ic': ic, 'data-s': '18' }), label);
   }
   var m = h('div', { class: 'pj-menu', role: 'menu' },
-    item('pencil', 'Edit video', function(){ openAndEdit(s.id); }),
-    item('download', 'Back up', function(){ backupSaved(s); }),
-    item('trash-2', 'Delete', function(){ delSaved(s); }, true));
+    item('pencil', 'Edit video', acts.edit),
+    item('download', 'Back up', acts.backup),
+    item('trash-2', 'Delete', acts.del, true));
   document.body.appendChild(m);
   var r = btn.getBoundingClientRect(), w = m.offsetWidth, hh = m.offsetHeight;
   var left = Math.max(8, Math.min(window.innerWidth - w - 8, r.right - w)), top = r.bottom + 6;
@@ -1528,14 +1527,20 @@ function refreshHome(){
     if (cnt) cnt.textContent = all.length;
     all.forEach(function(s, i){
       var open = function(){ openSaved(s.id); };
-      var more = h('button', { class: 'mn', type: 'button', 'aria-label': 'More for ' + s.name, 'aria-haspopup': 'menu', onclick: function(e){ e.stopPropagation(); openPjMenu(more, s); } });
+      var acts = {
+        edit: h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Edit', onclick: function(){ openAndEdit(s.id); } }, h('span', { 'data-ic': 'pencil', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Edit'))),
+        backup: h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Back up', onclick: function(){ backupSaved(s); } }, h('span', { 'data-ic': 'download', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Back up'))),
+        del: h('button', { class: 'btn icon ghost', 'data-noskin': '', 'aria-label': 'Delete', onclick: function(){ delSaved(s); } }, h('span', { 'data-ic': 'trash-2', 'data-s': '18' }, h('span', { class: 'lbl' }, 'Delete')))
+      };
+      var more = h('button', { class: 'mn', type: 'button', 'aria-label': 'More for ' + s.name, 'aria-haspopup': 'menu', onclick: function(e){ e.stopPropagation(); openPjMenu(more, acts); } });
       more.innerHTML = MORE_SVG;
       list.appendChild(h('div', { class: 'pj' },
         h('div', { class: 'th g' + (i % 4) + (s.thumb ? ' has' : ''), 'data-sid': s.id, style: s.thumb ? 'background-image:url(' + s.thumb + ');background-size:cover;background-position:center' : '', role: 'button', tabindex: '0', 'aria-label': 'Open ' + s.name, onclick: open, onkeydown: function(e){ if (e.key === 'Enter' || e.key === ' '){ e.preventDefault(); open(); } } },
           s.status === 'stopped' ? null : h('span', { class: 'kind' }, 'Recovered'), h('span', { class: 'dur' }, fmt(s.durationMs || 0))),
         h('div', { class: 'pm' },
           h('div', { class: 't' }, h('b', null, s.name), h('span', null, new Date(s.created).toLocaleDateString())),
-          more)));
+          more),
+        h('div', { class: 'pj-acts', hidden: '' }, acts.edit, acts.backup, acts.del)));
     });
   }).catch(function(){ list.appendChild(h('p', { class: 'dim' }, 'Could not read saved sessions.')); });
 }
@@ -2636,6 +2641,9 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
    Screens (home, settings, project, editor, export sheet) each get a browser-history entry and a #/ address. */
 (function(){
   var cur, applying = false;
+  // address-bar updates can be refused (for example inside a sandboxed preview frame): fall back to no address, and never throw
+  function hPush(st, t, u){ try { history.pushState(st, t, u); } catch (e) { try { history.pushState(st, t); } catch (e2) {} } }
+  function hRep(st, t, u){ try { history.replaceState(st, t, u); } catch (e) { try { history.replaceState(st, t); } catch (e2) {} } }
   var HOME = location.pathname + location.search;
   function urlFor(k, id){
     if (k === 'check') return '#/settings';
@@ -2646,11 +2654,11 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
   function mkState(k, id, d, url){ return { nk: 1, k: k, id: id || null, d: d, url: url }; }
   function push(k, id, url){
     var u = url || urlFor(k, id);
-    cur = mkState(k, id, cur.d + 1, u); history.pushState(cur, '', u);
+    cur = mkState(k, id, cur.d + 1, u); hPush(cur, '', u);
   }
   function replace(k, id){
     var u = urlFor(k, id);
-    cur = mkState(k, id, cur.d, u); history.replaceState(cur, '', u);
+    cur = mkState(k, id, cur.d, u); hRep(cur, '', u);
   }
   function route(){
     var h = location.hash, m = /^#\/p\/([^\/]+)(\/edit)?$/.exec(h);
@@ -2665,7 +2673,7 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
   window.nakiRestoring = !!(r && !r.settings);   // keeps the launch screen up until the project is open
   if (history.state && history.state.nk){ cur = history.state; }
   else {
-    cur = mkState('home', null, 0, HOME); history.replaceState(cur, '', HOME);
+    cur = mkState('home', null, 0, HOME); hRep(cur, '', HOME);
     if (r){ // opened straight from a link: put Home underneath so Back still works
       if (r.settings) push('check'); else { push('work', r.id); if (r.edit) push('editor', r.id); }
     }
@@ -2688,7 +2696,7 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
   window.preparePreview = function(s){
     var res = _pp.apply(this, arguments);
     if (!applying && s && s.id && (cur.k === 'work' || cur.k === 'editor') && cur.id !== s.id){
-      var u = urlFor(cur.k, s.id); cur = mkState(cur.k, s.id, cur.d, u); history.replaceState(cur, '', u);
+      var u = urlFor(cur.k, s.id); cur = mkState(cur.k, s.id, cur.d, u); hRep(cur, '', u);
     }
     return res;
   };
@@ -2710,11 +2718,11 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
   /* ---- the Back / Forward buttons ---- */
   window.addEventListener('popstate', function(e){
     var prev = cur, st = e.state && e.state.nk ? e.state : null;
-    if (!st){ st = mkState('home', null, 0, HOME); history.replaceState(st, '', HOME); }
+    if (!st){ st = mkState('home', null, 0, HOME); hRep(st, '', HOME); }
     cur = st;
     var leaving = (st.k === 'home' || st.k === 'check' || st.k === 'import');
     if (S.rec && (S.rec.on || S.rec.starting) && S.view === 'work' && leaving){
-      toast('Stop the recording first.'); cur = prev; history.pushState(prev, '', prev.url || HOME); return;
+      toast('Stop the recording first.'); cur = prev; hPush(prev, '', prev.url || HOME); return;
     }
     applying = true;
     try {
@@ -2723,7 +2731,7 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
       });
       var want = st.k === 'check' ? 'check' : (st.k === 'home' || st.k === 'import') ? 'home' : 'work';
       if (want === 'work' && S.view !== 'work'){   // Forward into something that cannot be rebuilt: stay on Home
-        st = cur = mkState('home', null, 0, HOME); history.replaceState(cur, '', HOME); want = 'home';
+        st = cur = mkState('home', null, 0, HOME); hRep(cur, '', HOME); want = 'home';
       }
       if (S.view !== want){
         if (want === 'check') runCheck(); else $('btnBack').click();

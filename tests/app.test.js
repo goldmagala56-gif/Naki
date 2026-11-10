@@ -6,7 +6,7 @@ const read = (...p) => fs.readFileSync(path.join(root, ...p), 'utf8');
 let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ok  ' + name); };
 
 const html = read('www', 'index.html');
-const mainScript = html.match(/<script>([\s\S]*?)<\/script>/)[1];
+const mainScript = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]).sort((a, b) => b.length - a.length)[0];   // the biggest plain script is the app
 
 ok('index.html loads core.js before the app script', () => {
   assert(html.indexOf('<script src="core.js"></script>') > 0);
