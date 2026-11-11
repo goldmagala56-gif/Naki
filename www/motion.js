@@ -7,10 +7,19 @@
 var NakiMotion = (function () {
   var TEXT_IN = [{ key: 'none', label: 'None' }, { key: 'fade', label: 'Fade' }, { key: 'slideup', label: 'Slide up' }, { key: 'slidedown', label: 'Slide down' },
     { key: 'slideleft', label: 'From left' }, { key: 'slideright', label: 'From right' }, { key: 'pop', label: 'Pop' }, { key: 'bounce', label: 'Bounce' },
-    { key: 'spin', label: 'Spin' }, { key: 'typewriter', label: 'Typewriter' }];
+    { key: 'spin', label: 'Spin' }, { key: 'typewriter', label: 'Typewriter' },
+    { key: 'zoomin', label: 'Zoom in' }, { key: 'grow', label: 'Grow' }, { key: 'drop', label: 'Drop in' }, { key: 'riseup', label: 'Rise up' }, { key: 'swing', label: 'Swing' },
+    { key: 'tilt', label: 'Tilt' }, { key: 'whipleft', label: 'Whip left' }, { key: 'whipright', label: 'Whip right' }, { key: 'elastic', label: 'Elastic' }, { key: 'rubber', label: 'Rubber' },
+    { key: 'spinzoom', label: 'Spin + zoom' }, { key: 'spinright', label: 'Spin right' }, { key: 'flicker', label: 'Neon flicker' }, { key: 'glitch', label: 'Glitch' },
+    { key: 'shake', label: 'Shake' }, { key: 'reveal', label: 'Reveal' }];
   var TEXT_OUT = [{ key: 'none', label: 'None' }, { key: 'fade', label: 'Fade' }, { key: 'slideup', label: 'Slide up' }, { key: 'slidedown', label: 'Slide down' },
-    { key: 'slideleft', label: 'To left' }, { key: 'slideright', label: 'To right' }, { key: 'pop', label: 'Shrink' }, { key: 'typewriter', label: 'Erase' }];
-  var TEXT_LOOP = [{ key: 'none', label: 'None' }, { key: 'pulse', label: 'Pulse' }, { key: 'float', label: 'Float' }, { key: 'wiggle', label: 'Wiggle' }];
+    { key: 'slideleft', label: 'To left' }, { key: 'slideright', label: 'To right' }, { key: 'pop', label: 'Shrink' }, { key: 'typewriter', label: 'Erase' },
+    { key: 'zoomout', label: 'Zoom away' }, { key: 'collapse', label: 'Collapse' }, { key: 'drop', label: 'Fall' }, { key: 'flyup', label: 'Fly up' }, { key: 'whipleft', label: 'Whip left' },
+    { key: 'whipright', label: 'Whip right' }, { key: 'spinout', label: 'Spin away' }, { key: 'tiltout', label: 'Tilt away' }, { key: 'flicker', label: 'Neon off' },
+    { key: 'glitch', label: 'Glitch' }, { key: 'shake', label: 'Shake' }];
+  var TEXT_LOOP = [{ key: 'none', label: 'None' }, { key: 'pulse', label: 'Pulse' }, { key: 'float', label: 'Float' }, { key: 'wiggle', label: 'Wiggle' },
+    { key: 'heartbeat', label: 'Heartbeat' }, { key: 'hop', label: 'Hop' }, { key: 'swing', label: 'Swing' }, { key: 'shake', label: 'Shake' }, { key: 'breathe', label: 'Breathe' },
+    { key: 'neon', label: 'Neon flicker' }, { key: 'drift', label: 'Drift' }, { key: 'turn', label: 'Spin slow' }, { key: 'blink', label: 'Blink' }, { key: 'glitchloop', label: 'Glitch bursts' }];
   var PICTURE_PRESETS = [{ key: 'none', label: 'None' }, { key: 'zoomin', label: 'Zoom in' }, { key: 'zoomout', label: 'Zoom out' }, { key: 'pulse', label: 'Pulse' },
     { key: 'panright', label: 'Pan right' }, { key: 'panleft', label: 'Pan left' }];
   var OVERLAY_PRESETS = [{ key: 'none', label: 'None' }, { key: 'slideleft', label: 'From left' }, { key: 'slideright', label: 'From right' }, { key: 'slideup', label: 'From below' },
@@ -31,6 +40,10 @@ var NakiMotion = (function () {
   }
   function has(list, key) { return list.some(function (x) { return x.key === key; }); }
 
+  // helpers for the extra animations: a bouncy settle, a repeatable "random" number (the same every time, so preview and export agree), a short bump
+  function elasticOut(p) { return p <= 0 ? 0 : p >= 1 ? 1 : Math.pow(2, -10 * p) * Math.sin((p * 10 - 0.75) * (Math.PI * 2 / 3)) + 1; }
+  function jit(n) { var x = Math.sin(n * 127.1 + 311.7) * 43758.5453; return x - Math.floor(x); }
+  function bump(x, c, w) { var d = (x - c) / w; return Math.exp(-d * d); }
   // How long the in / out part lasts for a title that shows for durMs (never more than half of it).
   function phaseMs(an, which, dur) {
     var v = +an[which + 'Ms']; if (!(v > 0)) v = DEFAULT_MS;
@@ -47,6 +60,22 @@ var NakiMotion = (function () {
     else if (kind === 'bounce') { st.dy = -(1 - bounceOut(p)) * 0.15; st.alpha = Math.min(1, p * 5); }
     else if (kind === 'spin') { st.rot = -(1 - e) * 180; st.scale = Math.max(0.01, e); st.alpha = Math.min(1, p * 3); }
     else if (kind === 'typewriter') st.chars = p;
+    else if (kind === 'zoomin') { st.scale = 1 + (1 - e) * 2.2; st.alpha = Math.min(1, p * 3); }
+    else if (kind === 'grow') { st.scale = Math.max(0.01, e); st.alpha = Math.min(1, p * 3); }
+    else if (kind === 'drop') { st.dy = -(1 - bounceOut(p)) * 0.4; st.alpha = Math.min(1, p * 6); }
+    else if (kind === 'riseup') { st.dy = (1 - easeOutBack(p)) * 0.3; st.alpha = Math.min(1, p * 4); }
+    else if (kind === 'swing') { st.rot = -(1 - elasticOut(p)) * 30; st.alpha = Math.min(1, p * 4); }
+    else if (kind === 'tilt') { st.rot = (1 - e) * 14; st.dy = (1 - e) * 0.06; st.alpha = p; }
+    else if (kind === 'whipleft') { st.dx = -(1 - easeOutBack(p)) * 0.6; st.alpha = Math.min(1, p * 5); }
+    else if (kind === 'whipright') { st.dx = (1 - easeOutBack(p)) * 0.6; st.alpha = Math.min(1, p * 5); }
+    else if (kind === 'elastic') { st.scale = Math.max(0.01, elasticOut(p)); st.alpha = Math.min(1, p * 5); }
+    else if (kind === 'rubber') { st.scale = 1 + 0.5 * (1 - p) * Math.sin(p * 14); st.alpha = Math.min(1, p * 8); }
+    else if (kind === 'spinzoom') { st.rot = (1 - e) * 360; st.scale = Math.max(0.01, e); st.alpha = Math.min(1, p * 3); }
+    else if (kind === 'spinright') { st.rot = (1 - e) * 180; st.alpha = Math.min(1, p * 3); }
+    else if (kind === 'flicker') { st.alpha = p < 0.15 ? 0 : p > 0.8 ? 1 : (Math.sin(p * 47) + Math.sin(p * 29) > 0.4 ? 1 : 0.08); }
+    else if (kind === 'glitch') { var gj = jit(Math.floor(p * 14)); st.dx = p > 0.9 ? 0 : (gj - 0.5) * 0.08 * (1 - p); st.alpha = p > 0.9 ? 1 : (gj > 0.25 ? 1 : 0.3); }
+    else if (kind === 'shake') { st.dx = Math.sin(p * 40) * 0.04 * (1 - p); st.alpha = Math.min(1, p * 6); }
+    else if (kind === 'reveal') { st.chars = e; st.alpha = Math.min(1, p * 4); }
   }
   function applyOut(kind, q, st) {
     var e = q * q;
@@ -57,12 +86,33 @@ var NakiMotion = (function () {
     else if (kind === 'slideright') { st.alpha *= 1 - q; st.dx += e * 0.2; }
     else if (kind === 'pop') { st.scale *= Math.max(0.01, 1 - 0.6 * e); st.alpha *= 1 - q; }
     else if (kind === 'typewriter') st.chars = 1 - q;
+    else if (kind === 'zoomout') { st.scale *= 1 + e * 2.2; st.alpha *= 1 - q; }
+    else if (kind === 'collapse') { st.scale *= Math.max(0.01, 1 - e); st.alpha *= 1 - q * 0.5; }
+    else if (kind === 'drop') { st.dy += e * 0.4; st.alpha *= 1 - q; }
+    else if (kind === 'flyup') { st.dy += -e * 0.35; st.alpha *= 1 - q; }
+    else if (kind === 'whipleft') { st.dx += -e * 0.6; st.alpha *= 1 - e; }
+    else if (kind === 'whipright') { st.dx += e * 0.6; st.alpha *= 1 - e; }
+    else if (kind === 'spinout') { st.rot += e * 180; st.scale *= Math.max(0.01, 1 - e); }
+    else if (kind === 'tiltout') { st.rot += e * 25; st.dy += e * 0.1; st.alpha *= 1 - q; }
+    else if (kind === 'flicker') { st.alpha *= q > 0.85 ? 0 : q < 0.2 ? 1 : (Math.sin(q * 55) + Math.sin(q * 31) > 0.2 ? 1 : 0.08); }
+    else if (kind === 'glitch') { var oj = jit(Math.floor(q * 14) + 40); if (q > 0.9) st.alpha = 0; else if (q > 0.15) { st.dx += (oj - 0.5) * 0.08 * q; st.alpha *= oj > 0.25 ? 1 : 0.3; } }
+    else if (kind === 'shake') { st.dx += Math.sin(q * 40) * 0.04 * q; st.alpha *= 1 - e; }
   }
   function applyLoop(kind, rel, st) {
     var T = Math.PI * 2;
     if (kind === 'pulse') st.scale *= 1 + 0.06 * Math.sin(T * rel / 900);
     else if (kind === 'float') st.dy += 0.012 * Math.sin(T * rel / 1800);
     else if (kind === 'wiggle') st.rot += 3 * Math.sin(T * rel / 500);
+    else if (kind === 'heartbeat') { var hb = rel % 1100; st.scale *= 1 + 0.1 * (bump(hb, 120, 90) + 0.7 * bump(hb, 340, 90)); }
+    else if (kind === 'hop') st.dy -= 0.03 * Math.abs(Math.sin(Math.PI * rel / 700));
+    else if (kind === 'swing') st.rot += 8 * Math.sin(T * rel / 1600);
+    else if (kind === 'shake') st.dx += 0.006 * Math.sin(T * rel / 220);
+    else if (kind === 'breathe') { st.scale *= 1 + 0.04 * Math.sin(T * rel / 2600); st.alpha *= 0.9 + 0.1 * Math.sin(T * rel / 2600 + 1); }
+    else if (kind === 'neon') { if (Math.sin(rel / 37) + Math.sin(rel / 91) > 1.6) st.alpha *= 0.35; }
+    else if (kind === 'drift') { st.dx += 0.015 * Math.sin(T * rel / 3200); st.dy += 0.01 * Math.sin(T * rel / 2300 + 1); }
+    else if (kind === 'turn') st.rot += 360 * ((rel % 6000) / 6000);
+    else if (kind === 'blink') { if (rel % 1000 >= 650) st.alpha *= 0.15; }
+    else if (kind === 'glitchloop') { if (rel % 2000 < 160) { var lj = Math.floor(rel / 40); st.dx += (jit(lj) - 0.5) * 0.05; if (jit(lj + 9) < 0.3) st.alpha *= 0.35; } }
   }
   // How a title looks relMs after it appeared, when it shows for durMs: { alpha 0-1, dx and dy (fractions of the frame width / height), scale, rot (degrees), chars (0-1 of the text typed) }.
   function textState(an, relMs, durMs) {

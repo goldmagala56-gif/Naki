@@ -1874,7 +1874,7 @@ function keyframeProps(p, id){
   if (kind === 'overlay' && f.clip.gen && f.clip.gen.full) return [];   // a frame or a spotlight covers the picture: nothing to move
   if (kind === 'audio') return ['volume'];
   if (kind === 'sticker') return ['x', 'y'];   // a sticker can be keyframed in place (size and turn stay fixed)
-  if (kind === 'text') return [];             // a text only moves by tracking (no keyframe bar)
+  if (kind === 'text') return ['x', 'y'];   // a text moves by an offset from its usual place: keyframes on that offset (the same ones Track motion writes)             // a text only moves by tracking (no keyframe bar)
   return kind === 'overlay' ? ['x', 'y', 'size', 'rot', 'opacity'] : ['zoom', 'x', 'y'];
 }
 // The moments (ms since the clip started) that have a keyframe on any property; keyframes within a frame of each other count as one.

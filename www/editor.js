@@ -1292,7 +1292,13 @@ crop: { title: 'Crop', build: function (body){
       var c = selText(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a text on the timeline first.')); return; }
       var ti = mk('input', 'ed-textin'); ti.type = 'text'; ti.value = c.text || ''; ti.setAttribute('aria-label', 'Text');
       ti.oninput = function (){ live(P.setTextProps(E.hist.cur, c.id, { text: ti.value })); }; ti.onchange = function (){ commit(P.setTextProps(E.hist.cur, c.id, { text: ti.value })); };
-      body.appendChild(ti); body.appendChild(mk('div', 'ed-hint', 'Drag the text on the timeline to move it, or its ends to change how long it shows.'));
+      body.appendChild(ti);
+      var tkv = function (k){ return NANIM ? NANIM.valueOf(c, 'text', k, relNow(c)) : 0; }, tks = function (k, v){ return P.setAnimated(E.hist.cur, c.id, k, v, relNow(c)); };
+      [['x', 'Left / right'], ['y', 'Up / down']].forEach(function (a){
+        body.appendChild(sliderRow(a[1], -100, 100, 1, Math.round(tkv(a[0]) * 100), function (v){ return v + '%'; }, function (v){ live(tks(a[0], v / 100)); }, function (v){ commit(tks(a[0], v / 100)); }));
+      });
+      body.appendChild(mk('div', 'ed-hint', 'Move from the text\u2019s usual place. To animate: put the playhead on the text, tap the diamond, move the playhead, change a slider. The text glides between the keyframes. Tap Top, Middle or Bottom under Text style to put it back.'));
+      body.appendChild(mk('div', 'ed-hint', 'Drag the text on the timeline to move it, or its ends to change how long it shows.'));
     } },
     textstyle: { title: 'Text style', build: function (body){
       var c = selText(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a text on the timeline first.')); return; }

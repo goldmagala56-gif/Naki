@@ -77,7 +77,7 @@ ok('setTrackedPath works on overlays, stickers and texts; clearTrackedPath takes
   assert(P.splitAt(q1, 2000).tracks.filter(t => t.kind === 'sticker')[0].clips.every(x => x.kf && x.kf.x));
 
   const o2 = {}, qt = P.addTextClip(mkBase(), 5000, 3000, o2), q2 = P.setTrackedPath(qt, o2.id, { x: [[0, -0.2], [3000, 0.4]], y: [[0, 0], [3000, 0]] });
-  const tc = P.findClip(q2, o2.id).clip; near(NANIM.valueOf(tc, 'text', 'x', 500), -0.1, 1e-9); assert.deepStrictEqual(P.keyframeProps(q2, o2.id), []);
+  const tc = P.findClip(q2, o2.id).clip; near(NANIM.valueOf(tc, 'text', 'x', 500), -0.1, 1e-9); assert.deepStrictEqual(P.keyframeProps(q2, o2.id), ['x', 'y']);
   const tx = NP.projectToPlan(q2).texts[0]; assert(tx.kf && tx.kf.x.length === 2 && tx.kfT0 === 5000, 'the plan carries the text movement');
   near(NANIM.shiftOf(tx, 1500).x, 0.1, 1e-9);
   const cleared = P.clearTrackedPath(q2, o2.id, 0), cc = P.findClip(cleared, o2.id).clip; assert(!cc.kf && !cc.dx && !cc.dy, 'a text goes back to its usual place');
