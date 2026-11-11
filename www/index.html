@@ -426,6 +426,48 @@ details.pcard .stats{margin:2px 0 8px}
 }
 @media (prefers-reduced-motion:reduce){.ed .ed-btn,.ed .ed-ibtn,.ed .ed-tool,.ed .ed-tbtn,.ed .ed-chip{transition:none}}
 </style>
+<style id="curves-polish">
+/* ---- The three kinds of curve, each with its own look so they cannot be mistaken for one another ----
+   SPEED CURVE   amber and blue   how fast the clip plays, from its start to its end   (Edit > Curve)
+   COLOUR CURVE  the channel colour   how dark or bright each tone becomes             (Edit > Colour > Curves)
+   EASING        violet               how a change travels between two keyframes       (the easing graph)
+   Looks only: the graphs work exactly as before. */
+
+/* the label above each graph */
+.ed-pbody:has(> svg.ed-curve)::before,
+.ed-pbody:has(> svg[aria-label="Colour curve"])::before,
+.ed-easebox::before{display:block;white-space:pre-line;padding:9px 12px;border-radius:10px;font:600 11.5px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;letter-spacing:.01em}
+.ed-pbody:has(> svg.ed-curve)::before{content:"SPEED CURVE\A How fast the clip plays, from its start to its end. Above the dashed 1\00d7  line it plays faster, below it slower.";color:#ffd9a0;background:linear-gradient(#ffab2e,#4da3ff) left/3px 100% no-repeat,rgba(255,171,46,.08);padding-left:15px}
+.ed-pbody:has(> svg[aria-label="Colour curve"])::before{content:"COLOUR CURVE\A Along the bottom: the tone the picture has now (dark to bright). Up the side: what it becomes.";color:#dfe3e8;background:linear-gradient(#ff5a5a,#5adf7a,#5aa0ff) left/3px 100% no-repeat,rgba(255,255,255,.05);padding-left:15px}
+.ed-easebox::before{content:"EASING\A How the change travels from this keyframe to the next: steep = fast, flat = slow.";color:#d9ccff;background:linear-gradient(#a78bfa,#a78bfa) left/3px 100% no-repeat,rgba(167,139,250,.09);padding-left:15px}
+.ed-pbody:has(> svg.ed-curve)::before,.ed-pbody:has(> svg[aria-label="Colour curve"])::before{margin-bottom:2px}
+
+/* 1. speed curve: warm above the 1x line (faster), cool below it (slower) */
+.ed-pbody > svg.ed-curve{background:linear-gradient(to bottom,rgba(255,171,46,.10) 0 49.2%,rgba(77,163,255,.10) 49.2% 100%),#0b0c0e;border:1px solid rgba(255,171,46,.3)}
+svg.ed-curve .ed-cg{stroke:rgba(255,255,255,.07)}
+svg.ed-curve .ed-cg.one{stroke:rgba(255,255,255,.55);stroke-dasharray:5 4}
+svg.ed-curve .ed-ct{fill:#9aa3ae;font-size:9px;font-weight:600}
+svg.ed-curve .ed-cpath{stroke:#ffab2e;stroke-width:2.6;filter:drop-shadow(0 0 4px rgba(255,171,46,.55))}
+svg.ed-curve .ed-cdot{fill:#0b0c0e;stroke:#ffab2e;stroke-width:2.5}
+svg.ed-curve .ed-cdot.sel{fill:#ffab2e;stroke:#fff}
+
+/* 2. colour curve: square, with a dark-to-bright ramp along the bottom (the tone now) and up the side (the tone it becomes) */
+.ed-pbody > svg[aria-label="Colour curve"]{background:
+    linear-gradient(to right,#000,#fff) right 5% bottom 0.6%/90% 3.2% no-repeat,
+    linear-gradient(to top,#000,#fff) left 0.6% top 5%/3.2% 90% no-repeat,
+    #0b0c0e !important;border:1px solid #2a2d33;border-radius:10px !important;max-width:250px !important}
+svg[aria-label="Colour curve"] path{stroke-width:3;stroke-linecap:round;filter:drop-shadow(0 0 3px rgba(255,255,255,.35))}
+svg[aria-label="Colour curve"] circle[fill="#111b24"]{fill:#0b0c0e}
+svg[aria-label="Colour curve"] circle{stroke-width:2.5}
+
+/* 3. easing: violet, with the two handles drawn as lines to their dots */
+.ed-easebox svg.ed-ease{background:radial-gradient(120% 100% at 0% 100%,rgba(167,139,250,.14),transparent 70%),#0b0c0e;border:1px solid rgba(167,139,250,.35)}
+.ed-easebox svg.ed-ease .ed-ezbox{fill:none;stroke:rgba(167,139,250,.35)}
+.ed-easebox svg.ed-ease .ed-ezdiag{stroke:rgba(255,255,255,.25);stroke-dasharray:4 4}
+.ed-easebox svg.ed-ease .ed-ezh{stroke:#a78bfa;stroke-width:1.5}
+.ed-easebox svg.ed-ease .ed-ezpath{stroke:#c4b5fd;stroke-width:2.6;filter:drop-shadow(0 0 4px rgba(167,139,250,.6))}
+.ed-easebox svg.ed-ease .ed-ezdot{fill:#a78bfa;stroke:#fff;stroke-width:2}
+</style>
 </head>
 <body>
 <div id="splash" role="status" aria-label="Loading Naki">
