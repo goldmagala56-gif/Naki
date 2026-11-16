@@ -354,6 +354,7 @@ function applyTextPatch(clip, patch){
   ['text', 'size', 'color', 'pos', 'weight', 'bg'].forEach(function (k){ if (patch[k] !== undefined) clip[k] = patch[k]; });
   clip.size = r3(Math.max(3, Math.min(30, +clip.size || 7)));   // 3 to 30 (% of the picture height): the slider stays at 16, a pinch can go further
   if (patch.rot !== undefined){ var rt = Math.round((+patch.rot || 0) * 10) / 10; rt = Math.round((((rt % 360) + 540) % 360 - 180) * 10) / 10; if (Math.abs(rt) >= 0.05) clip.rot = rt; else delete clip.rot; }   // turn, -180 to 180, not stored when 0
+  if (patch.opacity !== undefined){ var opv = r3(Math.max(0, Math.min(1, +patch.opacity))); if (!isNaN(opv) && opv < 0.999) clip.opacity = opv; else delete clip.opacity; }
   ['dx', 'dy'].forEach(function (k){ if (patch[k] === undefined) return; var v = r3(Math.max(-1, Math.min(1, +patch[k] || 0))); if (v) clip[k] = v; else delete clip[k]; });   // moved by hand
   if (patch.font !== undefined){ if (patch.font && patch.font !== 'sans' && TEXT_FONTS.indexOf(patch.font) >= 0) clip.font = patch.font; else delete clip.font; }
   if (patch.outline !== undefined){ var o = r3(Math.max(0, Math.min(1, +patch.outline || 0))); if (o > 0) clip.outline = o; else delete clip.outline; }
@@ -1319,7 +1320,12 @@ function kfKind(tr){ return tr.kind === 'overlay' ? 'overlay' : tr.kind === 'sti
 function setStaticProp(c, kind, prop, v){
   if (kind === 'audio'){ c.volume = v; return; }
   if (kind === 'overlay' || kind === 'sticker'){ c[prop] = v; return; }
-  if (kind === 'text'){ var tk = prop === 'x' ? 'dx' : 'dy'; if (v) c[tk] = v; else delete c[tk]; return; }   // a text put back on its usual line stores nothing
+  if (kind === 'text'){
+    if (prop === 'size'){ c.size = v; return; }
+    if (prop === 'rot'){ if (Math.abs(v) >= 0.05) c.rot = v; else delete c.rot; return; }
+    if (prop === 'opacity'){ if (v < 0.999) c.opacity = v; else delete c.opacity; return; }
+    var tk = prop === 'x' ? 'dx' : 'dy'; if (v) c[tk] = v; else delete c[tk]; return;   // a text put back on its usual line stores nothing
+  }   // a text put back on its usual line stores nothing
   var t = Object.assign({ zoom: 1, x: 0, y: 0, rot: 0, flipH: false }, c.transform || {});   // same tidy-up as setTransform
   t[prop] = v; t.zoom = r3(Math.max(1, Math.min(4, +t.zoom || 1)));
   t.x = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.x || 0))); t.y = t.zoom === 1 ? 0 : r3(Math.max(-1, Math.min(1, +t.y || 0)));
@@ -1873,8 +1879,8 @@ function keyframeProps(p, id){
   var f = findClip(p, id), kind = f && kfKind(f.track); if (!kind || !_AN) return [];
   if (kind === 'overlay' && f.clip.gen && f.clip.gen.full) return [];   // a frame or a spotlight covers the picture: nothing to move
   if (kind === 'audio') return ['volume'];
-  if (kind === 'sticker') return ['x', 'y'];   // a sticker can be keyframed in place (size and turn stay fixed)
-  if (kind === 'text') return ['x', 'y'];   // a text moves by an offset from its usual place: keyframes on that offset (the same ones Track motion writes)             // a text only moves by tracking (no keyframe bar)
+  if (kind === 'sticker') return ['x', 'y', 'size', 'rot'];   // a sticker can be keyframed in place (size and turn stay fixed)
+  if (kind === 'text') return ['x', 'y', 'size', 'rot', 'opacity'];   // a text moves by an offset from its usual place: keyframes on that offset (the same ones Track motion writes)             // a text only moves by tracking (no keyframe bar)
   return kind === 'overlay' ? ['x', 'y', 'size', 'rot', 'opacity'] : ['zoom', 'x', 'y'];
 }
 // The moments (ms since the clip started) that have a keyframe on any property; keyframes within a frame of each other count as one.

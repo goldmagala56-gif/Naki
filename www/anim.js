@@ -6,7 +6,8 @@
 var NakiAnim = (function () {
   var OVERLAY = { x: 0.75, y: 0.25, size: 0.35, rot: 0, opacity: 1 };   // centre (fraction of the frame), width (fraction of the frame width), degrees, 0 to 1
   var PICTURE = { zoom: 1, x: 0, y: 0 };
-  var RANGE = { overlay: { x: [0, 1], y: [0, 1], size: [0.05, 1.5], rot: [-180, 180], opacity: [0, 1] }, picture: { zoom: [1, 4], x: [-1, 1], y: [-1, 1] }, audio: { volume: [0, 2] }, sticker: { x: [0, 1], y: [0, 1] }, text: { x: [-1, 1], y: [-1, 1] } };
+  var STICKER = { x: 0.5, y: 0.5, size: 0.2, rot: 0 };
+  var RANGE = { overlay: { x: [0, 1], y: [0, 1], size: [0.05, 1.5], rot: [-180, 180], opacity: [0, 1] }, picture: { zoom: [1, 4], x: [-1, 1], y: [-1, 1] }, audio: { volume: [0, 2] }, sticker: { x: [0, 1], y: [0, 1], size: [0.04, 0.9], rot: [-180, 180] }, text: { x: [-1, 1], y: [-1, 1], size: [3, 30], rot: [-180, 180], opacity: [0, 1] } };
 
   // ---------- easing: how a value travels from one keyframe to the next ----------
   // A keyframe can carry a third item that says how the value moves from IT to the NEXT keyframe: nothing = in a straight line; 'hold' = it stays
@@ -161,10 +162,25 @@ var NakiAnim = (function () {
     if (pts && pts.length) return fitVal(kind, prop, kfValue(pts, relMs));
     if (kind === 'audio') return c.volume != null ? c.volume : 1;
     if (kind === 'overlay') return c[prop] != null ? c[prop] : OVERLAY[prop];
-    if (kind === 'sticker') return c[prop] != null ? c[prop] : 0.5;
-    if (kind === 'text') return c[prop === 'x' ? 'dx' : 'dy'] || 0;   // a text moves by an offset from its usual place
+    if (kind === 'sticker') return c[prop] != null ? c[prop] : (STICKER[prop] != null ? STICKER[prop] : 0.5);
+    if (kind === 'text') { if (prop === 'x') return c.dx || 0; if (prop === 'y') return c.dy || 0; if (prop === 'size') return c.size || 7; if (prop === 'rot') return c.rot || 0; if (prop === 'opacity') return c.opacity != null ? c.opacity : 1; return 0; }   // a text moves by an offset from its usual place
     return c.transform && c.transform[prop] != null ? c.transform[prop] : PICTURE[prop];
   }
+  // A title that has size / turn / opacity keyframes (or a fixed opacity below 1) is drawn as its base picture, then scaled, turned and faded around its middle line.
+  function textHasLook(t) {
+    var kf = (t && t.kf) || {};
+    return !!((kf.size && kf.size.length) || (kf.rot && kf.rot.length) || (kf.opacity && kf.opacity.length) || (t && t.opacity != null && t.opacity < 0.999));
+  }
+  // { scale (against the title's own size), rot (the whole turn, in degrees), alpha } at relMs, or null when the title has none of those. When this is not null the base
+  // picture of the title must be drawn without its own fixed turn (rot 0), because rot here already holds it.
+  function textLook(t, relMs) {
+    if (!textHasLook(t)) return null;
+    var kf = t.kf || {}, has = function (k) { return kf[k] && kf[k].length; }, base = t.size > 0 ? t.size : 7;
+    var sz = has('size') ? fitVal('text', 'size', kfValue(kf.size, relMs)) : base, op = has('opacity') ? kfValue(kf.opacity, relMs) : (t.opacity != null ? t.opacity : 1);
+    return { scale: sz / base, rot: has('rot') ? kfValue(kf.rot, relMs) : (t.rot || 0), alpha: Math.max(0, Math.min(1, op)) };
+  }
+  // A sticker's x, y, size and turn at relMs.
+  function stickerState(s, relMs) { var o = {}; ['x', 'y', 'size', 'rot'].forEach(function (k) { o[k] = valueOf(s, 'sticker', k, relMs); }); return o; }
   function overlayState(o, relMs) {
     var s = {};
     ['x', 'y', 'size', 'rot', 'opacity'].forEach(function (k) { s[k] = valueOf(o, 'overlay', k, relMs); });
@@ -330,7 +346,7 @@ function simplifyKf(pts, tol) {
   var api = { OVERLAY: OVERLAY, PICTURE: PICTURE, RANGE: RANGE, kfValue: kfValue, valueOf: valueOf, overlayState: overlayState, pictureTransform: pictureTransform,
     spanAt: spanAt, overlayRect: overlayRect, shiftKf: shiftKf, kfExpr: kfExpr,
     EASES: EASES, EASE_GROUPS: EASE_GROUPS, YMIN: YMIN, YMAX: YMAX, cleanEase: cleanEase, bezierOf: bezierOf, easeName: easeName, easeProgress: easeProgress, subEase: subEase, sliceKf: sliceKf, insertKf: insertKf, bakeKf: bakeKf, makeTracker: makeTracker, findBlock: findBlock, smoothSeries: smoothSeries, simplifyKf: simplifyKf, LOST_ERR: LOST_ERR, shiftOf: shiftOf,
-    wrapDeg: wrapDeg, snapTo: snapTo, snapRot: snapRot, pointInBox: pointInBox, handlePos: handlePos, scaleRotate: scaleRotate, pinch: pinch, panFor: panFor };
+    textHasLook: textHasLook, textLook: textLook, stickerState: stickerState, wrapDeg: wrapDeg, snapTo: snapTo, snapRot: snapRot, pointInBox: pointInBox, handlePos: handlePos, scaleRotate: scaleRotate, pinch: pinch, panFor: panFor };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   if (typeof window !== 'undefined') { window.NakiAnim = api; window.NakiVersions = window.NakiVersions || {}; window.NakiVersions['anim.js'] = 'gesture'; }
   return api;

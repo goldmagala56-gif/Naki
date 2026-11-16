@@ -404,7 +404,7 @@ function zoomToSel(){
   }
   function placeHead(){ if (E.ui.head) E.ui.head.style.left = tx(E.t) + 'px'; if (E.meter) drawGrid(); }
   function readout(){
-    E.ui.time.textContent = fmtP(E.t) + ' / ' + fmtP(E.proj.durationMs); updateKfBar();
+    E.ui.time.textContent = fmtP(E.t) + ' / ' + fmtP(E.proj.durationMs); updateKfBar(); if (E.cvLive) E.cvLive();
     if (E.meter && E.ui.meterRead) E.ui.meterRead.textContent = precTime(E.t);
     if (E.proj.durationMs) E.ui.scrub.value = String(Math.round(E.t / E.proj.durationMs * 1000));
   }
@@ -1302,16 +1302,17 @@ crop: { title: 'Crop', build: function (body){
     } },
     textstyle: { title: 'Text style', build: function (body){
       var c = selText(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a text on the timeline first.')); return; }
-      var keys = [{ key: 'size', label: 'Size' }, { key: 'pos', label: 'Position' }, { key: 'rot', label: 'Turn' }, { key: 'color', label: 'Colour' }, { key: 'bg', label: 'Dark box' },
+      var keys = [{ key: 'size', label: 'Size' }, { key: 'pos', label: 'Position' }, { key: 'rot', label: 'Turn' }, { key: 'opacity', label: 'Opacity' }, { key: 'color', label: 'Colour' }, { key: 'bg', label: 'Dark box' },
         { key: 'font', label: 'Font' }, { key: 'outline', label: 'Outline' }, { key: 'shadow', label: 'Shadow' }], cur = chipKey('textstyle', keys, 'size');
       var pt = function (o){ return P.setTextProps(E.hist.cur, c.id, o); }, one = function (v){ var o = {}; o[cur] = v; return o; };
       body.appendChild(chips(keys, cur, pickChip('textstyle')));
-      if (cur === 'size') body.appendChild(sliderRow('Size', 3, 30, 1, Math.round(c.size || 7), function (v){ return v + '%'; }, function (v){ live(pt({ size: v })); }, function (v){ commit(pt({ size: v })); }));
-      else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(c.rot || 0), function (v){ return v + '\u00b0'; }, function (v){ live(pt({ rot: v })); }, function (v){ commit(pt({ rot: v })); }));
+      if (cur === 'size') body.appendChild(sliderRow('Size', 3, 30, 1, Math.round(NANIM.valueOf(c, 'text', 'size', relNow(c))), function (v){ return v + '%'; }, function (v){ live(P.setAnimated(E.hist.cur, c.id, 'size', v, relNow(c))); }, function (v){ commit(P.setAnimated(E.hist.cur, c.id, 'size', v, relNow(c))); }));
+      else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(NANIM.valueOf(c, 'text', 'rot', relNow(c))), function (v){ return v + '\u00b0'; }, function (v){ live(P.setAnimated(E.hist.cur, c.id, 'rot', v, relNow(c))); }, function (v){ commit(P.setAnimated(E.hist.cur, c.id, 'rot', v, relNow(c))); }));
       else if (cur === 'pos'){
         body.appendChild(chips([{ key: 'top', label: 'Top' }, { key: 'center', label: 'Middle' }, { key: 'bottom', label: 'Bottom' }], (c.dx || c.dy) ? '' : c.pos, function (k){ commit(pt({ pos: k, dx: 0, dy: 0 })); }));
         body.appendChild(mk('div', 'ed-hint', 'Or drag the text anywhere on the picture. Tap Top, Middle or Bottom to put it back.'));
       }
+      else if (cur === 'opacity') body.appendChild(sliderRow('Opacity', 0, 100, 5, Math.round(NANIM.valueOf(c, 'text', 'opacity', relNow(c)) * 100), pct, function (v){ live(P.setAnimated(E.hist.cur, c.id, 'opacity', v / 100, relNow(c))); }, function (v){ commit(P.setAnimated(E.hist.cur, c.id, 'opacity', v / 100, relNow(c))); }));
       else if (cur === 'font') body.appendChild(chips(lookLib().fontList(), c.font || 'sans', function (k){ commit(pt({ font: k })); }));
       else if (cur === 'outline') body.appendChild(sliderRow('Outline', 0, 100, 5, Math.round((c.outline || 0) * 100), pct, function (v){ live(pt({ outline: v / 100 })); }, function (v){ commit(pt({ outline: v / 100 })); }));
       else if (cur === 'shadow') body.appendChild(sliderRow('Shadow', 0, 100, 5, Math.round((c.shadow == null ? 1 : c.shadow) * 100), pct, function (v){ live(pt({ shadow: v / 100 })); }, function (v){ commit(pt({ shadow: v / 100 })); }));
@@ -1320,6 +1321,7 @@ crop: { title: 'Crop', build: function (body){
         ci.oninput = function (){ live(pt({ color: ci.value })); }; ci.onchange = function (){ commit(pt({ color: ci.value })); };
         var r = mk('div', 'ed-mixrow wide'); add(r, mk('span', 'ed-mixname', 'Colour'), ci); body.appendChild(r);
       } else body.appendChild(actions([{ id: 'edTextBox', label: c.bg ? 'Dark box: on' : 'Dark box: off', on: !!c.bg, run: function (){ commit(pt({ bg: !c.bg })); } }]));
+      if (cur === 'size' || cur === 'rot' || cur === 'opacity') body.appendChild(keyframeActions(c, cur));
       if (c.caption) body.appendChild(actions([{ id: 'edCapStyleAll', label: 'Apply this look to all captions', run: function (){
         commit(P.setCaptionStyle(E.hist.cur, { size: c.size, color: c.color, pos: c.pos, weight: c.weight, bg: c.bg, font: c.font || 'sans', outline: c.outline || 0, shadow: c.shadow == null ? 1 : c.shadow })); toast('Every caption has this look now.'); } }]));
     } },
@@ -1402,22 +1404,23 @@ crop: { title: 'Crop', build: function (body){
       var c = selSticker(); if (!c){ body.appendChild(mk('div', 'ed-hint', 'Tap a sticker on the timeline or the picture first.')); return; }
       var keys = [{ key: 'size', label: 'Size' }, { key: 'rot', label: 'Turn' }, { key: 'x', label: 'Left / right' }, { key: 'y', label: 'Up / down' }];
       if (NSTK && NSTK.isSymbol(c.glyph)) keys.push({ key: 'color', label: 'Colour' });
-      var cur = chipKey('stickeredit', keys, 'size'), skv = function (k){ return (k === 'x' || k === 'y') ? NANIM.valueOf(c, 'sticker', k, relNow(c)) : c[k]; },
+      var cur = chipKey('stickeredit', keys, 'size'), skv = function (k){ return (k === 'color') ? c[k] : NANIM.valueOf(c, 'sticker', k, relNow(c)); },
         ps = function (o){   // left / right and up / down go through the keyframes; size, turn and colour stay fixed
           var q = E.hist.cur, rest = {}, any = false;
-          Object.keys(o).forEach(function (k){ if (k === 'x' || k === 'y') q = P.setAnimated(q, c.id, k, o[k], relNow(c)); else { rest[k] = o[k]; any = true; } });
+          Object.keys(o).forEach(function (k){ if (k === 'x' || k === 'y' || k === 'size' || k === 'rot') q = P.setAnimated(q, c.id, k, o[k], relNow(c)); else { rest[k] = o[k]; any = true; } });
           return any ? P.setStickerProps(q, c.id, rest) : q;
         };
       body.appendChild(chips(keys, cur, pickChip('stickeredit')));
-      if (cur === 'size') body.appendChild(sliderRow('Size', 4, 90, 1, Math.round(c.size * 100), pct, function (v){ live(ps({ size: v / 100 })); }, function (v){ commit(ps({ size: v / 100 })); }));
-      else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, c.rot || 0, function (v){ return v + '\u00b0'; }, function (v){ live(ps({ rot: v })); }, function (v){ commit(ps({ rot: v })); }));
+      if (cur === 'size') body.appendChild(sliderRow('Size', 4, 90, 1, Math.round(skv('size') * 100), pct, function (v){ live(ps({ size: v / 100 })); }, function (v){ commit(ps({ size: v / 100 })); }));
+      else if (cur === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(skv('rot')), function (v){ return v + '\u00b0'; }, function (v){ live(ps({ rot: v })); }, function (v){ commit(ps({ rot: v })); }));
       else if (cur === 'color'){
         var ci = mk('input'); ci.type = 'color'; ci.value = c.color || '#ffffff'; ci.setAttribute('aria-label', 'Sticker colour');
         ci.oninput = function (){ live(ps({ color: ci.value })); }; ci.onchange = function (){ commit(ps({ color: ci.value })); };
         var sr = mk('div', 'ed-mixrow wide'); add(sr, mk('span', 'ed-mixname', 'Colour'), ci); body.appendChild(sr);
       } else body.appendChild(sliderRow(cur === 'x' ? 'Left / right' : 'Up / down', 0, 100, 1, Math.round(skv(cur) * 100), pct,
         function (v){ var o = {}; o[cur] = v / 100; live(ps(o)); }, function (v){ var o = {}; o[cur] = v / 100; commit(ps(o)); }));
-      body.appendChild(mk('div', 'ed-hint', 'You can also drag the sticker on the picture, and drag its ends on the timeline to change how long it shows.'));
+      if (cur === 'size' || cur === 'rot' || cur === 'x' || cur === 'y') body.appendChild(keyframeActions(c, cur));
+      body.appendChild(mk('div', 'ed-hint', 'You can also drag the sticker on the picture, and drag its ends on the timeline to change how long it shows. To animate: tap Add keyframe, move the playhead, change a value.'));
     } },
     textanim: { title: 'Text animation', build: function (body){
       var c = selText(); if (!c || !NMO){ body.appendChild(mk('div', 'ed-hint', 'Tap a text on the timeline first.')); return; }
@@ -1668,9 +1671,9 @@ crop: { title: 'Crop', build: function (body){
       var info = P.speedCurveOf(E.hist.cur, c.id), key = info ? info.g : c.id;
       if (!E.cv || E.cv.key !== key) E.cv = { key: key, pts: info ? info.pts.map(function (p){ return p.slice(); }) : [[0, 1], [1, 1]], sel: -1, preset: info ? 'custom' : 'none' };
       var cv = E.cv, apply = function (){ var q = P.setSpeedCurve(E.hist.cur, c.id, cv.pts); if (q === E.hist.cur) renderDock(); else commit(q); };
-      var list = [{ key: 'none', label: 'Normal' }].concat(NCV.PRESETS.map(function (p){ return { key: p.key, label: p.label }; }));
-      if (info) list.push({ key: 'custom', label: 'Custom' });
-      body.appendChild(chips(list, cv.preset, function (k){
+      var list = [{ key: 'none', label: 'Normal', pts: [[0, 1], [1, 1]] }].concat(NCV.PRESETS.map(function (p){ return { key: p.key, label: p.label, pts: p.pts }; }));
+      if (info) list.push({ key: 'custom', label: 'Custom', pts: cv.pts });
+      body.appendChild(curveGallery('speed', list, cv.preset, function (k){
         if (k === 'custom') return;
         if (k === 'none'){ E.cv = null; var q0 = P.clearSpeedCurve(E.hist.cur, c.id); if (q0 === E.hist.cur) renderDock(); else commit(q0); return; }
         cv.pts = NCV.PRESETS.filter(function (p){ return p.key === k; })[0].pts.map(function (p){ return p.slice(); }); cv.sel = -1; cv.preset = k; apply();
@@ -1685,9 +1688,19 @@ crop: { title: 'Crop', build: function (body){
           var t = node('text', { x: 2, y: y - 2, 'class': 'ed-ct' }); t.textContent = v + '\u00d7'; svg0.appendChild(t);
         });
         var d = ''; for (var i = 0; i <= 60; i++){ var u = i / 60; d += (i ? 'L' : 'M') + cvX(u).toFixed(1) + ' ' + cvY(NCV.valueAt(cv.pts, u)).toFixed(1); }
+        var y1 = cvY(1), edge = d + 'L' + cvX(1).toFixed(1) + ' ' + y1.toFixed(1) + 'L' + cvX(0).toFixed(1) + ' ' + y1.toFixed(1) + 'Z', defs = node('defs', {});
+        [['edCvFast', 0, y1], ['edCvSlow', y1, CVG.H - y1]].forEach(function (r){ var cp = node('clipPath', { id: r[0] }); cp.appendChild(node('rect', { x: 0, y: r[1], width: CVG.W, height: r[2] })); defs.appendChild(cp); });
+        svg0.appendChild(defs);
+        svg0.appendChild(node('path', { d: edge, 'class': 'ed-carea fast', 'clip-path': 'url(#edCvFast)' }));
+        svg0.appendChild(node('path', { d: edge, 'class': 'ed-carea slow', 'clip-path': 'url(#edCvSlow)' }));
         svg0.appendChild(node('path', { d: d, 'class': 'ed-cpath' }));
+        var tf = node('text', { x: CVG.x1 - 3, y: CVG.y0 + 9, 'text-anchor': 'end', 'class': 'ed-cnote fast' }); tf.textContent = '\u25b2 faster'; svg0.appendChild(tf);
+        var ts = node('text', { x: CVG.x1 - 3, y: CVG.y1 - 4, 'text-anchor': 'end', 'class': 'ed-cnote slow' }); ts.textContent = '\u25bc slower'; svg0.appendChild(ts);
+        var nw = speedNow(c);
+        if (nw){ svg0.appendChild(node('line', { x1: cvX(nw.u), x2: cvX(nw.u), y1: CVG.y0, y2: CVG.y1, 'class': 'ed-cnow' })); svg0.appendChild(node('circle', { cx: cvX(nw.u), cy: cvY(Math.max(0.25, Math.min(4, nw.speed))), r: 4, 'class': 'ed-cnowdot' })); }
         cv.pts.forEach(function (p, i){ svg0.appendChild(node('circle', { cx: cvX(p[0]), cy: cvY(p[1]), r: i === cv.sel ? 8 : 6, 'class': 'ed-cdot' + (i === cv.sel ? ' sel' : '') })); });
-        var sp = curveSpan(c); out.textContent = 'Length: ' + fmtP(sp.now) + ' now, ' + fmtP(sp.span * NCV.outputFactor(cv.pts)) + ' with this curve.';
+        var sp = curveSpan(c), pt = cv.sel >= 0 ? cv.pts[cv.sel] : null, nw2 = speedNow(c);
+        out.textContent = (pt ? 'Point: ' + pt[1].toFixed(2) + '\u00d7 at ' + Math.round(pt[0] * 100) + '% of the clip.  ' : 'Tap a dot to read its speed.  ') + (nw2 ? 'Playhead: ' + nw2.speed.toFixed(2) + '\u00d7.  ' : '') + 'Length: ' + fmtP(sp.now) + ' now, ' + fmtP(sp.span * NCV.outputFactor(cv.pts)) + ' with this curve.';
       };
       var drag = -1, where = function (ev){ var r = svg0.getBoundingClientRect(), s = CVG.W / (r.width || CVG.W); return { x: (ev.clientX - r.left) * s, y: (ev.clientY - r.top) * s }; };
       svg0.addEventListener('pointerdown', function (ev){
@@ -1705,6 +1718,10 @@ crop: { title: 'Crop', build: function (body){
       var letGo = function (){ if (drag < 0) return; drag = -1; apply(); };
       svg0.addEventListener('pointerup', letGo); svg0.addEventListener('pointercancel', letGo);
       body.appendChild(svg0); draw(); body.appendChild(out);
+      var lastNow = -2; E.cvLive = function (){   // while the speed curve is open, the playhead marker and its speed follow the playhead
+        if (E.panel !== 'speedcurve' || !svg0.isConnected){ E.cvLive = null; return; }
+        var nw = speedNow(c), k = nw ? Math.round(nw.u * 1000) : -1; if (k !== lastNow){ lastNow = k; draw(); }
+      };
       body.appendChild(actions([
         { id: 'edCurveAdd', label: 'Add point', run: function (){
           var pts = cv.pts, bi = 0, bg = 0; for (var i = 0; i < pts.length - 1; i++){ var g = pts[i + 1][0] - pts[i][0]; if (g > bg){ bg = g; bi = i; } }
@@ -2430,8 +2447,8 @@ crop: { title: 'Crop', build: function (body){
       var d = E.stickerEls[c.id];
       if (!d){ d = E.stickerEls[c.id] = mk('div', 'ed-stk'); d.dataset.id = c.id; d.addEventListener('pointerdown', stickerDown); layer.appendChild(d); }
       if (d._g !== c.glyph){ d.textContent = c.glyph; d._g = c.glyph; }
-      d.style.left = (NANIM.valueOf(c, 'sticker', 'x', E.t - c.start) * 100) + '%'; d.style.top = (NANIM.valueOf(c, 'sticker', 'y', E.t - c.start) * 100) + '%'; d.style.fontSize = Math.round(c.size * H) + 'px';
-      d.style.transform = 'translate(-50%,-50%) rotate(' + (c.rot || 0) + 'deg)';
+      d.style.left = (NANIM.valueOf(c, 'sticker', 'x', E.t - c.start) * 100) + '%'; d.style.top = (NANIM.valueOf(c, 'sticker', 'y', E.t - c.start) * 100) + '%'; d.style.fontSize = Math.round(NANIM.valueOf(c, 'sticker', 'size', E.t - c.start) * H) + 'px';
+      d.style.transform = 'translate(-50%,-50%) rotate(' + NANIM.valueOf(c, 'sticker', 'rot', E.t - c.start) + 'deg)';
       d.style.color = (NSTK && NSTK.isSymbol(c.glyph)) ? (c.color || '#ffffff') : '#ffffff';
       d.classList.toggle('sel', c.id === E.sel);
     });
@@ -2663,6 +2680,7 @@ crop: { title: 'Crop', build: function (body){
       var d = '', e = liveE(); for (var i = 0; i <= 60; i++){ var f = i / 60; d += (i ? 'L' : 'M') + px(f).toFixed(1) + ' ' + ezY(NANIM.easeProgress(e, f)).toFixed(1); }
       svg0.appendChild(node('path', { d: d, 'class': 'ed-ezpath' }));
       if (handles){ svg0.appendChild(node('circle', { cx: px(bz[0]), cy: ezY(bz[1]), r: 8, 'class': 'ed-ezdot' })); svg0.appendChild(node('circle', { cx: px(bz[2]), cy: ezY(bz[3]), r: 8, 'class': 'ed-ezdot' })); }
+      if (ezr) ezr.textContent = handles ? 'Handles:  ' + bz.map(function (v){ return v.toFixed(2); }).join('  ·  ') + (dragged ? '' : '   (' + name + ')') : 'Preset: ' + name + '. This one has no handles.';
     };
     var drag = -1, where = function (ev){ var r = svg0.getBoundingClientRect(), s = EZ.W / (r.width || EZ.W); return { x: (ev.clientX - r.left) * s, y: (ev.clientY - r.top) * s }; };
     svg0.addEventListener('pointerdown', function (ev){
@@ -2678,7 +2696,7 @@ crop: { title: 'Crop', build: function (body){
     });
     var letGo = function (){ if (drag < 0) return; drag = -1; set(bz.slice()); };
     svg0.addEventListener('pointerup', letGo); svg0.addEventListener('pointercancel', letGo);
-    draw(); box.appendChild(svg0);
+    var ezr = mk('div', 'ed-hint ed-cread'); draw(); box.appendChild(svg0); box.appendChild(ezr); draw();
     // a ball that travels the way the value will: pause, move, pause, again
     var strip = mk('div', 'ed-ezprev'), ball = mk('i'); strip.appendChild(ball); box.appendChild(strip);
     var t0 = performance.now();
@@ -3025,6 +3043,12 @@ crop: { title: 'Crop', build: function (body){
       var chs = [{ key: 'm', label: 'Master' }, { key: 'r', label: 'Red' }, { key: 'g', label: 'Green' }, { key: 'b', label: 'Blue' }], ch = chipKey('gradech', chs, 'm');
       var COL = { m: '#ffffff', r: '#ff5a5a', g: '#5adf7a', b: '#5aa0ff' };
       body.appendChild(chips(chs, ch, function (k){ E.chip.gradech = k; E.chip.grsel = -1; renderDock(); }));
+      var toneNow = 'linear', cur0 = g.curves && g.curves[ch] ? JSON.stringify(g.curves[ch]) : '';
+      if (cur0){ toneNow = 'custom'; TONE_SHAPES.forEach(function (s){ if (JSON.stringify(NCL.cleanCurve(s.pts)) === cur0) toneNow = s.key; }); }
+      body.appendChild(curveGallery('tone', [{ key: 'linear', label: 'Normal', pts: [[0, 0], [1, 1]] }].concat(TONE_SHAPES, toneNow === 'custom' ? [{ key: 'custom', label: 'Custom', pts: g.curves[ch] }] : []), toneNow, function (k){
+        if (k === 'custom') return;
+        var cp = {}, sh = TONE_SHAPES.filter(function (x){ return x.key === k; })[0]; cp[ch] = sh ? NCL.cleanCurve(sh.pts) : null; E.chip.grsel = -1; set({ curves: cp });
+      }, COL[ch]));
       var pts = (g.curves && g.curves[ch] ? g.curves[ch] : [[0, 0], [1, 1]]).map(function (p){ return p.slice(); }), drag = -1;
       if (E.chip.grsel == null || E.chip.grsel >= pts.length) E.chip.grsel = -1;
       var NS = 'http://www.w3.org/2000/svg', sv = document.createElementNS(NS, 'svg');
@@ -3042,6 +3066,7 @@ crop: { title: 'Crop', build: function (body){
         var fn = NCL.curveFn(pts), d = ''; for (var i = 0; i <= 48; i++){ var u = i / 48; d += (i ? 'L' : 'M') + X(u).toFixed(1) + ' ' + Y(fn(u)).toFixed(1); }
         sv.appendChild(node('path', { d: d, fill: 'none', stroke: COL[ch], 'stroke-width': 2.5 }));
         pts.forEach(function (p, i){ sv.appendChild(node('circle', { cx: X(p[0]), cy: Y(p[1]), r: i === E.chip.grsel ? 8 : 6, fill: i === E.chip.grsel ? COL[ch] : '#111b24', stroke: COL[ch], 'stroke-width': 2 })); });
+        if (gro){ var gp = pts[E.chip.grsel]; gro.textContent = gp ? 'Tone in ' + Math.round(gp[0] * 100) + '%  \u2192  out ' + Math.round(gp[1] * 100) + '%' : 'Tap the graph to add a point, drag it to bend the tones.'; }
       };
       var where = function (ev){ var r = sv.getBoundingClientRect(), s = 200 / (r.width || 200); return { x: ((ev.clientX - r.left) * s - 10) / 180, y: (190 - (ev.clientY - r.top) * s) / 180 }; };
       var patchOf = function (){ var cp = {}; cp[ch] = pts.map(function (p){ return p.slice(); }); return { curves: cp }; };
@@ -3064,7 +3089,7 @@ crop: { title: 'Crop', build: function (body){
       });
       var letGo = function (){ if (drag < 0) return; drag = -1; set(patchOf()); };
       sv.addEventListener('pointerup', letGo); sv.addEventListener('pointercancel', letGo);
-      draw(); body.appendChild(sv);
+      var gro = mk('div', 'ed-hint ed-cread'); draw(); body.appendChild(sv); body.appendChild(gro);
       body.appendChild(actions([
         { id: 'edCurveDelPt', label: 'Delete point', run: function (){
           var s = E.chip.grsel; if (s <= 0 || s >= pts.length - 1){ toast('Tap a point first (not the first or the last one).'); return; }
@@ -3252,9 +3277,9 @@ crop: { title: 'Crop', build: function (body){
     g.restore();
     var fo = fadeOpacity(vc, E.t);
     if (fo < 1){ g.save(); g.globalAlpha = 1 - fo; g.fillStyle = '#000'; g.fillRect(0, 0, W, H); g.restore(); }
-    if (NSTK) P.stickersAt(E.proj, E.t).forEach(function (c){ try { NSTK.drawSticker(g, Object.assign({}, c, { x: NANIM.valueOf(c, 'sticker', 'x', E.t - c.start), y: NANIM.valueOf(c, 'sticker', 'y', E.t - c.start) }), W, H); } catch (e) {} });
+    if (NSTK) P.stickersAt(E.proj, E.t).forEach(function (c){ try { NSTK.drawSticker(g, Object.assign({}, c, NANIM.stickerState(c, E.t - c.start)), W, H); } catch (e) {} });
     var LKs = lookLib();
-    if (LKs.drawTitle) P.textsAt(E.proj, E.t).forEach(function (c){ if (c.text) try { var sh0 = NANIM ? NANIM.shiftOf(c, E.t - c.start) : { x: 0, y: 0 }; g.save(); g.translate(sh0.x * W, sh0.y * H); LKs.drawTitle(g, c, W, H); g.restore(); } catch (e) {} });
+    if (LKs.drawTitle) P.textsAt(E.proj, E.t).forEach(function (c){ if (c.text) try { var sh0 = NANIM ? NANIM.shiftOf(c, E.t - c.start) : { x: 0, y: 0 }; g.save(); g.translate(sh0.x * W, sh0.y * H); var lk0 = NANIM ? NANIM.textLook(c, E.t - c.start) : null; if (lk0){ var pv0 = NMO ? NMO.pivotY(c, H, 1) : H / 2; g.globalAlpha = lk0.alpha; g.translate(W / 2, pv0); g.rotate(lk0.rot * Math.PI / 180); g.scale(lk0.scale, lk0.scale); g.translate(-W / 2, -pv0); LKs.drawTitle(g, Object.assign({}, c, { rot: 0 }), W, H); } else LKs.drawTitle(g, c, W, H); g.restore(); } catch (e) {} });
   }
   // Saves the picture at the playhead as a PNG. Resolves to true when it was saved.
   function exportStill(){
@@ -3307,15 +3332,15 @@ crop: { title: 'Crop', build: function (body){
       d.style.cssText = 'position:absolute;left:0;top:0;width:100%;height:100%;pointer-events:none';
       layer.appendChild(d);
     }
-    var stt = (c.anim && NMO) ? NMO.textState(c.anim, E.t - c.start, c.dur) : null, shown = c.text || '';
+    var stt = (c.anim && NMO) ? NMO.textState(c.anim, E.t - c.start, c.dur) : null, shown = c.text || '', lk = NANIM ? NANIM.textLook(c, E.t - c.start) : null;
     if (stt && stt.chars < 1) shown = NMO.visibleText(shown, stt.chars);
     var dpr = Math.min(2, (typeof window !== 'undefined' && window.devicePixelRatio) || 1), cw = Math.max(2, Math.round(W * dpr)), ch = Math.max(2, Math.round(H * dpr));
-    var key = JSON.stringify([shown, c.size, c.color, c.pos, c.weight, c.bg, c.font, c.outline, c.shadow, c.grad, c.arc, c.glow, c.bubble, c.extrude, c.rot, cw, ch]);
+    var key = JSON.stringify([shown, c.size, c.color, c.pos, c.weight, c.bg, c.font, c.outline, c.shadow, c.grad, c.arc, c.glow, c.bubble, c.extrude, lk ? 0 : c.rot, cw, ch]);
     if (d._key !== key){
       if (d.width !== cw) d.width = cw;
       if (d.height !== ch) d.height = ch;
       var g = d.getContext('2d'); g.setTransform(1, 0, 0, 1, 0, 0); g.clearRect(0, 0, cw, ch);
-      d._lines = LK.drawTitle(g, Object.assign({}, c, { text: shown }), cw, ch) || []; d._key = key;
+      d._lines = LK.drawTitle(g, Object.assign({}, c, { text: shown }, lk ? { rot: 0 } : {}), cw, ch) || []; d._key = key;
     }
     var fk = c.font || 'sans'; E.fontsAsked = E.fontsAsked || {};
     if (!E.fontsAsked[fk] && LK.loadFonts){   // a canvas needs the font loaded first: draw again when it arrives
@@ -3325,10 +3350,10 @@ crop: { title: 'Crop', build: function (body){
         if (E.isOpen) syncMedia();
       });
     }
-    if (stt){
+    if (stt || lk){
       var py = NMO.pivotY(c, H, (d._lines || [1]).length);
-      d.style.transformOrigin = '50% ' + py + 'px'; d.style.opacity = shown ? String(stt.alpha) : '0';
-      d.style.transform = 'translate(' + (stt.dx * W) + 'px,' + (stt.dy * H) + 'px) rotate(' + stt.rot + 'deg) scale(' + stt.scale + ')';
+      d.style.transformOrigin = '50% ' + py + 'px'; d.style.opacity = shown ? String((stt ? stt.alpha : 1) * (lk ? lk.alpha : 1)) : '0';
+      d.style.transform = 'translate(' + (stt ? stt.dx * W : 0) + 'px,' + (stt ? stt.dy * H : 0) + 'px) rotate(' + ((stt ? stt.rot : 0) + (lk ? lk.rot : 0)) + 'deg) scale(' + ((stt ? stt.scale : 1) * (lk ? lk.scale : 1)) + ')';
     } else { if (d.style.transform) d.style.transform = ''; if (d.style.opacity) d.style.opacity = ''; }
   }
   PANELS.textfx = { title: 'Text effects', build: function (body){
@@ -3902,6 +3927,46 @@ crop: { title: 'Crop', build: function (body){
     q = P.setTextAnim(q, id, tp.anim); E.sel = id; commit(q);
   }
     // ----- the speed curve graph (Speed > Curve) -----
+  // ----- ten ready-made speed curves, ten tone shapes for colour, drawn as small pictures (like CapCut's rows of curve tiles) -----
+  var TONE_SHAPES = [
+    { key: 'contrast', label: 'Contrast', pts: [[0, 0], [0.25, 0.18], [0.75, 0.82], [1, 1]] },
+    { key: 'strong', label: 'Strong contrast', pts: [[0, 0], [0.25, 0.1], [0.75, 0.9], [1, 1]] },
+    { key: 'soft', label: 'Soft contrast', pts: [[0, 0.06], [0.25, 0.28], [0.75, 0.72], [1, 0.94]] },
+    { key: 'bright', label: 'Brighten', pts: [[0, 0], [0.5, 0.64], [1, 1]] },
+    { key: 'dark', label: 'Darken', pts: [[0, 0], [0.5, 0.36], [1, 1]] },
+    { key: 'lift', label: 'Lift shadows', pts: [[0, 0.1], [0.3, 0.4], [1, 1]] },
+    { key: 'crush', label: 'Crush blacks', pts: [[0, 0], [0.2, 0.06], [0.6, 0.6], [1, 1]] },
+    { key: 'fade', label: 'Fade', pts: [[0, 0.12], [0.5, 0.5], [1, 0.9]] },
+    { key: 'rolloff', label: 'Soft highlights', pts: [[0, 0], [0.7, 0.72], [0.9, 0.84], [1, 0.92]] },
+    { key: 'negative', label: 'Negative', pts: [[0, 1], [1, 0]] }
+  ];
+  function speedThumb(pts, W, H){
+    var p = 6, d = '', i, u, y = function (s){ return (H - p) - Math.log(Math.max(0.25, Math.min(4, s)) / 0.25) / Math.log(16) * (H - 2 * p); };
+    for (i = 0; i <= 36; i++){ u = i / 36; d += (i ? 'L' : 'M') + (p + u * (W - 2 * p)).toFixed(1) + ' ' + y(NCV.valueAt(pts, u)).toFixed(1); }
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" fill="none"><path d="M' + p + ' ' + y(1).toFixed(1) + 'H' + (W - p) + '" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="3 3"/><path d="' + d + '" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+  function toneThumb(pts, W, H){
+    var p = 6, fn = NCL.curveFn(pts && pts.length >= 2 ? pts : [[0, 0], [1, 1]]), d = '', i, u;
+    for (i = 0; i <= 36; i++){ u = i / 36; d += (i ? 'L' : 'M') + (p + u * (W - 2 * p)).toFixed(1) + ' ' + ((H - p) - fn(u) * (H - 2 * p)).toFixed(1); }
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" fill="none"><path d="M' + p + ' ' + (H - p) + 'L' + (W - p) + ' ' + p + '" stroke="currentColor" stroke-opacity=".3" stroke-dasharray="3 3"/><path d="' + d + '" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  }
+  // A row of curve tiles. kind: 'speed' (amber) or 'tone' (the channel colour). list = [{ key, label, pts }].
+  function curveGallery(kind, list, cur, pick, color){
+    var gal = mk('div', 'ed-cgal ' + kind);
+    if (color) gal.style.setProperty('--cc', color);
+    list.forEach(function (it){
+      var b = mk('button', 'ed-cgt' + (it.key === cur ? ' on' : '')); b.type = 'button'; b.setAttribute('aria-label', it.label);
+      b.innerHTML = (kind === 'speed' ? speedThumb(it.pts, 64, 40) : toneThumb(it.pts, 64, 40)) + '<span>' + it.label + '</span>';
+      b.onclick = function (){ pick(it.key); }; gal.appendChild(b);
+    });
+    return cueScroller(gal, false);
+  }
+  // Where the playhead is on a clip's speed curve: how far through the picture (u) and the speed there. Null when the clip has no curve or the playhead is elsewhere.
+  function speedNow(c){
+    var info = P.speedCurveOf(E.hist.cur, c.id); if (!info) return null;
+    var hit = null; P.curvePieces(E.hist.cur, info.g).forEach(function (p){ if (E.t >= p.start && E.t < p.start + p.dur) hit = p; });
+    return hit ? { u: (hit.curve.u0 + hit.curve.u1) / 2, speed: hit.speed || 1 } : null;
+  }
   var CVG = { W: 300, H: 130, x0: 14, x1: 286, y0: 12, y1: 116 };
   function cvX(u){ return CVG.x0 + u * (CVG.x1 - CVG.x0); }
   function cvY(v){ return CVG.y1 - Math.log(v / 0.25) / Math.log(16) * (CVG.y1 - CVG.y0); }
@@ -3971,12 +4036,12 @@ crop: { title: 'Crop', build: function (body){
       d.style.color = c.color || '#fff'; d.style.fontWeight = c.weight || 700;
       d.style.top = ((NP.TEXT_POS[c.pos] != null ? NP.TEXT_POS[c.pos] : NP.TEXT_POS.bottom) * 100) + '%';
       d._sp.style.background = c.bg ? 'rgba(0,0,0,.55)' : 'transparent';
-      var an = c.anim && NMO ? NMO.textState(c.anim, E.t - c.start, c.dur) : null;
+      var an = c.anim && NMO ? NMO.textState(c.anim, E.t - c.start, c.dur) : null, lk = NANIM ? NANIM.textLook(c, E.t - c.start) : null;
       if (an){
         var LW = layer.clientWidth || 320, LH = layer.clientHeight || 240;
-        d.style.transformOrigin = '50% 50%'; d.style.opacity = shownText ? String(an.alpha) : '0';
-        d.style.transform = 'translate(' + (an.dx * LW) + 'px,' + (an.dy * LH) + 'px) rotate(' + an.rot + 'deg) scale(' + an.scale + ')' + (c.rot ? ' rotate(' + c.rot + 'deg)' : '');
-      } else { var trn = c.rot ? 'rotate(' + c.rot + 'deg)' : ''; if (d.style.transform !== trn) d.style.transform = trn; if (d.style.opacity) d.style.opacity = ''; }
+        d.style.transformOrigin = '50% 50%'; d.style.opacity = shownText ? String(an.alpha * (lk ? lk.alpha : 1)) : '0';
+        d.style.transform = 'translate(' + (an.dx * LW) + 'px,' + (an.dy * LH) + 'px) rotate(' + an.rot + 'deg) scale(' + an.scale + ')' + (lk ? ' rotate(' + lk.rot + 'deg) scale(' + lk.scale + ')' : (c.rot ? ' rotate(' + c.rot + 'deg)' : ''));
+      } else { var trn = lk ? 'rotate(' + lk.rot + 'deg) scale(' + lk.scale + ')' : (c.rot ? 'rotate(' + c.rot + 'deg)' : ''), opv = (lk && lk.alpha < 1) ? String(lk.alpha) : ''; if (d.style.transform !== trn) d.style.transform = trn; if (d.style.opacity !== opv) d.style.opacity = opv; }
     });
     list.forEach(function (c){   // a tracked text is moved by its offset from the usual place
       var d = E.textEls[c.id], sh = NANIM ? NANIM.shiftOf(c, E.t - c.start) : null; if (!d || !sh || (!sh.x && !sh.y)) return;
@@ -4012,18 +4077,18 @@ crop: { title: 'Crop', build: function (body){
   function shapeOf(tg){   // how big and how turned it is now
     var c = tg.clip;
     if (tg.kind === 'overlay'){ var s = NANIM.overlayState(c, relNow(c)); return { size: s.size, rot: s.rot }; }
-    return { size: c.size || (tg.kind === 'text' ? 7 : 0.2), rot: c.rot || 0 };
+    var rl = relNow(c); return { size: NANIM.valueOf(c, tg.kind, 'size', rl) || (tg.kind === 'text' ? 7 : 0.2), rot: NANIM.valueOf(c, tg.kind, 'rot', rl) };
   }
   // The box a thing fills on the preview, before the pixel size of the frame is taken into account: { cx, cy, w, h, rot } in pixels of the gesture layer.
   function boxOf(tg, W, H){
     var c = tg.clip, rel = E.t - c.start, el, s;
     if (tg.kind === 'text'){
       var b = lookLib().titleBox(c, W, H), sh = NANIM.shiftOf(c, rel);
-      return { cx: b.cx + sh.x * W, cy: b.cy + sh.y * H, w: b.w, h: b.h, rot: c.rot || 0 };
+      var lk0 = NANIM.textLook(c, rel); return { cx: b.cx + sh.x * W, cy: b.cy + sh.y * H, w: b.w * (lk0 ? lk0.scale : 1), h: b.h * (lk0 ? lk0.scale : 1), rot: lk0 ? lk0.rot : (c.rot || 0) };
     }
     if (tg.kind === 'sticker'){
       el = E.stickerEls && E.stickerEls[c.id]; if (!el) return null;
-      return { cx: NANIM.valueOf(c, 'sticker', 'x', rel) * W, cy: NANIM.valueOf(c, 'sticker', 'y', rel) * H, w: el.offsetWidth, h: el.offsetHeight, rot: c.rot || 0 };
+      return { cx: NANIM.valueOf(c, 'sticker', 'x', rel) * W, cy: NANIM.valueOf(c, 'sticker', 'y', rel) * H, w: el.offsetWidth, h: el.offsetHeight, rot: NANIM.valueOf(c, 'sticker', 'rot', rel) };
     }
     el = E.overlayEls && E.overlayEls[c.id]; if (!el) return null; el = el._cv || el; s = NANIM.overlayState(c, rel);
     return { cx: s.x * W, cy: s.y * H, w: el.offsetWidth, h: el.offsetHeight, rot: s.rot };
@@ -4031,8 +4096,8 @@ crop: { title: 'Crop', build: function (body){
   // The new size and turn of a text / sticker / overlay, as a changed project. Text and sticker turns are fixed values; an overlay's size and turn can have keyframes.
   function setShape(tg, size, rot, base){
     var c = tg.clip, rg = SIZE_RANGE[tg.kind], z = Math.max(rg[0], Math.min(rg[1], size)), r = NANIM.wrapDeg(rot), rel = relNow(c), q;
-    if (tg.kind === 'text') return P.setTextProps(base, c.id, { size: Math.round(z * 10) / 10, rot: r });
-    if (tg.kind === 'sticker') return P.setStickerProps(base, c.id, { size: z, rot: r });
+    if (tg.kind === 'text'){ q = P.setAnimated(base, c.id, 'size', Math.round(z * 10) / 10, rel); return P.setAnimated(q, c.id, 'rot', r, rel); }
+    if (tg.kind === 'sticker'){ q = P.setAnimated(base, c.id, 'size', z, rel); return P.setAnimated(q, c.id, 'rot', r, rel); }
     q = P.setAnimated(base, c.id, 'size', z, rel); return P.setAnimated(q, c.id, 'rot', r, rel);
   }
   // The centre guides: a thin line shows while something sits exactly in the middle of the frame.

@@ -141,20 +141,52 @@ function planToJobs(plan, movieInfo, opts) {
     return fit;
   }
 
+  // A title with size / turn / opacity keyframes becomes a list of still pictures, each shown for its own slice of time (like a text animation). Slices of an
+  // animation that the title also has are cut finer. The base picture is drawn without the title's fixed turn, because the state carries the whole turn.
+  function lookSegments(t, animSegs) {
+    var dur = Math.round(t.durMs), len = Array.from(String(t.text || '')).length, step = Math.max(66, Math.ceil(dur / 48)), out = [];
+    var base = animSegs || [{ a: 0, b: dur, st: { alpha: 1, dx: 0, dy: 0, scale: 1, rot: 0, chars: 1 } }];
+    base.forEach(function (sg) {
+      var n = Math.max(1, Math.ceil((sg.b - sg.a) / step)), w = (sg.b - sg.a) / n;
+      for (var k = 0; k < n; k++) {
+        var a = Math.round(sg.a + k * w), b = k === n - 1 ? sg.b : Math.round(sg.a + (k + 1) * w), lk = _NA.textLook(t, (a + b) / 2) || { scale: 1, rot: t.rot || 0, alpha: 1 };
+        var st = Object.assign({}, sg.st, { alpha: sg.st.alpha * lk.alpha, scale: sg.st.scale * lk.scale, rot: sg.st.rot + lk.rot });
+        if (st.alpha > 0.003 && st.scale > 0.003 && !(len > 0 && st.chars <= 0)) out.push({ a: a, b: b, st: st, noRot: true });
+      }
+    });
+    return out;
+  }
+  // The stickers as pictures. One with size or turn keyframes becomes a picture per slice of time (its position keyframes still move it with the overlay x / y).
+  function stickerFiles() {
+    var out = [];
+    (plan.stickers || []).forEach(function (s, i) {
+      var nm = 'stk' + String(i).padStart(3, '0'), kf = s.kf || {};
+      if (!_NA || !((kf.size && kf.size.length) || (kf.rot && kf.rot.length))) { out.push({ name: nm + '.png', clip: s, sticker: true, width: width, height: height }); return; }
+      var dur = Math.round(s.durMs), step = Math.max(66, Math.ceil(dur / 48)), k = 0;
+      for (var a = 0; a < dur;) {
+        var b = Math.min(dur, a + step); if (dur - b < 20) b = dur;
+        var mid = (a + b) / 2;
+        out.push({ name: nm + '_' + String(k++).padStart(2, '0') + '.png', clip: Object.assign({}, s, { startMs: s.startMs + a, durMs: b - a, size: _NA.valueOf(s, 'sticker', 'size', mid), rot: _NA.valueOf(s, 'sticker', 'rot', mid), kfT0: s.kfT0 != null ? s.kfT0 : s.startMs }), sticker: true, width: width, height: height });
+        a = b;
+      }
+    });
+    return out;
+  }
   // Titles are drawn by the page as transparent full-size pictures (textFiles) and laid over the video
   // with ffmpeg's overlay, so ffmpeg never needs a font file.
   var texts = plan.texts || [], textFiles = [];
   texts.forEach(function (t, i) {   // a title with an animation becomes a few still pictures, each shown for its own stretch of time (see motion.js)
     var segs = (_MO && t.anim) ? _MO.textTimeline(t.anim, t.durMs, Array.from(String(t.text || '')).length) : null, nm = 'txt' + String(i).padStart(3, '0');
+    if (_NA && _NA.textHasLook && _NA.textHasLook(t) && !(t.hl && t.hl.t && t.hl.t.length && !segs)) segs = lookSegments(t, segs);
     if (!segs && t.hl && t.hl.t && t.hl.t.length) {   // word highlight: one picture per word, each shown while that word is spoken
       t.hl.t.forEach(function (w, k) { if (w[1] > w[0]) textFiles.push({ name: nm + '_w' + String(k).padStart(3, '0') + '.png', clip: Object.assign({}, t, { startMs: t.startMs + w[0], durMs: w[1] - w[0], hlWord: k, hlColor: t.hl.color }), width: width, height: height }); });
       return;
     }
     if (!segs) { textFiles.push({ name: nm + '.png', clip: t, width: width, height: height }); return; }
-    segs.forEach(function (sg, k) { textFiles.push({ name: nm + '_' + String(k).padStart(2, '0') + '.png', clip: Object.assign({}, t, { startMs: t.startMs + sg.a, durMs: sg.b - sg.a }), state: sg.st, width: width, height: height }); });
+    segs.forEach(function (sg, k) { textFiles.push({ name: nm + '_' + String(k).padStart(2, '0') + '.png', clip: Object.assign({}, t, { startMs: t.startMs + sg.a, durMs: sg.b - sg.a }, sg.noRot ? { rot: 0 } : {}), state: sg.st, width: width, height: height }); });
   });
 
-  textFiles = (plan.stickers || []).map(function (s, i) { return { name: 'stk' + String(i).padStart(3, '0') + '.png', clip: s, sticker: true, width: width, height: height }; }).concat(textFiles);   // stickers go under the titles
+  textFiles = stickerFiles().concat(textFiles);   // stickers go under the titles
 
   // A title or sticker that moves (tracking): its full-frame picture is shifted with overlay x / y expressions. Returns the x:y part of the overlay filter.
   function tfShift(tf, sp) {

@@ -83,8 +83,9 @@ var NakiPlan = (function () {
           if (c.font) tx.font = c.font; if (c.outline) tx.outline = c.outline; if (c.shadow != null) tx.shadow = c.shadow;
           ['grad', 'arc', 'glow', 'bubble', 'extrude'].forEach(function (k) { if (c[k] != null) tx[k] = JSON.parse(JSON.stringify(c[k])); });
           if (c.anim) tx.anim = JSON.parse(JSON.stringify(c.anim));
-          if (c.kf && (c.kf.x || c.kf.y) && NAN && NAN.bakeKf){ var tk = {}; ['x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) tk[k] = c.kf[k]; }); tx.kf = NAN.bakeKf(tk); tx.kfT0 = s; }   // tracked text: moves by an offset
+          if (c.kf && NAN && NAN.bakeKf){ var tk = {}; ['x', 'y', 'size', 'rot', 'opacity'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) tk[k] = c.kf[k]; }); if (Object.keys(tk).length){ tx.kf = NAN.bakeKf(tk, 'text'); tx.kfT0 = s; } }   // tracked text: moves by an offset
           if (c.rot) tx.rot = c.rot;
+          if (c.opacity != null && c.opacity < 1) tx.opacity = c.opacity;
           if (c.dx) tx.dx = c.dx; if (c.dy) tx.dy = c.dy;
           if (c.hl && P.wordTimes){ var wt = P.wordTimes(c, e - s); if (wt.length){ tx.text = String(c.text).split(/\s+/).filter(Boolean).join(' '); tx.hl = { color: c.hl, t: wt }; } }   // word highlight
           texts.push(tx);
@@ -99,7 +100,7 @@ var NakiPlan = (function () {
         var s = Math.max(0, Math.round(c.start)), e = Math.min(total, Math.round(c.start + c.dur));
         if (c.glyph && e > s){
           var so = { startMs: s, durMs: e - s, glyph: c.glyph, color: c.color, x: c.x, y: c.y, size: c.size, rot: c.rot || 0 };
-          if (c.kf && (c.kf.x || c.kf.y) && NAN && NAN.bakeKf){ var sk = {}; ['x', 'y'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sk[k] = c.kf[k]; }); so.kf = NAN.bakeKf(sk); }
+          if (c.kf && NAN && NAN.bakeKf){ var sk = {}; ['x', 'y', 'size', 'rot'].forEach(function (k) { if (c.kf[k] && c.kf[k].length) sk[k] = c.kf[k]; }); if (Object.keys(sk).length){ so.kf = NAN.bakeKf(sk, 'sticker'); so.kfT0 = s; } }
           stickers.push(so);
         }
       });

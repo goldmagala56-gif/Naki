@@ -502,9 +502,14 @@ var WebCodecsExport = (function () {
       if (hlKey !== key) { var hg = hlCv.getContext('2d'); hg.clearRect(0, 0, W, H); drawTitle(hg, Object.assign({}, ti.t, { hlWord: i, hlColor: ti.t.hl.color }), W, H); hlKey = key; }
       ctx.drawImage(hlCv, 0, 0);
     }
+    function stickerLive(sk) { var kf = sk.s.kf; return !!(NSTK && NA && kf && ((kf.size && kf.size.length) || (kf.rot && kf.rot.length))); }
+    function drawStickerLive(sk, tMs) { NSTK.drawSticker(ctx, Object.assign({}, sk.s, NA.stickerState(sk.s, tMs - sk.a)), W, H); }
     function drawTitleAnim(ti, tMs) {
       var an = ti.t.anim, st = (NMO && an) ? NMO.textState(an, tMs - ti.a, ti.b - ti.a) : null;
+      var lk = (!ti.hl && NA && NA.textLook) ? NA.textLook(ti.t, tMs - ti.a) : null;   // size / turn / opacity keyframes
+      if (lk) { st = Object.assign({}, st || { alpha: 1, dx: 0, dy: 0, scale: 1, rot: 0, chars: 1 }); st.alpha *= lk.alpha; st.scale *= lk.scale; st.rot += lk.rot; }
       if (!st) { if (ti.hl) drawHlTitle(ti, tMs); else ctx.drawImage(ti.c, 0, 0); return; }
+      if (lk) { if (!ti.moL) ti.moL = { drawFn: drawTitle, makeCanvas: makeCanvas, cache: {} }; NMO.drawTitleState(ctx, Object.assign({}, ti.t, { rot: 0 }), st, W, H, ti.moL); return; }
       if (!ti.mo) ti.mo = { drawFn: drawTitle, makeCanvas: makeCanvas, cache: {} };
       NMO.drawTitleState(ctx, ti.t, st, W, H, ti.mo);
     }
@@ -528,7 +533,7 @@ var WebCodecsExport = (function () {
       drawLayout(tMs);
       drawOverlays(tMs);
       if (logoImg) drawWatermark(ctx, logoImg, W, H, opts.logoCorner);
-      for (var ks = 0; ks < stickers.length; ks++) if (tMs >= stickers[ks].a && tMs < stickers[ks].b) { var ssh = stickerShift(stickers[ks], tMs); ctx.drawImage(stickers[ks].c, ssh.x * W, ssh.y * H); }
+      for (var ks = 0; ks < stickers.length; ks++) if (tMs >= stickers[ks].a && tMs < stickers[ks].b) { if (stickerLive(stickers[ks])) drawStickerLive(stickers[ks], tMs); else { var ssh = stickerShift(stickers[ks], tMs); ctx.drawImage(stickers[ks].c, ssh.x * W, ssh.y * H); } }
       for (var k = 0; k < titles.length; k++) if (tMs >= titles[k].a && tMs < titles[k].b) {
         var tsh = NA ? NA.shiftOf(titles[k].t, tMs - titles[k].a) : { x: 0, y: 0 };
         if (tsh.x || tsh.y) { ctx.save(); ctx.translate(tsh.x * W, tsh.y * H); drawTitleAnim(titles[k], tMs); ctx.restore(); } else drawTitleAnim(titles[k], tMs);
