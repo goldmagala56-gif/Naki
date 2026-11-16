@@ -14,7 +14,15 @@ self.addEventListener('install', (e) => {
   // One file at a time: a file that is missing (say a new one that was not uploaded yet) must NOT stop the whole update,
   // which is what cache.addAll() does. The phone keeps whatever it could get and still moves to the new version.
   e.waitUntil(caches.open(CACHE)
-    .then((c) => Promise.all(FILES.map((f) => c.add(f).catch(() => console.warn('Naki: could not keep', f, 'for offline use')))))
+    .then((c) => (function(){   // Naki:batches - six files at a time, the app first and the fonts last
+      var isFont = function (f){ return f.indexOf('/fonts/') >= 0 && f.indexOf('fonts.css') < 0; }, order = FILES.filter(function (f){ return !isFont(f); }).concat(FILES.filter(isFont)), i = 0;
+      function next(){
+        if (i >= order.length) return Promise.resolve();
+        var part = order.slice(i, i + 6); i += 6;
+        return Promise.all(part.map((f) => c.add(f).catch(() => console.warn('Naki: could not keep', f, 'for offline use')))).then(next);
+      }
+      return next();
+    })())
     .then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', (e) => {

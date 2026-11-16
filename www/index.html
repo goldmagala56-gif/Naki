@@ -350,6 +350,11 @@ details.pcard .stats{margin:2px 0 8px}
 .exmore[open]{padding-bottom:6px}
 @media (prefers-reduced-motion:reduce){.excards button,.exmore>summary::after{transition:none}}
 </style>
+<style id="export-simple">
+/* Export started from the editor: only the progress, then the finished video */
+#exportSheet.exrun .excards,#exportSheet.exrun .est,#exportSheet.exrun .exmore,#exportSheet.exrun .foot,#exportSheet.exrun .sheet>p,
+#exportSheet.exdone .excards,#exportSheet.exdone .est,#exportSheet.exdone .exmore,#exportSheet.exdone #bExport,#exportSheet.exdone .sheet>p{display:none!important}
+</style>
 <style id="editor-polish">
 /* ---- Editor: calmer and cleaner, CapCut-style. Look only: every tool, button and panel is still there. ---- */
 .ed{--edbg:#0b0c0e;--edpanel:#14161a;--edcard:#1c1f24;--edline:#272b31;background:var(--edbg)}
@@ -2518,7 +2523,8 @@ NakiEditor.init({
   ensureAudio: ensureAudio, getCtx: function(){ return S.audio.ctx; },
   setMovieGain: applyGain, replaceMovie: replaceMovie, movieReady: function(){ return !!S.movieFile; },
     toast: toast, onClose: function(){ if (S.sess) preparePreview(S.sess); },
-      onExport: function(){ openExportSheet(); },
+      onExport: function(){ openExportSheet({ auto: true }); },
+      onExportSettings: function(){ openExportSheet({ settings: true, fromEditor: true }); },
   music: $('music'),
   overlayUrl: overlayUrl, pickOverlay: pickOverlay, setOverlayFile: setOverlayFile,
   sfxUrl: sfxUrl, pickSfx: pickSfx, setSfxFile: setSfxFile, getVoiceBlob: getVoiceBlob,
@@ -2741,11 +2747,21 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
     $('shEst').innerHTML = h0 + 'p \u00b7 about <b>' + mb + ' MB</b> \u00b7 about ' + took;
     $('shMeta').textContent = fmt(ms) + ' \u00b7 ' + (S.exportVertical ? 'vertical 9:16' : 'landscape');
   }
-  window.openExportSheet = function(){
+  window.openExportSheet = function(opts){
     if (!S.sess){ toast('Open a session first.'); return; }
-    $('shName').textContent = S.sess.name; est(); $('exportSheet').hidden = false;
+    $('shName').textContent = S.sess.name; est();
+    var sh = $('exportSheet'), auto = !!(opts && opts.auto === true); S.exFromEditor = !!(opts && opts.fromEditor === true);
+    sh.classList.remove('exrun', 'exdone', 'exauto');
+    if (auto && !$('bExport').disabled){ setKind('video'); est(); sh.classList.add('exauto', 'exrun'); }
+    sh.hidden = false;
+    if (auto && !$('bExport').disabled){   // Export in the editor starts at once, with the settings from last time
+      setTimeout(function(){ $('bExport').click(); setTimeout(function(){ if ($('exportBox').hidden) sh.classList.remove('exrun', 'exauto'); }, 1800); }, 80);
+    }
   };
-  function closeSheet(){ $('exportSheet').hidden = true; }
+  function closeSheet(){
+    var sh = $('exportSheet'); sh.hidden = true; sh.classList.remove('exrun', 'exdone', 'exauto');
+    if (S.exFromEditor){ S.exFromEditor = false; setTimeout(function(){ var b = $('btnEditor'); if (b) b.click(); }, 50); }   // settings opened from the editor: back to the editor
+  }
   $('bOpenExport').onclick = openExportSheet;
   $('bSheetClose').onclick = $('bSheetCancel').onclick = closeSheet;
   $('exportSheet').addEventListener('click', function(e){ if (e.target === this) closeSheet(); });
@@ -2819,6 +2835,25 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
     if (/start|load|read|download|prepar|engine|logo/i.test(t)) return 'Getting ready...';
     return 'Making your video...';
   };
+  /* remember the export choices (size, quality, frame rate); the shape comes from the editor's Format */
+  function savePrefs(){ try { localStorage.setItem('naki.exportPrefs', JSON.stringify({ res: S.exportRes, q: S.exportQuality, fps: S.exportFps })); } catch (e) {} }
+  function loadPrefs(){
+    try {
+      var p = JSON.parse(localStorage.getItem('naki.exportPrefs') || 'null'); if (!p) return;
+      var r = document.querySelector('#segRes [data-res="' + p.res + '"]'); if (r) r.click();
+      $(p.q === 'sharper' ? 'bQualitySharper' : 'bQualityFaster').click();
+      if (p.fps) setFps(p.fps);
+    } catch (e) {}
+  }
+  $('exportSheet').addEventListener('click', function(){ setTimeout(savePrefs, 0); });
+  loadPrefs();
+  // an export that started by itself: hide the settings while it runs and after it is done; bring them back if it failed or was cancelled
+  new MutationObserver(function(){
+    var sh = $('exportSheet'), b = $('bExport'); if (!sh.classList.contains('exauto')) return;
+    if (b.disabled){ sh.classList.add('exrun'); return; }
+    sh.classList.remove('exrun');
+    if (!$('exportDone').hidden) sh.classList.add('exdone'); else sh.classList.remove('exauto');
+  }).observe($('bExport'), { attributes: true, attributeFilter: ['disabled'] });
   // what happens to the finished MP4: nothing for a video; a GIF or a sound-only file is made from it
   window.postExport = function(blob, statusEl, bar, pctEl){
     var kind = S.exportKind;

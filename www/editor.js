@@ -127,7 +127,8 @@ function buildCodes(p){
     u.zout = btn('edZoomOut', '−', 'ed-btn ed-sq', 'Zoom out'); u.zin = btn('edZoomIn', '+', 'ed-btn ed-sq', 'Zoom in'); u.fit = btn('edFit', 'Fit', 'ed-btn ed-small', 'Fit the whole video');
     u.exportBtn = btn('edExport', 'Export', 'ed-btn primary ed-small', 'Export the finished video');
     u.tlMode = btn('edTlMode', '⇆', 'ed-btn ed-sq', 'Timeline style: playhead in the middle, or moving');
-    add(top, u.close, mk('div', 'ed-title', 'Edit video'), u.saved, u.zout, u.zin, u.fit, u.tlMode, u.exportBtn);
+    u.exSet = btn('edExportSet', '⚙', 'ed-btn ed-sq', 'Export settings');
+    add(top, u.close, mk('div', 'ed-title', 'Edit video'), u.saved, u.zout, u.zin, u.fit, u.exSet, u.tlMode, u.exportBtn);
 
     // preview: the movie goes in here when the editor opens; titles are drawn over it
     u.stage = mk('div', 'ed-stage'); u.stageMsg = mk('div', 'ed-stage-msg'); u.stage.appendChild(u.stageMsg);
@@ -200,6 +201,7 @@ function buildCodes(p){
     u.close.onclick = close; u.undo.onclick = undo; u.redo.onclick = redo; u.play.onclick = togglePlay;
     u.fit.onclick = fit;
     u.exportBtn.onclick = function (){ if (!E.hooks.onExport){ toast('Export is not available here.'); return; } close(); E.hooks.onExport(); };
+    u.exSet.onclick = function (){ if (!E.hooks.onExportSettings){ toast('Export settings are not available here.'); return; } close(); E.hooks.onExportSettings(); };
     u.zin.onclick = function (){ setZoom(E.ppm * 1.4); }; u.zout.onclick = function (){ setZoom(E.ppm / 1.4); };
     u.scrub.addEventListener('input', function (){ seek(+u.scrub.value / 1000 * E.proj.durationMs); });
     u.scroll.addEventListener('pointerdown', onDown);
