@@ -45,7 +45,9 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   function clamp(x, a, b){ return Math.max(a, Math.min(b, x)); }
   function fmtP(ms){ ms = Math.max(0, ms); var s = ms / 1000, m = Math.floor(s / 60), r = s - m * 60; return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1); }
   function tx(t){ return PAD + t * E.ppm; }
+  function isPhone(){ try { return !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 899px)').matches); } catch (e) { return false; } }
   function wantFixed(){
+    if (isPhone()) return true;   // phones always keep the playhead in the middle
     var pref = E.fixedPref; if (!pref){ try { pref = localStorage.getItem('naki.tlfixed') || ''; } catch (e) { pref = ''; } }
     if (pref === 'on') return true; if (pref === 'off') return false;
     try { return !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 899px)').matches); } catch (e) { return false; }
@@ -55,7 +57,7 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
     var u = E.ui; if (!u.fhead) return;
     u.fhead.style.display = E.fixed ? 'block' : 'none'; if (u.head) u.head.style.display = E.fixed ? 'none' : '';
     if (E.fixed) u.fhead.style.left = (u.scroll.offsetLeft + u.scroll.clientWidth / 2 - 1) + 'px';
-    if (u.tlMode){ u.tlMode.classList.toggle('on', !!E.fixed); u.tlMode.setAttribute('aria-pressed', String(!!E.fixed)); }
+    if (u.tlMode){ u.tlMode.style.display = isPhone() ? 'none' : ''; u.tlMode.classList.toggle('on', !!E.fixed); u.tlMode.setAttribute('aria-pressed', String(!!E.fixed)); }
   }
   function toast(m){ if (E.hooks && E.hooks.toast) E.hooks.toast(m); }
   // look.js (the "More adjust" looks) is looked up when it is needed, not when this file loads, so the order of the <script> tags
@@ -72,6 +74,19 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   }
   function clipCount(p){ var n = 0; p.tracks.forEach(function (t){ n += t.clips.length; }); return n; }
   var COARSE = typeof matchMedia === 'function' && matchMedia('(pointer:coarse)').matches;
+function coverTile(tr){
+  if (typeof document !== 'undefined' && !document.getElementById('ed-cover-css')){
+    var cs = document.createElement('style'); cs.id = 'ed-cover-css';
+    cs.textContent = '.ed .ed-cover{position:absolute;top:2px;width:60px;padding:0;border-radius:8px;border:1px solid rgba(255,255,255,.28);background:#2a3340;color:#fff;font-size:11px;font-weight:650;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;cursor:pointer;touch-action:manipulation}.ed .ed-cover svg{width:20px;height:20px}';
+    document.head.appendChild(cs);
+  }
+  var b = mk('button', 'ed-cover'); b.type = 'button'; b.setAttribute('aria-label', 'Choose the cover picture');
+  b.style.left = (tx(0) - 72) + 'px'; b.style.height = (rowH(tr) - 4) + 'px';
+  b.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-8 8"/></svg><span>Cover</span>';
+  b.addEventListener('pointerdown', function (ev){ ev.stopPropagation(); });
+  b.onclick = function (){ close(); E.hooks.onCover(); };
+  return b;
+}
 function rowH(tr){
   var s = tr.kind === 'video' ? 45 : (tr.kind === 'text' || tr.kind === 'sticker' || tr.kind === 'fx' || tr.kind === 'layout') ? 26 : 32;
   return COARSE ? s + (s < 30 ? 6 : 3) : s;
@@ -274,6 +289,7 @@ function buildCodes(p){
         var plus = mk('button', 'ed-add', '+'); plus.type = 'button'; plus.setAttribute('aria-label', 'Add a video after this');
         plus.style.left = (tx(endT) + 10) + 'px'; plus.addEventListener('pointerdown', function (ev){ ev.stopPropagation(); }); plus.onclick = addVideoFromFile; row.appendChild(plus);
       }
+      if (tr.role === 'movie' && PAD >= 90 && E.hooks && E.hooks.onCover) row.appendChild(coverTile(tr));   // the Cover tile, in the empty space before the first clip
       u.inner.appendChild(row);
     });
     u.head = mk('div', 'ed-head'); u.inner.appendChild(u.head);

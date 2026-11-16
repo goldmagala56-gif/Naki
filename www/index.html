@@ -2523,6 +2523,7 @@ NakiEditor.init({
   ensureAudio: ensureAudio, getCtx: function(){ return S.audio.ctx; },
   setMovieGain: applyGain, replaceMovie: replaceMovie, movieReady: function(){ return !!S.movieFile; },
     toast: toast, onClose: function(){ if (S.sess) preparePreview(S.sess); },
+      onCover: function(){ var b = document.getElementById('bCover'); if (b) b.click(); },
       onExport: function(){ openExportSheet({ auto: true }); },
       onExportSettings: function(){ openExportSheet({ settings: true, fromEditor: true }); },
   music: $('music'),
