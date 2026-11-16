@@ -332,6 +332,24 @@ details.pcard .stats{margin:2px 0 8px}
 }
 @media (prefers-reduced-motion:reduce){.pl-btn,.pl-play,.rec-wrap #bRec{transition:none}}
 </style>
+<style id="export-polish">
+/* ---- Export sheet: four cards, one line of facts, the rest folded ---- */
+.excards{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin:4px 0 12px}
+@media (min-width:560px){.excards{grid-template-columns:repeat(4,1fr)}}
+.excards button{appearance:none;border:1px solid var(--line);background:var(--panel-2);color:var(--chalk);border-radius:14px;padding:12px 10px;min-height:64px;text-align:left;cursor:pointer;display:flex;flex-direction:column;gap:3px;touch-action:manipulation;transition:border-color .12s,background .12s}
+.excards button b{font-size:15px;font-weight:750}
+.excards button span{font-size:12.5px;color:var(--dim)}
+.excards button[aria-pressed="true"]{border-color:var(--mango);background:rgba(255,159,28,.12);box-shadow:inset 0 0 0 1px var(--mango)}
+.excards button:active{transform:scale(.98)}
+#exportSheet .est{margin:2px 0 12px;font-size:14px}
+.exmore{margin:0 0 12px;border:1px solid var(--line);border-radius:14px;padding:0 12px}
+.exmore>summary{cursor:pointer;list-style:none;min-height:46px;display:flex;align-items:center;gap:10px;font-weight:650}
+.exmore>summary::-webkit-details-marker{display:none}
+.exmore>summary::after{content:"\203A";margin-left:auto;font-size:20px;color:var(--dim);transition:transform .15s}
+.exmore[open]>summary::after{transform:rotate(90deg)}
+.exmore[open]{padding-bottom:6px}
+@media (prefers-reduced-motion:reduce){.excards button,.exmore>summary::after{transition:none}}
+</style>
 <style id="editor-polish">
 /* ---- Editor: calmer and cleaner, CapCut-style. Look only: every tool, button and panel is still there. ---- */
 .ed{--edbg:#0b0c0e;--edpanel:#14161a;--edcard:#1c1f24;--edline:#272b31;background:var(--edbg)}
@@ -687,6 +705,14 @@ svg[aria-label="Colour curve"] circle{stroke-width:2.5}
 <div id="exportSheet" class="veil" hidden><div class="sheet" role="dialog" aria-label="Export">
   <h3>Export <button id="bSheetClose" class="btn icon ghost" data-noskin aria-label="Close"><span data-ic="x"></span></button></h3>
   <div class="pv"><div class="pvth"></div><div style="min-width:0"><b id="shName"></b><div id="shMeta" class="dim small"></div></div></div>
+  <div id="exCards" class="excards" role="group" aria-label="Quick choices">
+    <button type="button" data-card="share" aria-pressed="false"><b>Share</b><span>720p · quick</span></button>
+    <button type="button" data-card="best" aria-pressed="false"><b>Best quality</b><span>1080p · sharper</span></button>
+    <button type="button" data-card="sound" aria-pressed="false"><b>Sound only</b><span>M4A file</span></button>
+    <button type="button" data-card="gif" aria-pressed="false"><b>GIF</b><span>short loop</span></button>
+  </div>
+  <div class="est"><span data-ic="info" data-s="18"></span><span id="shEst"></span></div>
+  <details id="exMore" class="exmore"><summary>More options <span class="dim small">shape, size, frame rate, logo</span></summary>
   <div class="opt"><label>Shape <span>TikTok is tall</span></label><div class="seg"><button type="button" id="bShapeLandscape" aria-pressed="true">Landscape</button><button type="button" id="bShapeVertical" aria-pressed="false">Vertical (TikTok)</button></div></div>
   <div class="opt"><label>Resolution <span>Original = the movie's own size</span></label><div class="seg" id="segRes"><button type="button" data-res="480" aria-pressed="false">480p</button><button type="button" data-res="720" aria-pressed="true">720p</button><button type="button" data-res="1080" aria-pressed="true">1080p</button><button type="button" data-res="orig" aria-pressed="false">Original</button></div></div>
   <div class="opt"><label>Quality <span>bigger file, sharper picture</span></label><div class="seg"><button type="button" id="bQualityFaster" aria-pressed="true">Recommended</button><button type="button" id="bQualitySharper" aria-pressed="false">Higher (slower)</button></div></div>
@@ -694,7 +720,7 @@ svg[aria-label="Colour curve"] circle{stroke-width:2.5}
   <div class="opt"><label>Frame rate <span>Auto keeps the movie's own</span></label><div class="seg" id="segFps"><button type="button" data-fps="auto" aria-pressed="true">Auto</button><button type="button" data-fps="24" aria-pressed="false">24</button><button type="button" data-fps="30" aria-pressed="false">30</button><button type="button" data-fps="60" aria-pressed="false">60</button></div></div>
   <div class="opt"><label>Save as <span>Sound only gives an M4A</span></label><div class="seg" id="segKind"><button type="button" data-kind="video" aria-pressed="true">Video</button><button type="button" data-kind="audio" aria-pressed="false">Sound only</button><button type="button" data-kind="gif" aria-pressed="false">GIF</button></div></div>
   <div class="opt"><label>Logo <span>optional</span></label><div class="row wrap" style="margin:0"><button type="button" id="bPickLogo" class="btn">Add logo</button><span id="logoName" class="dim small" style="align-self:center"></span><button type="button" id="bClearLogo" class="btn" hidden>Remove logo</button></div></div>
-  <div class="est"><span data-ic="info" data-s="18"></span><span id="shEst"></span></div>
+  </details>
   <div id="exportBox" hidden>
     <div class="field">
       <label for="exportStatus" style="margin-bottom:6px"><span id="exportStatus">Working...</span> <span id="exportPct" class="num"></span></label>
@@ -2114,7 +2140,7 @@ $('bExport').onclick = function(){
     if (S.sess.musicFile) { ffmpegOpts.musicFile = S.sess.musicFile; webcodecsOpts.musicFile = S.sess.musicFile; }
   wakeOn('export');
   runExport(plan, ffmpegOpts, webcodecsOpts, S.movieFile, S.sess.voiceBlob, {
-    onStatus: function(t){ statusEl.textContent = t; },
+    onStatus: function(t){ statusEl.textContent = window.friendlyStatus ? window.friendlyStatus(t) : t; },
     onProgress: function(p){ var pct = Math.round(p * 100); bar.style.width = pct + '%'; pctEl.textContent = pct + '%'; }
   }).then(function(blob){
     return postExport(blob, statusEl, bar, pctEl);
@@ -2711,7 +2737,8 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
     var h0 = S.exportRes === 'orig' ? src : Math.min(+S.exportRes || 720, src);
     var mbps = Math.min(16, h0 * (h0 * 16 / 9) * 30 * (S.exportQuality === 'sharper' ? 0.28 : 0.17) / 1e6);
     var mb = Math.max(1, Math.round(ms / 1000 * mbps / 8));
-    $('shEst').innerHTML = 'About <b>' + mb + ' MB</b> \u00b7 ' + h0 + 'p \u00b7 ' + (S.exportQuality === 'sharper' ? 'higher quality' : 'recommended quality');
+    var secs = Math.max(5, Math.round(ms / 1000 * (typeof VideoEncoder !== 'undefined' ? 0.6 : 2.5))), took = secs < 90 ? secs + ' sec' : Math.round(secs / 60) + ' min';
+    $('shEst').innerHTML = h0 + 'p \u00b7 about <b>' + mb + ' MB</b> \u00b7 about ' + took;
     $('shMeta').textContent = fmt(ms) + ' \u00b7 ' + (S.exportVertical ? 'vertical 9:16' : 'landscape');
   }
   window.openExportSheet = function(){
@@ -2765,13 +2792,40 @@ DB.open().then(function(){}, function(){ DB.ok = false; }).then(function(){ show
       toast('Preset set. If you chose a video shape in the editor (Format), that shape is used.', 5000);
     });
   });
+  /* quick cards: they press the same buttons the folded options use, so nothing else has to know about them */
+  function clickEl(sel){ var e = document.querySelector(sel); if (e) e.click(); }
+  var CARDS = {
+    share: function(){ clickEl('#segKind [data-kind="video"]'); clickEl('#segRes [data-res="720"]'); $('bQualityFaster').click(); },
+    best: function(){ clickEl('#segKind [data-kind="video"]'); clickEl('#segRes [data-res="1080"]'); $('bQualitySharper').click(); },
+    sound: function(){ clickEl('#segKind [data-kind="audio"]'); },
+    gif: function(){ clickEl('#segKind [data-kind="gif"]'); }
+  };
+  function cardsSync(){
+    var k = S.exportKind, sharper = S.exportQuality === 'sharper';
+    var on = k === 'audio' ? 'sound' : k === 'gif' ? 'gif' : (S.exportRes === '1080' && sharper) ? 'best' : (S.exportRes === '720' && !sharper) ? 'share' : '';
+    [].forEach.call(document.querySelectorAll('#exCards button'), function(b){ b.setAttribute('aria-pressed', String(b.getAttribute('data-card') === on)); });
+  }
+  [].forEach.call(document.querySelectorAll('#exCards button'), function(b){
+    b.addEventListener('click', function(){ var f = CARDS[b.getAttribute('data-card')]; if (f) f(); setTimeout(function(){ est(); kindNote(); cardsSync(); }, 0); });
+  });
+  $('exportSheet').addEventListener('click', function(){ setTimeout(cardsSync, 0); });
+  new MutationObserver(function(){ if (!$('exportSheet').hidden){ est(); cardsSync(); } }).observe($('exportSheet'), { attributes: true, attributeFilter: ['hidden'] });
+  // the progress line in plain words (the engines' own wording stays in the console)
+  window.friendlyStatus = function(t){
+    t = String(t || '');
+    if (/^done/i.test(t) || /cancel|wrong|error|could not|offline/i.test(t)) return t;
+    if (/mix|sound|audio|voice/i.test(t)) return 'Mixing the sound...';
+    if (/finish|final|sav|join|writ/i.test(t)) return 'Saving...';
+    if (/start|load|read|download|prepar|engine|logo/i.test(t)) return 'Getting ready...';
+    return 'Making your video...';
+  };
   // what happens to the finished MP4: nothing for a video; a GIF or a sound-only file is made from it
   window.postExport = function(blob, statusEl, bar, pctEl){
     var kind = S.exportKind;
     if (kind !== 'audio' && kind !== 'gif') return Promise.resolve({ blob: blob, ext: 'mp4', type: 'video/mp4' });
     return loadExportEngine().then(function(){
       return NakiExport.convertMedia(blob, kind, { fps: 12, width: 480 }, {
-        onStatus: function(t){ statusEl.textContent = t; },
+        onStatus: function(t){ statusEl.textContent = window.friendlyStatus ? window.friendlyStatus(t) : t; },
         onProgress: function(p){ var pc = Math.round(p * 100); bar.style.width = pc + '%'; pctEl.textContent = pc + '%'; } });
     }).then(function(out){ return kind === 'gif' ? { blob: out, ext: 'gif', type: 'image/gif' } : { blob: out, ext: 'm4a', type: 'audio/mp4' }; });
   };
