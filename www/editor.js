@@ -45,6 +45,18 @@ var NPK = (typeof module !== 'undefined' && module.exports) ? require('./peaks.j
   function clamp(x, a, b){ return Math.max(a, Math.min(b, x)); }
   function fmtP(ms){ ms = Math.max(0, ms); var s = ms / 1000, m = Math.floor(s / 60), r = s - m * 60; return m + ':' + (r < 10 ? '0' : '') + r.toFixed(1); }
   function tx(t){ return PAD + t * E.ppm; }
+  function wantFixed(){
+    var pref = E.fixedPref; if (!pref){ try { pref = localStorage.getItem('naki.tlfixed') || ''; } catch (e) { pref = ''; } }
+    if (pref === 'on') return true; if (pref === 'off') return false;
+    try { return !!(typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(pointer: coarse)').matches && window.matchMedia('(max-width: 899px)').matches); } catch (e) { return false; }
+  }
+  function refreshFixed(){ E.fixed = wantFixed(); var w = E.ui && E.ui.scroll ? E.ui.scroll.clientWidth : 0; PAD = (E.fixed && w > 100) ? Math.round(w / 2) : 16; }
+  function layoutFixed(){
+    var u = E.ui; if (!u.fhead) return;
+    u.fhead.style.display = E.fixed ? 'block' : 'none'; if (u.head) u.head.style.display = E.fixed ? 'none' : '';
+    if (E.fixed) u.fhead.style.left = (u.scroll.offsetLeft + u.scroll.clientWidth / 2 - 1) + 'px';
+    if (u.tlMode){ u.tlMode.classList.toggle('on', !!E.fixed); u.tlMode.setAttribute('aria-pressed', String(!!E.fixed)); }
+  }
   function toast(m){ if (E.hooks && E.hooks.toast) E.hooks.toast(m); }
   // look.js (the "More adjust" looks) is looked up when it is needed, not when this file loads, so the order of the <script> tags
   // does not matter. If it is not there at all the editor still opens, without those looks, and says so once.
@@ -114,7 +126,8 @@ function buildCodes(p){
     u.saved = mk('div', 'ed-saved'); u.saved.setAttribute('aria-live', 'polite');
     u.zout = btn('edZoomOut', '−', 'ed-btn ed-sq', 'Zoom out'); u.zin = btn('edZoomIn', '+', 'ed-btn ed-sq', 'Zoom in'); u.fit = btn('edFit', 'Fit', 'ed-btn ed-small', 'Fit the whole video');
     u.exportBtn = btn('edExport', 'Export', 'ed-btn primary ed-small', 'Export the finished video');
-    add(top, u.close, mk('div', 'ed-title', 'Edit video'), u.saved, u.zout, u.zin, u.fit, u.exportBtn);
+    u.tlMode = btn('edTlMode', '⇆', 'ed-btn ed-sq', 'Timeline style: playhead in the middle, or moving');
+    add(top, u.close, mk('div', 'ed-title', 'Edit video'), u.saved, u.zout, u.zin, u.fit, u.tlMode, u.exportBtn);
 
     // preview: the movie goes in here when the editor opens; titles are drawn over it
     u.stage = mk('div', 'ed-stage'); u.stageMsg = mk('div', 'ed-stage-msg'); u.stage.appendChild(u.stageMsg);
@@ -198,6 +211,37 @@ function buildCodes(p){
     u.scroll.addEventListener('touchmove', function (ev){ if (E.drag && (E.drag.mode === 'move' || E.drag.mode === 'trimL' || E.drag.mode === 'trimR')) ev.preventDefault(); }, { passive: false });
     u.scroll.addEventListener('contextmenu', function (ev){ ev.preventDefault(); });
     u.tl.addEventListener('scroll', stickRuler);
+    // ----- playhead in the middle (phone): the timeline scrolls, the time follows -----
+    if (typeof document !== 'undefined' && !document.getElementById('ed-fixed-css')){
+      var fcss = document.createElement('style'); fcss.id = 'ed-fixed-css';
+      fcss.textContent = '.ed .ed-tl{position:relative}.ed .ed-fhead{position:absolute;top:0;bottom:0;width:2px;background:#fff;box-shadow:0 0 8px rgba(255,255,255,.45);pointer-events:none;z-index:7;display:none}.ed .ed-fhead::before{content:"";position:absolute;top:0;left:-4px;width:10px;height:10px;border-radius:50%;background:#fff}#edTlMode.on{background:var(--mango);color:var(--on-accent);border-color:transparent}';
+      document.head.appendChild(fcss);
+    }
+    u.fhead = mk('div', 'ed-fhead'); u.tl.appendChild(u.fhead);
+    var us = { down: false, last: 0 }; E.us = us;
+    u.scroll.addEventListener('touchstart', function (){ if (!E.fixed) return; us.down = true; us.last = Date.now(); if (E.playing) pause(); }, { passive: true });
+    ['touchend', 'touchcancel'].forEach(function (k){ u.scroll.addEventListener(k, function (){ us.down = false; us.last = Date.now(); }, { passive: true }); });
+    u.scroll.addEventListener('wheel', function (){ us.last = Date.now(); }, { passive: true });
+    u.scroll.addEventListener('scroll', function (){
+      if (!E.fixed || !E.isOpen) return;
+      var sc = u.scroll;
+      if (E.progLeft != null && Math.abs(sc.scrollLeft - E.progLeft) < 2){ E.progLeft = null; return; }   // we moved it ourselves
+      E.progLeft = null;
+      if (E.drag && E.drag.mode !== 'tap') return;   // a clip being dragged to the edge: the time stays where it is
+      if (us.down || Date.now() - us.last < 350){ us.last = Date.now(); E.fromScroll = true; try { seek(sc.scrollLeft / E.ppm); } finally { E.fromScroll = false; } }
+      else { var want = Math.round(E.t * E.ppm); if (Math.abs(sc.scrollLeft - want) > 1){ E.progLeft = want; sc.scrollLeft = want; } }   // something else moved it: put it back under the playhead
+    });
+    if (typeof ResizeObserver !== 'undefined') new ResizeObserver(function (){
+      if (!E.isOpen) return;
+      var f = wantFixed(), w = u.scroll.clientWidth, pad = (f && w > 100) ? Math.round(w / 2) : 16;
+      if (f !== E.fixed || pad !== PAD){ renderTimeline(); }
+    }).observe(u.scroll);
+    u.tlMode.onclick = function (){
+      var on = !E.fixed; E.fixedPref = on ? 'on' : 'off'; try { localStorage.setItem('naki.tlfixed', E.fixedPref); } catch (e) {}
+      renderTimeline();
+      if (on){ E.progLeft = null; u.scroll.scrollLeft = Math.round(E.t * E.ppm); } else keepHeadInView();
+      toast(on ? 'The playhead stays in the middle. Drag the timeline to move through the video.' : 'The playhead moves along the timeline.');
+    };
     if (typeof window !== 'undefined') window.addEventListener('resize', function (){ if (E.isOpen){ layoutTextLayer(); renderTexts(P.textsAt(E.proj, E.t)); } });
     // The preview area changes height whenever the dock turns from toolbar to tool row to panel, so the picture is re-fitted each time
     if (typeof document !== 'undefined') document.addEventListener('fullscreenchange', function (){ if (!document.fullscreenElement) unlockLandscape(); updateBigBtns(); });
@@ -210,7 +254,7 @@ function buildCodes(p){
     var p = E.proj, u = E.ui;
     E.codes = buildCodes(p);
     u.inner.textContent = '';
-    u.inner.style.width = (PAD + p.durationMs * E.ppm + 240) + 'px';
+    refreshFixed(); u.inner.style.width = (PAD + p.durationMs * E.ppm + (E.fixed ? PAD : 240)) + 'px';
     var ruler = mk('div', 'ed-ruler'); u.ruler = ruler;
     var steps = [1000, 2000, 5000, 10000, 15000, 30000, 60000, 120000, 300000, 600000, 1800000], step = steps[steps.length - 1];
     for (var i = 0; i < steps.length; i++) if (steps[i] * E.ppm >= 80){ step = steps[i]; break; }
@@ -231,7 +275,7 @@ function buildCodes(p){
       u.inner.appendChild(row);
     });
     u.head = mk('div', 'ed-head'); u.inner.appendChild(u.head);
-    placeHead(); renderLabels(); renderMix(); renderSelected(); updateButtons(); stickRuler();
+    layoutFixed(); placeHead(); renderLabels(); renderMix(); renderSelected(); updateButtons(); stickRuler();
   }
   function clipKind(tr, c){ return tr.kind === 'text' ? 'k-text' : tr.kind === 'video' ? (c.type === 'freeze' ? 'k-freeze' : 'k-video') : 'k-' + tr.role; }
     // ----- thumbnails and waveforms on the clips, hide / lock / mute on the rows -----
@@ -401,8 +445,15 @@ function zoomToSel(){
     var u = E.ui, y = u.tl ? u.tl.scrollTop : 0, t = y ? 'translateY(' + y + 'px)' : '';
     if (u.ruler) u.ruler.style.transform = t;
     var sp = u.labels && u.labels.firstChild; if (sp && sp.style) sp.style.transform = t;
+    if (u.fhead) u.fhead.style.transform = t;
   }
-  function placeHead(){ if (E.ui.head) E.ui.head.style.left = tx(E.t) + 'px'; if (E.meter) drawGrid(); }
+  function placeHead(){
+    if (E.fixed){
+      var sc = E.ui.scroll;
+      if (sc && !E.fromScroll){ var want = Math.round(E.t * E.ppm); if (Math.abs(sc.scrollLeft - want) > 1){ E.progLeft = want; sc.scrollLeft = want; } }
+    } else if (E.ui.head) E.ui.head.style.left = tx(E.t) + 'px';
+    if (E.meter) drawGrid();
+  }
   function readout(){
     E.ui.time.textContent = fmtP(E.t) + ' / ' + fmtP(E.proj.durationMs); updateKfBar(); if (E.cvLive) E.cvLive();
     if (E.meter && E.ui.meterRead) E.ui.meterRead.textContent = precTime(E.t);
@@ -4242,11 +4293,11 @@ crop: { title: 'Crop', build: function (body){
   // ---------- zoom and position ----------
   function fit(){
     var w = E.ui.scroll.clientWidth || 600;
-    E.ppm = clamp((w - PAD * 2) / Math.max(E.proj.durationMs, 1000), MIN_PPM, 0.2);
+    E.ppm = clamp((w - 32) / Math.max(E.proj.durationMs, 1000), MIN_PPM, 0.2);
     renderTimeline(); E.ui.scroll.scrollLeft = 0;
   }
   function setZoom(ppm, anchorX){
-    var sc = E.ui.scroll, ax = anchorX != null ? anchorX - sc.getBoundingClientRect().left : sc.clientWidth / 2;
+    var sc = E.ui.scroll, ax = (anchorX != null && !E.fixed) ? anchorX - sc.getBoundingClientRect().left : sc.clientWidth / 2;
     var tA = (sc.scrollLeft + ax - PAD) / E.ppm;
     E.ppm = clamp(ppm, MIN_PPM, MAX_PPM); renderTimeline(); sc.scrollLeft = PAD + tA * E.ppm - ax;
   }
@@ -4358,7 +4409,7 @@ crop: { title: 'Crop', build: function (body){
     if (E.t >= E.proj.durationMs){ E.t = E.proj.durationMs; pause(); placeHead(); readout(); return; }
     syncMedia(); placeHead(); readout();
     var sc = E.ui.scroll, x = tx(E.t);
-    if (x > sc.scrollLeft + sc.clientWidth - 40 || x < sc.scrollLeft) sc.scrollLeft = Math.max(0, x - 40);
+    if (!E.fixed && (x > sc.scrollLeft + sc.clientWidth - 40 || x < sc.scrollLeft)) sc.scrollLeft = Math.max(0, x - 40);
     E.raf = requestAnimationFrame(loop);
   }
 
@@ -4392,7 +4443,7 @@ crop: { title: 'Crop', build: function (body){
       
       renderSelectionOnly();
     } else {
-      if (ev.pointerType === 'touch' && !(tg.closest && tg.closest('.ed-ruler'))) E.drag = { mode: 'tap', x0: ev.clientX, y0: ev.clientY, t: xToT(ev.clientX) };
+      if (ev.pointerType === 'touch' && (E.fixed || !(tg.closest && tg.closest('.ed-ruler')))) E.drag = { mode: 'tap', x0: ev.clientX, y0: ev.clientY, t: xToT(ev.clientX) };
 else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
     }
     window.addEventListener('pointermove', onMove); window.addEventListener('pointerup', onUp); window.addEventListener('pointercancel', onCancel);
@@ -4601,10 +4652,10 @@ else { E.drag = { mode: 'scrub' }; seek(xToT(ev.clientX)); }
     E.pointers = {}; E.pinch = null;
     if (!d) return; clearTimeout(d.press); clearInterval(d.timer);
     if (d.el && d.el.classList) d.el.classList.remove('arm-trim', 'arm-move');
-    if (cancel){ renderTimeline(); return; }
+    if (cancel){ if (!(E.fixed && d.mode === 'tap')) renderTimeline(); return; }
     if (d.mode === 'tap'){
   if (Math.abs((d.lx || d.x0) - d.x0) < 10 && Math.abs((d.ly || d.y0) - d.y0) < 10){
-    seek(d.t); if (E.sel || Object.keys(E.multi || {}).length){ E.multi = {}; select(null); }
+    if (!E.fixed) seek(d.t); if (E.sel || Object.keys(E.multi || {}).length){ E.multi = {}; select(null); }
   }
   return;
 }
