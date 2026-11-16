@@ -73,11 +73,11 @@ ok('setTrackedPath works on overlays, stickers and texts; clearTrackedPath takes
   const o1 = {}, qs = P.addSticker(mkBase(), 1000, 3000, '\u2b50', o1), q1 = P.setTrackedPath(qs, o1.id, { x: [[0, 0.2], [3000, 0.7]], y: [[0, 0.5], [3000, 0.5]] });
   const sc = P.findClip(q1, o1.id).clip; assert.strictEqual(sc.kf.x.length, 2); near(NANIM.valueOf(sc, 'sticker', 'x', 1500), 0.45, 1e-9);
   const st = NP.projectToPlan(q1).stickers[0]; assert(st.kf && st.kf.x.length === 2 && st.kf.y.length === 2 && st.x === sc.x, 'the plan carries the movement');
-  assert.deepStrictEqual(P.keyframeProps(q1, o1.id), ['x', 'y']);
+  assert.deepStrictEqual(P.keyframeProps(q1, o1.id), ['x', 'y', 'size', 'rot']);
   assert(P.splitAt(q1, 2000).tracks.filter(t => t.kind === 'sticker')[0].clips.every(x => x.kf && x.kf.x));
 
   const o2 = {}, qt = P.addTextClip(mkBase(), 5000, 3000, o2), q2 = P.setTrackedPath(qt, o2.id, { x: [[0, -0.2], [3000, 0.4]], y: [[0, 0], [3000, 0]] });
-  const tc = P.findClip(q2, o2.id).clip; near(NANIM.valueOf(tc, 'text', 'x', 500), -0.1, 1e-9); assert.deepStrictEqual(P.keyframeProps(q2, o2.id), ['x', 'y']);
+  const tc = P.findClip(q2, o2.id).clip; near(NANIM.valueOf(tc, 'text', 'x', 500), -0.1, 1e-9); assert.deepStrictEqual(P.keyframeProps(q2, o2.id), ['x', 'y', 'size', 'rot', 'opacity']);
   const tx = NP.projectToPlan(q2).texts[0]; assert(tx.kf && tx.kf.x.length === 2 && tx.kfT0 === 5000, 'the plan carries the text movement');
   near(NANIM.shiftOf(tx, 1500).x, 0.1, 1e-9);
   const cleared = P.clearTrackedPath(q2, o2.id, 0), cc = P.findClip(cleared, o2.id).clip; assert(!cc.kf && !cc.dx && !cc.dy, 'a text goes back to its usual place');

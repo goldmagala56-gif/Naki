@@ -1319,7 +1319,8 @@ function stickersAt(p, t){
 function kfKind(tr){ return tr.kind === 'overlay' ? 'overlay' : tr.kind === 'sticker' ? 'sticker' : tr.kind === 'text' ? 'text' : (tr.role === 'movie' ? 'picture' : (tr.kind === 'audio' ? 'audio' : null)); }
 function setStaticProp(c, kind, prop, v){
   if (kind === 'audio'){ c.volume = v; return; }
-  if (kind === 'overlay' || kind === 'sticker'){ c[prop] = v; return; }
+  if (kind === 'sticker'){ if (prop === 'rot') v = ((Math.round(v) % 360) + 540) % 360 - 180; else if (prop === 'size') v = Math.max(0.04, Math.min(0.9, v)); c[prop] = v; return; }   // same tidy-up as setStickerProps
+  if (kind === 'overlay'){ c[prop] = v; return; }
   if (kind === 'text'){
     if (prop === 'size'){ c.size = v; return; }
     if (prop === 'rot'){ if (Math.abs(v) >= 0.05) c.rot = v; else delete c.rot; return; }

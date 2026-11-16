@@ -231,7 +231,7 @@ ok('the gestures stay out of the way of crop, tracking, eyedropper and playback'
 });
 ok('the editor is wired up: layer, listeners, text panel, turned title in the preview', () => {
   ['u.handles = mk(', "u.stage.style.touchAction = 'none'", "addEventListener('pointerdown', stageDown, true)", "E.ui.croplayer, E.ui.handles].filter(Boolean)", 'syncTrackBox(); syncHandles(); }', 'syncOverlays(); syncHandles(); syncSfx(s);',
-    "{ key: 'rot', label: 'Turn' }", "sliderRow('Size', 3, 30, 1", "(c.rot ? ' rotate(' + c.rot + 'deg)' : '')", 'c.extrude, c.rot, cw, ch]', 'gSnap(st.cx + ', 'gSnap(s0.x + ', 'if (GP.seq !== seq0) return;'].forEach(s => assert(src.includes(s), 'missing: ' + s));
+    "{ key: 'rot', label: 'Turn' }", "sliderRow('Size', 3, 30, 1", "(c.rot ? ' rotate(' + c.rot + 'deg)' : '')", 'c.extrude, lk ? 0 : c.rot, cw, ch]', 'gSnap(st.cx + ', 'gSnap(s0.x + ', 'if (GP.seq !== seq0) return;'].forEach(s => assert(src.includes(s), 'missing: ' + s));
   assert.strictEqual(src.split('if (GP.seq !== seq0) return;').length - 1, 2, 'sticker and overlay drags both step aside');
 });
 console.log('\n' + n + ' checks passed');

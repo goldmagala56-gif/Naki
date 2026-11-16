@@ -81,7 +81,7 @@ ok('both exports draw titles through look.js, so the effects match the preview',
 ok('the editor has the Effects button and panel, and draws styled titles on a canvas with look.js', () => {
   const ed = fs.readFileSync(www('editor.js'), 'utf8'), html = fs.readFileSync(www('index.html'), 'utf8');
   new vm.Script(ed, { filename: 'editor.js' });
-  ["id: 'edTextFx'", 'PANELS.textfx = ', 'function paintStyledText', 'function isStyledText', 'if (sty){ paintStyledText(layer, c); return; }', 'LK.drawTitle(g, Object.assign({}, c, { text: shown }), cw, ch)'].forEach(s => assert(ed.includes(s), s));
+  ["id: 'edTextFx'", 'PANELS.textfx = ', 'function paintStyledText', 'function isStyledText', 'if (sty){ paintStyledText(layer, c); return; }', 'LK.drawTitle(g, Object.assign({}, c, { text: shown }, lk ? { rot: 0 } : {}), cw, ch)'].forEach(s => assert(ed.includes(s), s));
   assert(html.includes("'look.js': 'textfx'") && fs.readFileSync(www('look.js'), 'utf8').includes("['look.js'] = 'textfx'"));
 });
 console.log('\n' + n + ' checks passed');

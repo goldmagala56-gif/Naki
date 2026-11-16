@@ -1934,28 +1934,44 @@ $('dAll').onclick = function(){
   setTimeout(function(){ $('dVoice').click(); toast('Saved the plan and the voice. Copy them next to your movie.', 6000); }, 400);
 };
 
-var exportEngineLoaded = false;
+function loadScriptOnce(src){
+  return new Promise(function(resolve, reject){
+    var n = 0;
+    (function go(){
+      var s = document.createElement('script');
+      s.src = src + (n ? '?r=' + Date.now() : '');
+      s.onload = function(){ resolve(); };
+      s.onerror = function(){
+        try { s.remove(); } catch (e) {}
+        if (++n < 2) { setTimeout(go, 700); return; }
+        reject(new Error(navigator.onLine === false
+          ? 'You are offline. Connect to the internet once so Naki can save its export tools, then export works offline too.'
+          : 'Naki could not load its export tools (' + src + '). Check your connection and try again.'));
+      };
+      document.head.appendChild(s);
+    })();
+  });
+}
+var exportEngineLoaded = false, exportEnginePromise = null;
 function loadExportEngine(){
-  if (exportEngineLoaded) return Promise.resolve();
-  return new Promise(function(resolve, reject){
-    var s = document.createElement('script');
-    s.src = 'export-engine.js';
-    s.onload = function(){ exportEngineLoaded = true; resolve(); };
-    s.onerror = function(){ reject(new Error('The video engine could not be loaded. Check your connection and try again.')); };
-    document.head.appendChild(s);
-  });
+  if (exportEngineLoaded || typeof NakiExport !== 'undefined'){ exportEngineLoaded = true; return Promise.resolve(); }
+  if (!exportEnginePromise) exportEnginePromise = loadScriptOnce('export-engine.js').then(function(){ exportEngineLoaded = true; }, function(e){ exportEnginePromise = null; throw e; });
+  return exportEnginePromise;
 }
-var webcodecsEngineLoaded = false;
+var webcodecsEngineLoaded = false, webcodecsEnginePromise = null;
 function loadWebCodecsEngine(){
-  if (webcodecsEngineLoaded) return Promise.resolve();
-  return new Promise(function(resolve, reject){
-    var s = document.createElement('script');
-    s.src = 'webcodecs-export.js';
-    s.onload = function(){ webcodecsEngineLoaded = true; resolve(); };
-    s.onerror = function(){ reject(new Error('could not load webcodecs-export.js')); };
-    document.head.appendChild(s);
-  });
+  if (webcodecsEngineLoaded || typeof WebCodecsExport !== 'undefined'){ webcodecsEngineLoaded = true; return Promise.resolve(); }
+  if (!webcodecsEnginePromise) webcodecsEnginePromise = loadScriptOnce('webcodecs-export.js').then(function(){ webcodecsEngineLoaded = true; }, function(e){ webcodecsEnginePromise = null; throw e; });
+  return webcodecsEnginePromise;
 }
+// Fetch both export tools quietly while you edit, so they are ready (and saved for offline use) before Export is pressed.
+function warmExportTools(){
+  if (navigator.onLine === false) return;
+  loadWebCodecsEngine().catch(function(){});
+  setTimeout(function(){ loadExportEngine().catch(function(){}); }, 3000);
+}
+setTimeout(warmExportTools, 2500);
+window.addEventListener('online', warmExportTools);
 // Tries the hardware-accelerated engine first; falls back to the ffmpeg.wasm engine
 // automatically if WebCodecs/hardware encoding isn't available on this device, or if the
 // hardware path throws for any reason -- so nobody's export just stops working.
@@ -1983,7 +1999,7 @@ function runExport(plan, ffmpegOpts, webcodecsOpts, movieFile, voiceBlob, callba
     console.warn('using the compatible export engine:', why);
     S.lastExport.engine = 'compatible'; S.lastExport.why = why;
     toast('Using the compatible export engine so all your edits are included. This can take longer.', 6000);
-    return loadExportEngine().then(function(){ return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks); }).catch(function(err){
+    return loadExportEngine().then(function(){ return NakiExport.run(movieFile, voiceBlob, plan, ffmpegOpts, callbacks); }).catch(function(err){ if (typeof NakiExport === 'undefined') throw err;
       // If transitions are what this device's video engine cannot do, make the video without them rather than not at all.
       if ((S.xc && S.xc.cancelled) || (!plan.video.some(function(s){ return s.transitionIn || s.stabilize; }) && !(plan.fx && plan.fx.length))) throw err;
       console.warn('transitions failed, trying again without them:', err);

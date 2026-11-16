@@ -6,7 +6,7 @@ let n = 0; const ok = (name, fn) => { fn(); n++; console.log('  ok  ' + name); }
 const base = { naki: 'project', version: 1, fps: 30, durationMs: 10000, levels: [], assets: { movie: { type: 'video', durMs: 100000 } },
   tracks: [{ id: 't-movie', kind: 'video', role: 'movie', muted: false, hidden: false, volume: 1, locked: false, clips: [{ id: 'vA', type: 'video', asset: 'movie', start: 0, dur: 10000, in: 0, speed: 1, volume: 1, fadeIn: 0, fadeOut: 0 }] },
     { id: 't-text', kind: 'text', role: 'text', muted: false, hidden: false, volume: 1, locked: false, clips: [{ id: 'x1', type: 'text', start: 1000, dur: 4000, text: 'Hello', size: 7, color: '#ffffff', pos: 'bottom' }] }] };
-ok('a text now has left/right and up/down keyframes', () => { assert.deepStrictEqual(P.keyframeProps(base, 'x1'), ['x', 'y']); });
+ok('a text now has left/right and up/down keyframes', () => { assert.deepStrictEqual(P.keyframeProps(base, 'x1'), ['x', 'y', 'size', 'rot', 'opacity']); });
 ok('keyframes make the text glide: the middle is half way', () => {
   let p = P.toggleKeyframes(base, 'x1', 500); p = P.setAnimatedAuto(p, 'x1', 'x', 0.3, 3500);
   const c = P.findClip(p, 'x1').clip; assert(c.kf && c.kf.x && c.kf.x.length === 2, JSON.stringify(c.kf));
