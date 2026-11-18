@@ -119,6 +119,24 @@ var WebCodecsExport = (function () {
 
   // Can this engine draw every edit in the plan? Speed changes stay on the ffmpeg engine because the sound has to
   // change speed without changing pitch, which Web Audio cannot do. Colour filters need a canvas that can filter.
+  // Where the finished video is written. OPFS is the app's own private disk area: it takes big files without filling memory.
+  async function openDiskTarget(M) {
+    try {
+      if (typeof navigator === 'undefined' || !navigator.storage || !navigator.storage.getDirectory || !M.StreamTarget || typeof WritableStream === 'undefined') return null;
+      var dir = await navigator.storage.getDirectory();
+      try { for await (var ent of dir.entries()) { if (/^naki-export-/.test(ent[0])) { try { await dir.removeEntry(ent[0]); } catch (e) {} } } } catch (e) {}   // leftovers of earlier exports
+      var fh = await dir.getFileHandle('naki-export-' + Date.now() + '.mp4', { create: true });
+      if (!fh.createWritable) return null;
+      var w = await fh.createWritable();
+      var ws = new WritableStream({
+        write: function (c) { return w.write({ type: 'write', position: c.position, data: c.data }); },
+        close: function () { return w.close(); },
+        abort: function () { try { return w.abort(); } catch (e) {} }
+      });
+      return { target: new M.StreamTarget(ws, { chunked: true }), fh: fh };
+    } catch (e) { return null; }
+  }
+
   function canRender(plan) {
     if ((plan.video || []).some(function (s) { return s.speed && s.speed !== 1; })) return false;
     if ((plan.video || []).some(function (s) { return s.reverse; }) || (plan.audio || []).some(function (a) { return a.reverse; })) return false;   // reversed clips are made by the ffmpeg engine
@@ -575,7 +593,8 @@ var WebCodecsExport = (function () {
       }
     }
 
-    var output = new M.Output({ format: new M.Mp4OutputFormat(), target: new M.BufferTarget() });
+    var disk = await openDiskTarget(M);   // Naki:disk-export
+    var output = new M.Output({ format: new M.Mp4OutputFormat(), target: disk ? disk.target : new M.BufferTarget() });
     var videoSource = new M.CanvasSource(canvas, {
       codec: 'avc', bitrate: bitrate, bitrateMode: 'variable', hardwareAcceleration: accel, latencyMode: 'quality', keyFrameInterval: 2,
     });
@@ -650,6 +669,7 @@ var WebCodecsExport = (function () {
     Object.keys(vids).forEach(function (k) { try { if (vids[k].input.dispose) vids[k].input.dispose(); } catch (e) {} });
 
     prog(1); say('Done.');
+    if (disk) { var df = await disk.fh.getFile(); return df.slice(0, df.size, 'video/mp4'); }   // a file on disk, not in memory
     return new Blob([output.target.buffer], { type: 'video/mp4' });
   }
 
