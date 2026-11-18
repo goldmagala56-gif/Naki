@@ -131,7 +131,7 @@ var WebCodecsExport = (function () {
     if ((plan.audio || []).some(function (a) { return a.denoise; })) return false;   // noise reduction is made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return s.mblur; }) || (plan.overlays || []).some(function (o) { return o.mblur; })) return false;   // so is motion blur
     if ((plan.video || []).some(function (s) { return s.transitionIn; })) return false;
-    if ((plan.fx || []).length) return false;   // video effects are made by the ffmpeg engine
+    if ((plan.fx || []).length && !(NFX && NFX.vfx && NFX.vfx.preview && filterSupported())) return false;   // Naki:fast-fx effects are drawn here when the canvas can filter
     if ((plan.video || []).some(function (s) { return s.filter && (s.filter.highlights || s.filter.shadows || s.filter.tint || s.filter.hue || s.filter.grain); })) return false;   // so are the extra Adjust sliders
        // transitions are made by the ffmpeg engine
     if ((plan.video || []).some(function (s) { return !neutralFilter(s.filter); }) && !filterSupported()) return false;
@@ -525,9 +525,44 @@ var WebCodecsExport = (function () {
       var fg = fcv.getContext('2d'); fg.globalCompositeOperation = 'source-over'; fg.globalAlpha = 1; fg.drawImage(canvas, 0, 0);
       NLY.draw(ctx, ly.layout, W, H, fcv);
     }
+    // video effects, drawn the same way the editor preview shows them (NFX.vfx.preview)
+    var fxNoise = null;
+    function fxOps(tr) { var ops = [], re = /(translate|scale|rotate)\(([^)]*)\)/g, m; while ((m = re.exec(tr || ''))) ops.push([m[1], m[2].split(',').map(function (v) { return parseFloat(v) || 0; })]); return ops; }
+    function drawLayerFx(tMs) {
+      var list = plan.fx || [], act = [];
+      for (var i = 0; i < list.length; i++) { var f = list[i]; if (tMs >= f.startMs && tMs < f.startMs + f.durMs) act.push({ fx: f.fx, strength: f.strength, start: f.startMs, dur: f.durMs }); }
+      if (!act.length || !NFX || !NFX.vfx) { ctx.drawImage(layer, 0, 0); return; }
+      var r = NFX.vfx.preview(act, tMs);
+      ctx.save();
+      if (r.transform) {
+        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+        ctx.translate(W / 2, H / 2);
+        fxOps(r.transform).forEach(function (o) {
+          var a = o[1];
+          if (o[0] === 'translate') ctx.translate(a[0] / 100 * W, (a[1] || 0) / 100 * H);
+          else if (o[0] === 'scale') ctx.scale(a[0], a.length > 1 ? a[1] : a[0]);
+          else ctx.rotate(a[0] * Math.PI / 180);
+        });
+        ctx.translate(-W / 2, -H / 2);
+      }
+      if (r.filter) { try { ctx.filter = r.filter; } catch (e) {} }
+      ctx.drawImage(layer, 0, 0);
+      ctx.restore();
+      (r.tints || []).forEach(function (t) { ctx.save(); ctx.globalCompositeOperation = (!t.mode || t.mode === 'normal') ? 'source-over' : t.mode; ctx.fillStyle = t.bg; ctx.fillRect(0, 0, W, H); ctx.restore(); });
+      if (r.bars) { var bh = Math.round(r.bars * H); ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, bh); ctx.fillRect(0, H - bh, W, bh); }
+      if (r.flash) { ctx.save(); ctx.globalAlpha = Math.min(1, r.flash); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+      if (r.grain) {
+        if (!fxNoise) {
+          fxNoise = [];
+          for (var q = 0; q < 4; q++) { var nc = makeCanvas(128, 128), ng = nc.getContext('2d'), id = ng.createImageData(128, 128); for (var p = 0; p < id.data.length; p += 4) { var v = Math.random() * 255; id.data[p] = id.data[p + 1] = id.data[p + 2] = v; id.data[p + 3] = 255; } ng.putImageData(id, 0, 0); fxNoise.push(nc); }
+        }
+        var pat = ctx.createPattern(fxNoise[Math.floor(tMs / 33) % 4], 'repeat');
+        if (pat) { ctx.save(); ctx.globalAlpha = Math.min(1, r.grain * 0.5); ctx.globalCompositeOperation = 'overlay'; ctx.fillStyle = pat; ctx.fillRect(0, 0, W, H); ctx.restore(); }
+      }
+    }
     function compose(sp, tMs) {
       ctx.globalAlpha = 1;
-      ctx.drawImage(layer, 0, 0);
+      drawLayerFx(tMs);
       var lv = fadeLevel(sp, tMs - sp.sessionStart);
       if (lv < 1) { ctx.globalAlpha = 1 - lv; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
       drawLayout(tMs);
