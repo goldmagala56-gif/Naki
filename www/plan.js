@@ -32,6 +32,7 @@ var NakiPlan = (function () {
       if (c.transform) sp.transform = { zoom: c.transform.zoom, x: c.transform.x, y: c.transform.y, rot: c.transform.rot, flipH: !!c.transform.flipH };
       if (c.crop) sp.crop = { x: c.crop.x, y: c.crop.y, w: c.crop.w, h: c.crop.h };
       if (c.grade) sp.grade = JSON.parse(JSON.stringify(c.grade));
+      if (c.mask) sp.mask = JSON.parse(JSON.stringify(c.mask));
       if (sp.type === 'play' && c.stabilize && !c.reverse) sp.stabilize = c.stabilize;
       if (c.mblur) sp.mblur = c.mblur;
       if (c.vFadeIn) sp.vFadeIn = c.vFadeIn;

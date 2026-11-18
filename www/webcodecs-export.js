@@ -578,9 +578,17 @@ var WebCodecsExport = (function () {
         if (pat) { ctx.save(); ctx.globalAlpha = Math.min(1, r.grain * 0.5); ctx.globalCompositeOperation = 'overlay'; ctx.fillStyle = pat; ctx.fillRect(0, 0, W, H); ctx.restore(); }
       }
     }
+    var maskLayer = null;
     function compose(sp, tMs) {
       ctx.globalAlpha = 1;
       drawLayerFx(tMs);
+      var mk0 = sp.mask && NFX && NFX.cleanMask ? NFX.cleanMask(sp.mask) : null;   // Naki:clip-mask
+      if (mk0) {   // the picture is cut to the shape; the rest is black
+        if (!maskLayer) maskLayer = makeCanvas(W, H);
+        var mg = maskLayer.getContext('2d'); mg.globalCompositeOperation = 'source-over'; mg.globalAlpha = 1; mg.clearRect(0, 0, W, H); mg.drawImage(canvas, 0, 0);
+        mg.globalCompositeOperation = 'destination-in'; mg.drawImage(NFX.maskCanvas(mk0, W, H), 0, 0); mg.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.drawImage(maskLayer, 0, 0);
+      }
       var lv = fadeLevel(sp, tMs - sp.sessionStart);
       if (lv < 1) { ctx.globalAlpha = 1 - lv; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1; }
       drawLayout(tMs);

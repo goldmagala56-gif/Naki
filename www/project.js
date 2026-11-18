@@ -434,7 +434,7 @@ function insertFreeze(p, t, dur){
   var s = sourceAt(p, t); if (!s.video) return p;
   var inFreeze = s.video.type === 'freeze', movieMs = Math.round(s.video.movieMs);
   var look = {};
-  ['filter', 'opacity', 'transform', 'crop', 'grade'].forEach(function (k){ if (s.video.clip[k] !== undefined) look[k] = JSON.parse(JSON.stringify(s.video.clip[k])); });
+  ['filter', 'opacity', 'transform', 'crop', 'grade', 'mask'].forEach(function (k){ if (s.video.clip[k] !== undefined) look[k] = JSON.parse(JSON.stringify(s.video.clip[k])); });
   var q = cloneProject(p), rightLink = {};
   q.tracks.forEach(function (tr){
     if (tr.role === 'music') return;
@@ -630,6 +630,19 @@ function setGrade(p, id, patch){
     if (c.type !== 'video' && c.type !== 'freeze') return;
     var g = _CL.merge(c.grade || null, patch || {});
     if (g) c.grade = g; else delete c.grade;
+  });
+  return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
+}
+
+// ---------- Naki:clip-mask: a shape mask on a picture clip (see fx.js) ----------
+// patch = a mask { shape, x, y, w, h, rot, feather, invert, corner } (merged into the one already there), or null to take the mask off.
+function setClipMask(p, id, patch){
+  if (!_FX) return p;
+  var q = cloneProject(p), list = pictureClips(q, id); if (!list.length) return p;
+  list.forEach(function (c){
+    if (c.type !== 'video' && c.type !== 'freeze') return;
+    var m = _FX.cleanMask(patch === null ? null : Object.assign({}, c.mask || {}, patch));
+    if (m) c.mask = m; else delete c.mask;
   });
   return JSON.stringify(q.tracks) === JSON.stringify(p.tracks) ? p : finish(q);
 }
@@ -1171,6 +1184,7 @@ function canMerge(a, b){
   if (JSON.stringify([a.filter || null, a.opacity, a.transform || null, a.crop || null, a.stabilize || null, !!a.smooth]) !== JSON.stringify([b.filter || null, b.opacity, b.transform || null, b.crop || null, b.stabilize || null, !!b.smooth])) return false;
   if (JSON.stringify(a.afx || null) !== JSON.stringify(b.afx || null)) return false;
   if (JSON.stringify(a.grade || null) !== JSON.stringify(b.grade || null)) return false;
+  if (JSON.stringify(a.mask || null) !== JSON.stringify(b.mask || null)) return false;
   if (a.vFadeOut || b.vFadeIn) return false;
   if (a.fadeOut > 0 && !(a.fadeOutOff > 0)) return false;
   if (b.fadeIn > 0 && !(b.fadeInOff > 0)) return false;
@@ -2146,7 +2160,7 @@ var _api = { compileFromSession: compileFromSession, splitAt: splitAt, rippleDel
   placeClip: placeClip, planPlace: planPlace, closeGaps: closeGaps, joinWithNext: joinWithNext, setFormat: setFormat,
   transitionList: transitionList, transitionAt: transitionAt, setTransition: setTransition, TRANSITION_TYPES: TRANSITION_TYPES,
   addSticker: addSticker, setStickerProps: setStickerProps, stickersAt: stickersAt,
-  setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx,
+  setAnimated: setAnimated, toggleKeyframe: toggleKeyframe, hasKeyframe: hasKeyframe, clearKeyframes: clearKeyframes, addOverlay: addOverlay, overlaysAt: overlaysAt, setOverlayFx: setOverlayFx, setClipMask: setClipMask,
   addSfx: addSfx, speechRanges: speechRanges, captionsFromVoice: captionsFromVoice, addVideoClip: addVideoClip, keyframeEase: keyframeEase, setKeyframeEase: setKeyframeEase,
   keyframeProps: keyframeProps, keyframeTimes: keyframeTimes, keyframesHere: keyframesHere, neighbourKeyframe: neighbourKeyframe, toggleKeyframes: toggleKeyframes, setAnimatedAuto: setAnimatedAuto, setKeyframeEaseAll: setKeyframeEaseAll, setSpeedCurve: setSpeedCurve, clearSpeedCurve: clearSpeedCurve, speedCurveOf: speedCurveOf, curvePieces: curvePieces, moveClipToRow: moveClipToRow, rowFamily: rowFamily,
   setTextAnim: setTextAnim, setCaptionAnim: setCaptionAnim, setMotionPreset: setMotionPreset, setFrameAnim: setFrameAnim, frameAnimKf: frameAnimKf, FRAME_ANIMS: FRAME_ANIMS, wordTimes: wordTimes, wordIndexAt: wordIndexAt, setCaptionHighlight: setCaptionHighlight,

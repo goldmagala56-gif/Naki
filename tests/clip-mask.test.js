@@ -1,0 +1,10 @@
+'use strict';
+const assert = require('assert'), fs = require('fs'), path = require('path'), vm = require('vm');
+const rd = f => fs.readFileSync(path.join(__dirname, '..', 'www', f), 'utf8').replace(/\r\n/g, '\n');
+['project.js', 'plan.js', 'webcodecs-export.js', 'editor.js'].forEach(f => new vm.Script(rd(f), { filename: f }));
+const P = require('../www/project.js');
+assert.strictEqual(typeof P.setClipMask, 'function', 'setClipMask is exported');
+const ed = rd('editor.js');
+['clipmask: { title', "run: P2('clipmask')", 'function syncPicMask()', 'function maskGeomPic()'].forEach(x => assert(ed.includes(x), 'editor is missing ' + x));
+assert(rd('plan.js').includes('sp.mask'), 'plan carries the mask'); assert(rd('webcodecs-export.js').includes('maskLayer'), 'fast export draws the mask');
+console.log('clip-mask ok');

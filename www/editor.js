@@ -873,6 +873,7 @@ function zoomToSel(){
         { id: 'edRotate', label: 'Rotate', icon: G.rotate, run: rotateSel },
         { id: 'edFlip', label: 'Flip', icon: G.flip, run: flipSel },
         { id: 'edOpacity', label: 'Opacity', icon: G.opacity, run: P2('opacity') },
+        { id: 'edMask', label: 'Mask', icon: G.shape, run: P2('clipmask') },
         { id: 'edReverse', label: 'Reverse', icon: G.reverse, run: reverseSel, on: !!(c && c.reverse) },
         { id: 'edFreeze', label: 'Freeze', icon: G.freeze, run: P2('freeze') },
         { id: 'edStill', label: 'Save still', icon: G.still, run: exportStill },
@@ -1220,6 +1221,26 @@ crop: { title: 'Crop', build: function (body){
       var v0 = Math.round((c.opacity != null ? c.opacity : 1) * 100);
       body.appendChild(sliderRow('Opacity', 0, 100, 5, v0, pct, function (v){ live(P.setOpacity(E.hist.cur, c.id, v / 100)); }, function (v){ commit(P.setOpacity(E.hist.cur, c.id, v / 100)); }));
       body.appendChild(actions([{ id: 'edOpacityAll', label: 'Apply to all', run: function (){ commit(P.setOpacity(E.hist.cur, null, v0 / 100)); toast('This opacity is on every clip now.'); } }]));
+    } },
+    clipmask: { title: 'Mask', build: function (body){   // Naki:clip-mask
+      var c = needPicture(body); if (!c || !NFX) return;
+      var m0 = NFX.cleanMask(c.mask), shape = m0 ? m0.shape : 'none', set = function (o){ return P.setClipMask(E.hist.cur, c.id, o); };
+      body.appendChild(chips(NFX.MASKS, shape, function (k){ commit(set(k === 'none' ? null : (k === 'rect' && !(m0 && m0.corner)) ? { shape: k, corner: 0.2 } : { shape: k })); }));
+      if (m0){
+        var props = [];
+        if (m0.shape !== 'line' && m0.shape !== 'mirror') props.push({ key: 'size', label: 'Size' }, { key: 'w', label: 'Width' });
+        if (m0.shape !== 'line') props.push({ key: 'h', label: m0.shape === 'mirror' ? 'Band' : 'Height' });
+        props.push({ key: 'x', label: 'Left / right' }, { key: 'y', label: 'Up / down' }, { key: 'rot', label: 'Turn' }, { key: 'feather', label: 'Feather' });
+        if (m0.shape === 'rect') props.push({ key: 'corner', label: 'Corners' });
+        var pk = chipKey('clipmaskprop', props, props[0].key), big = Math.max(m0.w, m0.h), val = pk === 'size' ? big : m0[pk],
+          put = function (v){ var o = {}; if (pk === 'size'){ var k = v / big; o.w = m0.w * k; o.h = m0.h * k; } else o[pk] = v; return set(o); };
+        body.appendChild(chips(props, pk, pickChip('clipmaskprop')));
+        if (pk === 'rot') body.appendChild(sliderRow('Turn', -180, 180, 5, Math.round(val), function (v){ return v + '\u00b0'; }, function (v){ live(put(v)); }, function (v){ commit(put(v)); }));
+        else if (pk === 'w' || pk === 'h' || pk === 'size') body.appendChild(sliderRow('Size', 5, 200, 5, Math.round(val * 100), pct, function (v){ live(put(v / 100)); }, function (v){ commit(put(v / 100)); }));
+        else body.appendChild(sliderRow('Amount', 0, 100, 1, Math.round(val * 100), pct, function (v){ live(put(v / 100)); }, function (v){ commit(put(v / 100)); }));
+        body.appendChild(actions([{ id: 'edClipMaskInvert', label: m0.invert ? 'Invert: on' : 'Invert: off', on: !!m0.invert, run: function (){ commit(set({ invert: !m0.invert })); } }]));
+      }
+      body.appendChild(mk('div', 'ed-hint', 'Shows the picture only inside a shape (the rest is black). Drag the dashed outline on the picture to move it, the orange square to resize, the knob to turn.'));
     } },
     adjust: { title: 'Adjust', build: function (body){
       var c = needPicture(body); if (!c) return;
@@ -2677,7 +2698,7 @@ crop: { title: 'Crop', build: function (body){
     show.style.mixBlendMode = bl === 'normal' ? '' : bl; show.style.clipPath = '';
   }
   // ---- Naki:mask-handles: move, size and turn an overlay's mask on the picture ----
-  function maskPanelOpen(){ return E.panel === 'maskonly' || (E.panel === 'overlayfx' && E.chip && E.chip.overlayfx === 'mask'); }
+  function maskPanelOpen(){ return E.panel === 'clipmask' || E.panel === 'maskonly' || (E.panel === 'overlayfx' && E.chip && E.chip.overlayfx === 'mask'); }
   function ensureMaskCss(){
     if (document.getElementById('ed-maskh-css')) return;
     var st = document.createElement('style'); st.id = 'ed-maskh-css';
@@ -2695,9 +2716,16 @@ crop: { title: 'Crop', build: function (body){
     var s = NANIM.overlayState(c, E.t - c.start), OW = s.size * r.width;
     return { r: r, s: s, OW: OW, OH: OW * nh / nw, cx: r.left + s.x * r.width, cy: r.top + s.y * r.height };
   }
+  function maskGeomPic(){
+    var layer = E.ui.overlaylayer; if (!layer) return null;
+    var r = layer.getBoundingClientRect(); if (!r.width || !r.height) return null;
+    return { r: r, s: { x: 0.5, y: 0.5, rot: 0, size: 1 }, OW: r.width, OH: r.height, cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+  }
   function maskDrag(ev, mode){
-    var f = E.sel && P.findClip(E.proj, E.sel); if (!f || f.track.kind !== 'overlay') return;
-    var c = f.clip, g = maskGeom(c), m0 = NFX && NFX.cleanMask(c.mask); if (!g || !m0) return;
+    var pic = E.panel === 'clipmask', c, f;
+    if (pic){ var pt = pictureTarget(); if (!pt) return; c = pt.clip; }
+    else { f = E.sel && P.findClip(E.proj, E.sel); if (!f || f.track.kind !== 'overlay') return; c = f.clip; }
+    var g = pic ? maskGeomPic() : maskGeom(c), m0 = NFX && NFX.cleanMask(c.mask); if (!g || !m0) return;
     ev.preventDefault(); ev.stopPropagation();
     var a = g.s.rot * Math.PI / 180, ca = Math.cos(a), sa = Math.sin(a), id = c.id, moved = false;
     function local(e){ var dx = e.clientX - g.cx, dy = e.clientY - g.cy; return { x: dx * ca + dy * sa, y: -dx * sa + dy * ca }; }
@@ -2711,7 +2739,7 @@ crop: { title: 'Crop', build: function (body){
         if (m0.shape !== 'mirror') o.w = Math.max(0.05, 2 * Math.abs(lx) / g.OW);
         if (m0.shape !== 'line') o.h = Math.max(0.05, 2 * Math.abs(ly) / g.OH);
       }
-      return P.setOverlayFx(E.hist.cur, id, { mask: o });
+      return pic ? P.setClipMask(E.hist.cur, id, o) : P.setOverlayFx(E.hist.cur, id, { mask: o });
     }
     function mv(e){ moved = true; live(at(e)); }
     function up(e){
@@ -2722,8 +2750,9 @@ crop: { title: 'Crop', build: function (body){
   }
   function syncMaskHandles(){
     var u = E.ui, layer = u && u.overlaylayer; if (!layer || !NFX || !NANIM) return;
-    var f = E.sel && E.proj && P.findClip(E.proj, E.sel), c = (f && f.track.kind === 'overlay' && maskPanelOpen()) ? f.clip : null;
-    var m = c && c.mask ? NFX.cleanMask(c.mask) : null, g = m ? maskGeom(c) : null;
+    var pic = E.panel === 'clipmask' && E.proj && E.proj.tracks, pt = pic ? pictureTarget() : null;
+    var f = !pic && E.sel && E.proj && P.findClip(E.proj, E.sel), c = pic ? (pt && pt.clip) : ((f && f.track.kind === 'overlay' && maskPanelOpen()) ? f.clip : null);
+    var m = c && c.mask ? NFX.cleanMask(c.mask) : null, g = m ? (pic ? maskGeomPic() : maskGeom(c)) : null;
     if (!g){ if (u.maskh) u.maskh.style.display = 'none'; return; }
     ensureMaskCss();
     if (!u.maskh){
@@ -2741,6 +2770,17 @@ crop: { title: 'Crop', build: function (body){
     fr2.style.width = mw + 'px'; fr2.style.height = mh + 'px'; fr2.style.left = (m.x * g.OW - mw / 2) + 'px'; fr2.style.top = (m.y * g.OH - mh / 2) + 'px';
     fr2.style.transform = 'rotate(' + m.rot + 'deg)'; u.masks.style.display = line ? 'none' : '';
   }
+  function syncPicMask(){   // the picture clip's mask on the preview: the picture frame is cut with a mask image made by fx.js
+    var u = E.ui, pf = u && u.picframe; if (!pf || !NFX || !E.proj || !E.proj.tracks) return;
+    var t = pictureTarget(), m = t && t.clip.mask ? NFX.cleanMask(t.clip.mask) : null;
+    if (!m){ if (pf._mk){ pf._mk = ''; ['maskImage', 'webkitMaskImage', 'maskSize', 'webkitMaskSize', 'maskRepeat', 'webkitMaskRepeat'].forEach(function (k){ pf.style[k] = ''; }); } return; }
+    var r = pf.getBoundingClientRect(); if (!r.width || !r.height) return;
+    var ch = Math.max(8, Math.round(256 * r.height / r.width)), key = JSON.stringify(m) + '|' + ch;
+    if (pf._mk === key) return; pf._mk = key;
+    var url = 'url(' + NFX.maskCanvas(m, 256, ch).toDataURL() + ')';
+    pf.style.maskImage = pf.style.webkitMaskImage = url; pf.style.maskSize = pf.style.webkitMaskSize = '100% 100%'; pf.style.maskRepeat = pf.style.webkitMaskRepeat = 'no-repeat';
+  }
+  var _syncFx0 = syncFx; syncFx = function (){ var r = _syncFx0.apply(this, arguments); try { syncPicMask(); } catch (e) {} return r; };
   var _syncOv0 = syncOverlays; syncOverlays = function (){ var r = _syncOv0.apply(this, arguments); try { syncMaskHandles(); } catch (e) {} return r; };
   var _renderDock0 = renderDock; renderDock = function (){ var r = _renderDock0.apply(this, arguments); try { syncMaskHandles(); } catch (e) {} return r; };
   function pauseOverlays(){ Object.keys(E.overlayEls || {}).forEach(function (id){ try { if (E.overlayEls[id].pause) E.overlayEls[id].pause(); } catch (e) {} }); }
